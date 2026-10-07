@@ -1,0 +1,73 @@
+{
+ "gear_table": {
+  "weapons": [
+   {
+    "name": "assault",
+    "display_name": "PULSAR",
+    "aliases": [
+     "assault rifle"
+    ]
+   },
+   {
+    "name": "blaster",
+    "display_name": "NOVA",
+    "aliases": [
+     "blaster",
+     "blaster_cone"
+    ]
+   },
+   {
+    "name": "scout",
+    "display_name": "COMET",
+    "aliases": [
+     "scout rifle",
+     "scout rifle explosion",
+     "scout_aoe"
+    ]
+   },
+   {
+    "name": "rocket",
+    "display_name": "METEOR",
+    "aliases": [
+     "rocket_aoe"
+    ]
+   }
+  ],
+  "ordnances": [
+   {
+    "name": "det",
+    "display_name": "DETONATOR"
+   },
+   {
+    "name": "stun",
+    "display_name": "STUN FIELD"
+   },
+   {
+    "name": "arc",
+    "display_name": "ARC MINE"
+   },
+   {
+    "name": "burst",
+    "display_name": "INSTANT REPAIR"
+   }
+  ],
+  "tacmods": [
+   {
+    "name": "heal",
+    "display_name": "REPAIR MATRIX"
+   },
+   {
+    "name": "sensor",
+    "display_name": "THREAT SCANNER"
+   },
+   {
+    "name": "shield",
+    "display_name": "ENERGY BARRIER"
+   },
+   {
+    "name": "wraith",
+    "display_name": "PHASE SHIFT"
+   }
+  ]
+ }
+}
