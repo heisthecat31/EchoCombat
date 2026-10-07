@@ -160,7 +160,9 @@ def main(argv) -> int:
     tables = dict(LEVEL_TABLES)
     for name in NAMED_TABLES:
         if symbol64:
-            tables[f"{symbol64(name) & (2**64 - 1):016x}".lstrip("0") or "0"] = name
+            h = symbol64(name)                 # int, or a hex string like "0x..."
+            h = int(h, 16) if isinstance(h, str) else h
+            tables[f"{h & (2**64 - 1):x}"] = name
         else:
             c.missing.append(f"{name}  (le_symbol_names.py not found, can't hash the folder name)")
     for type_hash, name in tables.items():
