@@ -197,7 +197,7 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
         actions, sounds = [], bytearray()
         for k, m in enumerate(point_media):                      # a sound object per media
             body = bytearray(done)
-            struct.pack_into("<IBII", body, 0, PLUGIN_VORBIS, 0, m, len(point_media[m]))
+            struct.pack_into("<IBII", body, 0, PLUGIN_PCM, 0, m, len(point_media[m]))
             sounds += hirc_object(2, POINT_SND_SOUND + k, bytes(body))
             for c in range(POINT_COPIES):
                 actions.append(POINT_SND_ACTION + k * POINT_COPIES + c)
@@ -220,14 +220,16 @@ def main(argv) -> int:
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
     ap.add_argument("--wav", default=os.path.join(ROOT, "assets", "umbral_veil.wav"))
+    ap.add_argument("--point-wav", default=os.path.join(ROOT, "assets", "point.wav"),
+                    help="POINT's sound, mono 16-bit 48 kHz, short enough to keep the bank under 3 MiB")
     args = ap.parse_args(argv[1:])
     asset = open(os.path.join(args.src, BANK_TYPE, BANK), "rb").read()
     pcm = read_wav(args.wav)
-    # POINT's sound: the arc mine's own Vorbis media (28 KB). As PCM (+160 KB) the bank
-    # passed 3 MiB and the game no longer loaded it: the veil's, the translocator's and
-    # POINT's sounds all went silent.
-    media = bank_media(open(os.path.join(args.src, BANK_TYPE, POINT_SRC_BANK), "rb").read())
-    point_media = {m: media[m] for m in POINT_MEDIA}
+    # POINT's sound as 16-bit PCM, like the veil's. Copied as is, the arc mine's Vorbis
+    # media decoded to a fizz in this bank. The whole 1.96 s as PCM put the bank past 3 MiB
+    # (the game then loaded none of it), so assets/point.wav is the arc6 sound cut to
+    # 1.55 s (all but its last -26 dB), with a 0.15 s fade.
+    point_media = {POINT_MEDIA[0]: pcm_wem(read_wav(args.point_wav))}
     fixed = replace_sound(asset, pcm, point_media=point_media)
     if len(fixed) > BANK_LIMIT:
         sys.exit(f"{BANK}: the bank would be {len(fixed)} bytes, over the {BANK_LIMIT} the game loads")
