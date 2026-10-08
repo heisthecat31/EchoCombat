@@ -579,10 +579,13 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
             raise ValueError(f"{name} stub too long")
         blob[parts[name]:parts[name] + len(code)] = code
 
-    # Bind: the wall's own call, then the query's and the particle node's Binds.
+    # Bind: the wall's own call, then the query's and the particle node's Binds. rdi =
+    # setup_bindings' table: nodes bind with ([rdi], [rdi+10h]), expressions with
+    # ([rdi+8], [rdi+18h]) -- c3178dbdb1250dce binds the query that way; given the
+    # node pair, the engine logs "Failed to find script binding for 0x46EFE2D3B20F6F80".
     b = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at["bind"] + 9, WALL_BIND_TARGET))
-    for bind in (va + qo["bind"], va + spn["bind"]):
-        b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, bind)
+    for bind, regs in ((va + qo["bind"], "488b5718 488b4f08"), (va + spn["bind"], "488b5710 488b0f")):
+        b += bytes.fromhex(regs + "e8") + rel32(at["bind"] + len(b) + len(bytes.fromhex(regs)) + 5, bind)
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
     put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker))
