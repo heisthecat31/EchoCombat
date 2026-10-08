@@ -439,8 +439,18 @@ PARAM_SYMBOL = 0x63FD                         # barrier param node: mov qword [r
 PARAM_SYMBOL_OLD = bytes.fromhex("48c745d7ffffffff")
 
 QUERY_SCRIPT = "c3178dbdb1250dce"
-#: R15NETPOOLEDACTORQUERYEXPRESSION in c3178dbdb1250dce (named by its CodeView records)
-QUERY = {"ctor": (0x2190, 115), "get": (0x2210, 343), "exec": (0x2370, 20), "bind": (0x1FC0, 453)}
+#: R15NETPOOLEDACTORQUERYEXPRESSION in c3178dbdb1250dce (named by its CodeView records):
+#: (rva, size, sha256, rip-relative disp32 offsets -- from pe_reloc.py, fixed here so
+#: no disassembler is needed at deploy time; the SHA-256 guards against another build)
+QUERY = {
+    "ctor": (0x2190, 115, "9982ea0180ead0b3136fbbfcfed52061783c71f01369e91a265c0d1158f51dd3", []),
+    "get": (0x2210, 343, "3be3e47fb5ecc8c74907d542dbc7bc5d9f8d45b870218a7b153b6939f9aeb516", []),
+    "exec": (0x2370, 20, "fd9574df37a316c9053663813a296105511c091330704360ec6dc34e0ddf2a16", [0x9, 0x10]),
+    "bind": (0x1FC0, 453, "6aa45d7c5018d553cb325a36331480de12c896ea50941e354812e54e87ac427d",
+             [0x22, 0x29, 0x30, 0x37, 0x4e, 0x55, 0x5c, 0x73, 0x7a, 0x81, 0x98, 0x9f, 0xa6, 0xbd, 0xc4,
+              0xcb, 0xe2, 0xe9, 0xf0, 0x107, 0x10e, 0x115, 0x12c, 0x133, 0x13a, 0x14e, 0x155, 0x15c,
+              0x173, 0x17a, 0x181, 0x198, 0x19f, 0x1ac]),
+}
 QUERY_NODE_SIZE = 0xA0
 #: node+50h as the script's own query expressions set it (the actor to query: itself)
 QUERY_SELF = bytes.fromhex("e86ca2e1c32151107e5084fc4233a185")
@@ -463,22 +473,18 @@ def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER) -> bytes:
 
 
 def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -> dict:
-    """transplant() with the rip-relative operands found by disassembly (pe_reloc).
-    A reference to another of `funcs` is re-aimed at its copy; .data slots get
-    fresh zeroed copies, anything else is copied as a C string."""
-    import os
-    import tempfile
-    from pe_reloc import rip_disps
+    """transplant() where one copied function may call another: funcs = {key: (rva,
+    size, sha256, disps)} (disps from pe_reloc.py). A reference to another of `funcs`
+    is re-aimed at its copy; .data slots get fresh zeroed copies, anything else is
+    copied as a C string."""
     src = PE(src_pe)
     _, _, dvs, dva, _, _ = src.section(b".data")
-    with tempfile.NamedTemporaryFile(suffix=".dll", delete=False) as f:
-        f.write(src_pe)
-        path = f.name
-    try:
-        disps = {k: rip_disps(path, rva, size) for k, (rva, size) in funcs.items()}
-    finally:
-        os.unlink(path)
-    codes = {k: src.read(rva, size) for k, (rva, size) in funcs.items()}
+    codes, disps = {}, {}
+    for k, (rva, size, sha, ds) in funcs.items():
+        codes[k], disps[k] = src.read(rva, size), ds
+        if hashlib.sha256(codes[k]).hexdigest() != sha:
+            raise ValueError(f"function at {rva:#x} differs: wrong {QUERY_SCRIPT} build")
+    funcs = {k: v[:2] for k, v in funcs.items()}
     starts = {rva: k for k, (rva, _) in funcs.items()}
     target = lambda k, d: funcs[k][0] + d + 4 + struct.unpack_from("<i", codes[k], d)[0]
     slots = {}
