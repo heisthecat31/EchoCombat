@@ -113,7 +113,7 @@ def overlay(base: str, extract: str):
         print("starting from the gun patch's copy of:", ", ".join(sorted(from_patch)))
 
 
-def stage(gunpatch: str, extract: str, preset: str, drone: bool):
+def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -128,7 +128,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool):
         tool("fix_drone_bullet.py", *src)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
-    tool("fix_dot_dampener.py", *src)
+    tool("fix_dot_dampener.py", *src, "--damping", str(damping))
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
 
 
@@ -191,6 +191,8 @@ def main(argv) -> int:
     # stick_to_geo stops the field on its first contact after release, which is
     # the thrower's own hand, so the trigger preset leaves it off.
     ap.add_argument("--preset", default="trigger-nostick", help="fix_dot.py activation preset")
+    ap.add_argument("--dot-damping", type=float, default=3.0,
+                    help="how fast a thrown DOT slows down (higher = stops sooner; the arc uses 25)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -206,7 +208,7 @@ def main(argv) -> int:
                 sys.exit("echovr.exe is running; close it or pass --kill")
             subprocess.run(["taskkill", "/IM", "echovr.exe", "/F"])
             time.sleep(3)
-        stage(args.gunpatch, args.extract, args.preset, not args.no_drone)
+        stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping)
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dll(install)

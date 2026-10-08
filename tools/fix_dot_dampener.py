@@ -5,10 +5,12 @@ balance JSON cannot reach (which is why the activate_on_collision /
 use_remote_trigger edits did nothing):
 
 * `CR15DampenerCR`: enabled from spawn (+0x18 = 1) with damping 10000. The body
-  cannot move, so it will not follow the hand and stops dead where it is let go.
-  The DOT script has its own R15EnableDampenerNode, i.e. the 10000 is meant to
-  freeze the field once it is ACTIVE, so the fix keeps 10000 and starts it OFF.
-  (`--damping` overrides the value if ever wanted.)
+  cannot move, so it will not follow the hand. The fix starts it OFF, but that
+  alone is not enough: the shared magazine script (190ed14fe6c74dd3, node
+  09563fe2) enables the dampener as soon as a magazine is Unstable and not held,
+  i.e. on every throw. That is how the arc slows to a stop (damping 25). With
+  10000 the DOT stopped dead where it was let go, so the damping is lowered
+  too: `--damping`, default 3 (higher = stops sooner; the arc uses 25).
 * `CR15ParentedConstraintCR`: no longer edited here -- `fix_dot_constraints.py`
   removes the DOT's record outright, together with its rigid attach.
 
@@ -62,7 +64,7 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--src", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--damping", type=float, default=10000.0)
+    ap.add_argument("--damping", type=float, default=3.0)
     args = ap.parse_args(argv[1:])
 
     def dampener(out, rec):
