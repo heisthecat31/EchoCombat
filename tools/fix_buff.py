@@ -255,6 +255,8 @@ def main(argv) -> int:
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
     ap.add_argument("--gold", default=",".join(map(str, GOLD)), help="r,g,b for colours (x their brightness)")
+    ap.add_argument("--dr", type=float, default=0.15,
+                    help="damage reduction while boosted (written into ability_properties.buff.dr)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
     args = ap.parse_args(argv[1:])
     gold = tuple(float(v) for v in args.gold.split(","))
@@ -269,8 +271,11 @@ def main(argv) -> int:
 
     heal = open(os.path.join(args.src, SCRIPTS, f"{HEAL_SCRIPT:x}"), "rb").read()
     wraith = open(os.path.join(args.src, SCRIPTS, WRAITH_SCRIPT), "rb").read()
-    _, settings = load(args.base, WEAPON_SETTINGS)
+    ws_path, settings = load(args.base, WEAPON_SETTINGS)
     tuning = settings["ability_properties"]["buff"]
+    if tuning.get("dr") != args.dr:
+        tuning["dr"] = args.dr
+        print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"])
     mz = heal.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)

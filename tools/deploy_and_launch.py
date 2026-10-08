@@ -154,7 +154,8 @@ def veil_mailbox(installs) -> str:
 
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
-          veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True):
+          veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
+          buff_dr: float = 0.15):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -171,7 +172,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     if smoke:
         tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()))
         if buff:                              # POWER BOOST: Repair Matrix in dark gold, sixth tac mod
-            tool("fix_buff.py", "--base", STAGE, *src)
+            tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
     tool("fix_dot_stick.py", *src)
@@ -394,6 +395,8 @@ def main(argv) -> int:
     ap.add_argument("--veil-stock-sound", action="store_true",
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out")
+    ap.add_argument("--buff-dr", type=float, default=0.15,
+                    help="POWER BOOST damage reduction (0.15 = 15%% less damage taken)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -416,7 +419,7 @@ def main(argv) -> int:
                                   "--alpha", args.veil_alpha, "--shade", args.veil_shade)
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
-              not args.veil_stock_sound, not args.no_buff)
+              not args.veil_stock_sound, not args.no_buff, args.buff_dr)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)
