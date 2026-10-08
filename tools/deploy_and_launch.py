@@ -9,12 +9,12 @@
      fix_drone_script.py, fix_drone_bullet.py
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
-     fix_smoke.py                            UMBRAL VEIL tac mod (stage 1)
+     fix_smoke.py                            UMBRAL VEIL tac mod
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
    want live: anything left out goes back to stock.
-3. `evrtool findlive` checks that the new DOT trigger script made it into each
+3. `evrtool findlive` checks that the new scripts (DOT trigger, smoke) made it into each
    manifest, and its DLL is written to `bin/win10/scripts/`, which is where
    Echo actually loads script code from.
 4. Launch the headless instances from the server install, then the VR client
@@ -75,6 +75,9 @@ DET_SCRIPT = "190ed14fe3da5ed1"
 DOT_SCRIPT = "97d0806e6ea89130"
 SHARED_SCRIPT = "190ed14fe6c74dd3"
 TACMOD_CONTROLLER = "4b65d1b009973281"
+BARRIER_SCRIPT = "b87ba2039b049d5e"
+SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
+GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -105,7 +108,9 @@ def overlay(base: str, extract: str):
     from_patch = set()
     wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT), (SCRIPTS_TYPE, DOT_SCRIPT),
                                                     (SCRIPTS_TYPE, SHARED_SCRIPT),
-                                                    (SCRIPTS_TYPE, TACMOD_CONTROLLER)]
+                                                    (SCRIPTS_TYPE, TACMOD_CONTROLLER),
+                                                    (SCRIPTS_TYPE, BARRIER_SCRIPT),
+                                                    ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):
@@ -133,7 +138,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
         tool("fix_drone.py", "--base", STAGE, "--out", STAGE)
         tool("fix_drone_script.py", *src)
         tool("fix_drone_bullet.py", *src)
-    # UMBRAL VEIL (smoke tac mod), stage 1: registered, and enables the barrier.
+    # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     tool("fix_smoke.py", "--base", STAGE, *src)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
@@ -165,12 +170,12 @@ def repack(install: str):
         sys.exit(f"no manifest under {data}")
     print(f"\n== repacking {install}")
     run([evrtool(), "repack", data, STAGE])
-    out = subprocess.run([evrtool(), "findlive", data, DOT_TRIGGER_SCRIPT],
-                         capture_output=True, text=True).stdout
-    for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
-        if f"{t}/{DOT_TRIGGER_SCRIPT}" not in out:
-            sys.exit(f"DOT trigger script ({t}) missing from {install}'s manifest after repack")
-    print("   DOT trigger script present:", out.strip())
+    for script in (DOT_TRIGGER_SCRIPT, SMOKE_SCRIPT):
+        out = subprocess.run([evrtool(), "findlive", data, script], capture_output=True, text=True).stdout
+        for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
+            if f"{t}/{script}" not in out:
+                sys.exit(f"script {script} ({t}) missing from {install}'s manifest after repack")
+    print("   new scripts present: DOT trigger, smoke")
 
 
 def install_script_dlls(install: str):

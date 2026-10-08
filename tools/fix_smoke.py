@@ -1,35 +1,40 @@
-"""UMBRAL VEIL (the cut `smoke` tac mod), stage 1: register it and prove the plumbing.
+"""UMBRAL VEIL (the cut `smoke` tac mod) as a fifth tac mod, with its own script.
 
 No script among the 567 reads any `ability_properties|smoke|*` key and no smoke
-wall actor exists, so the tac mod has to be built. How tac mods work (from the
-player's scripts in the global level, 3f9915d3001dc28e):
+wall actor exists, so the tac mod is built here. How tac mods work (the
+player's scripts, global level 3f9915d3001dc28e):
 
-* every player actor runs all four tac mod scripts (barrier b87ba2039b049d5e,
-  sensor 0e1975416e8dcf7a, heal 6a0f689e5b91c666, wraith 0e1971566197d460) plus
-  a controller, 4b65d1b009973281
-* the controller has one EXTERNALFUNCTION node per tac mod, calling that
-  script's enable function (3efff939e87f2683) with a flag param
-  (43e1ed75065c0148) = "equipped tac mod == <name>"; for the barrier that is
-  node 5e2732a4, flag expression_5e2732a4_params_0_flagvalue, "== shield"
-* `Activate` (37ee801e3ffe9063, exported by each tac mod script) is called by
-  the engine; the enabled script acts on it. The barrier script then creates
-  the pooled wall actor 3d8b8ca4d5292926.
+* the combat player actors (91d8de0806964a11, f1e70acd0dde0312, the one the
+  client swaps to in a match) run all four tac mod scripts plus a controller,
+  4b65d1b009973281 (b113997837c29003 has neither barrier nor controller)
+* the controller's graph runs one EXTERNALFUNCTION node per tac mod, in a
+  chain: fa6ff977 -> sensor 8e119d0a -> heal 59aa7284 -> barrier 5e2732a4 ->
+  wraith 5613c5a8 -> end. Each calls its script's enable function
+  (3efff939e87f2683) with a flag param (43e1ed75065c0148) = "equipped == <name>"
+* the engine calls `Activate` (37ee801e3ffe9063); the enabled script acts, e.g.
+  the barrier script creates the pooled wall actor 3d8b8ca4d5292926.
 
-Stage 1 answers the open question cheaply: does the engine's ability system
-(charge, input, Activate) handle a fifth tac mod name? It
+Stage 1 (enable the barrier for smoke too) proved the engine side: UMBRAL VEIL
+can be equipped, charges, and its use reaches the scripts. This is stage 2:
 
-* registers `smoke` in gear_table.tacmods as UMBRAL VEIL (its tuning,
-  required_charge 37 etc., is already in ability_properties.smoke), and
-* patches the barrier's flag expression in the controller to
-  "== shield or == smoke", so equipping UMBRAL VEIL enables the barrier script.
-
-Expected in game: UMBRAL VEIL can be equipped, charges, and on use spawns an
-Energy Barrier. Then stage 2 gives it its own script and smoke wall actor.
-
-The flag expression's leading string-copy loop only fills an unused stack
-buffer, so the new compare goes there. Low 32 bits of the ability symbols are
-unique among all seven names (heal 32761fbc, sensor 1430080c, shield 13260b1a,
-wraith 1b2a1316, smoke d4804fb5, buff 386618b6, point d6864aa4).
+1. `smoke` is registered in gear_table.tacmods as UMBRAL VEIL (its tuning is
+   already in ability_properties.smoke).
+2. A new script, `mp_combat_ability_smoke` (CSymbol64 94ba7ca09dcf7b0b), is a
+   copy of the barrier script for now (spawns the barrier wall); stage 3 gives
+   it a smoke wall. It gets its `CScriptResourceWin10` entry and is attached to
+   each actor that runs the barrier script, right after it.
+3. The controller gets a fifth branch, wraith -> new node 5613c5a9 -> end,
+   calling the smoke script's enable function with "equipped == smoke":
+   * the controller's .text grows into the free address space before .rdata
+     (later sections shift down in the file; RVAs do not change)
+   * the new node is a byte copy of the barrier call node (execute_node_5e2732a4,
+     851 bytes, checked by SHA-256) with its 11 references outside the function
+     re-aimed, the script hash swapped, and its flag call pointed at a new
+     "equipped == smoke" expression; it gets a .pdata entry reusing the
+     original's unwind info
+   * execute_node's entry jumps to a stub that runs the copy for node 5613c5a9;
+     next_node's default case jumps to a stub that sends wraith's `out` to it.
+   The barrier's own flag stays "== shield".
 
     python tools/fix_smoke.py --base <dir with 607d858c90268f9a/> --src <extract root> --out <dir>
 """
@@ -37,6 +42,7 @@ wraith 1b2a1316, smoke d4804fb5, buff 386618b6, point d6864aa4).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import struct
 import sys
@@ -46,41 +52,208 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from fix_drone import EQUIPMENT, load, save
-from fix_dot_trigger import rva_to_raw
 
 SCRIPTS = "6eace9f64204fd0"            # CSymbol64("StreamingScriptWin10")
+SCRIPT_RESOURCE = "991421b41de58370"   # CSymbol64("CScriptResourceWin10")
+SCRIPT_CR = "d99f6bbd8009c92c"         # CSymbol64("CScriptCRWin10")
+GLOBAL_LEVEL = "3f9915d3001dc28e"
 CONTROLLER = "4b65d1b009973281"
+BARRIER_SCRIPT = 0xB87BA2039B049D5E
+SMOKE_SCRIPT = 0x94BA7CA09DCF7B0B      # CSymbol64("mp_combat_ability_smoke")
+PLAYER_ACTORS = (0x91D8DE0806964A11, 0xF1E70ACD0DDE0312)
 SMOKE_GEAR = {"name": "smoke", "display_name": "UMBRAL VEIL"}
-
-SHIELD = 0x41D2D43513260B1A            # CSymbol64("shield")
 SMOKE = 0xE32DC7C9D4804FB5             # CSymbol64("smoke")
-FLAG_EXPR_RVA = 0x20CA4                # expression_5e2732a4_params_0_flagvalue + 4
-FLAG_EXPR_OLD = bytes.fromhex(
-    "33d24c8d0d5c6900008bc290460fb604084584c0740affc248ffc083fa3f72ec8bc2c6440410"
-    "00488b01488b486848b81a0b261335d4d241483981f00000000f94c04883c458c3")
-FLAG_EXPR_NEW = (bytes.fromhex("488b01 488b4868 8b81f0000000")          # eax = equipped ability
-                 + b"\x3d" + struct.pack("<I", SHIELD & 0xFFFFFFFF)   # cmp eax, shield
-                 + bytes.fromhex("7405")                              # je -> sete (ZF=1)
-                 + b"\x3d" + struct.pack("<I", SMOKE & 0xFFFFFFFF)    # cmp eax, smoke
-                 + bytes.fromhex("0f94c0 4883c458 c3"))               # sete al; add rsp,58; ret
-FLAG_EXPR_NEW += b"\xcc" * (len(FLAG_EXPR_OLD) - len(FLAG_EXPR_NEW))
+
+# --- controller layout (checked) -------------------------------------------
+NODE_FN = 0x12670                      # execute_node_5e2732a4 (barrier enable call)
+NODE_LEN = 851
+NODE_SHA = "2c495b37b8e9a34997bdec0d3582f9ecd37d781153ec9a25109d1884ae874aed"
+NODE_SCRIPT_IMM = 197                  # movabs r12, <script hash>: imm offset in fn
+FLAG_CALL = 374                        # call expression_5e2732a4_params_0_flagvalue
+#: (rel32 offset in fn, target rva, offset of the next instruction in fn)
+FIXUPS = [(229, 0x2B938, 233), (315, 0x2B4A8, 319), (374, 0x20CA0, 378),
+          (430, 0x2B840, 434), (469, 0x2BFC8, 473), (522, 0x2BCA0, 526),
+          (578, 0x2C0E0, 582), (642, 0x2BE28, 646), (681, 0x2BD50, 685),
+          (722, 0x2BF28, 726), (771, 0x2B780, 775)]
+NODE_UNWIND = 0x28F0C
+EXEC_ENTRY = 0xB5C0                    # execute_node: mov rax,[rcx+10h]; mov edx,8936533Fh
+EXEC_ENTRY_OLD = bytes.fromhex("488b4110ba3f533689")
+EXEC_RESUME = 0xB5C9                   # cmp rax, rdx
+NEXT_DEFAULT = 0x1B2BF                 # next_node default: or rax,-1; ret
+NEXT_DEFAULT_OLD = bytes.fromhex("4883c8ffc3")
+WRAITH_NODE = 0x5613C5A8
+NEW_NODE = 0x5613C5A9
+OUT_PORT = 0x33F5911416F09172
+
+
+def u16(b, o): return struct.unpack_from("<H", b, o)[0]
+def u32(b, o): return struct.unpack_from("<I", b, o)[0]
+def u64(b, o): return struct.unpack_from("<Q", b, o)[0]
+
+
+class PE:
+    """Just enough PE32+ to grow .text into its trailing address space."""
+
+    def __init__(self, data: bytes):
+        self.d = bytearray(data)
+        self.e = u32(self.d, 0x3C)
+        self.nsec = u16(self.d, self.e + 6)
+        self.opt = self.e + 24
+        self.sec0 = self.opt + u16(self.d, self.e + 20)
+
+    def sections(self):
+        for i in range(self.nsec):
+            o = self.sec0 + i * 40
+            yield o, self.d[o:o + 8].rstrip(b"\0"), *struct.unpack_from("<IIII", self.d, o + 8)
+
+    def section(self, name):
+        for s in self.sections():
+            if s[1] == name:
+                return s
+        raise ValueError(f"no {name} section")
+
+    def raw(self, rva):
+        for _, _, vsize, va, rsize, rawp in self.sections():
+            if va <= rva < va + max(vsize, rsize):
+                return rawp + rva - va
+        raise ValueError(f"rva {rva:#x} not in any section")
+
+    def read(self, rva, n): return bytes(self.d[self.raw(rva):self.raw(rva) + n])
+
+    def write(self, rva, b): self.d[self.raw(rva):self.raw(rva) + len(b)] = b
+
+    def grow_text(self, new_vsize):
+        o, _, vsize, va, rsize, rawp = self.section(b".text")
+        next_va = min(s[3] for s in self.sections() if s[3] > va)
+        if va + new_vsize > next_va:
+            raise ValueError("not enough address space after .text")
+        falign = u32(self.d, self.opt + 36)
+        new_rsize = (new_vsize + falign - 1) // falign * falign
+        delta = max(0, new_rsize - rsize)
+        end = rawp + rsize
+        self.d[end:end] = bytes(delta)
+        struct.pack_into("<II", self.d, o + 8, new_vsize, va)
+        struct.pack_into("<I", self.d, o + 16, rsize + delta)
+        for so, _, _, _, _, p in self.sections():
+            if p >= end and so != o:
+                struct.pack_into("<I", self.d, so + 20, p + delta)
+        struct.pack_into("<I", self.d, self.opt + 4, u32(self.d, self.opt + 4) + delta)  # SizeOfCode
+        dbg_rva, dbg_size = struct.unpack_from("<II", self.d, self.opt + 112 + 6 * 8)
+        for k in range(dbg_size // 28):
+            ent = self.raw(dbg_rva) + k * 28
+            p = u32(self.d, ent + 24)
+            if p >= end:
+                struct.pack_into("<I", self.d, ent + 24, p + delta)
+
+
+def rel32(src_next, target):
+    return struct.pack("<i", target - src_next)
+
+
+def add_smoke_branch(pe_bytes: bytes) -> bytes:
+    pe = PE(pe_bytes)
+    if pe.read(EXEC_ENTRY, 9) != EXEC_ENTRY_OLD:
+        if pe.read(EXEC_ENTRY, 1) == b"\xe9":
+            return pe_bytes                           # already patched
+        raise ValueError("unexpected execute_node entry: wrong controller build")
+    node = bytearray(pe.read(NODE_FN, NODE_LEN))
+    if hashlib.sha256(node).hexdigest() != NODE_SHA:
+        raise ValueError("barrier call node differs: wrong controller build")
+    if pe.read(NEXT_DEFAULT, 5) != NEXT_DEFAULT_OLD:
+        raise ValueError("unexpected next_node default: wrong controller build")
+
+    _, _, vsize, text_va, _, _ = pe.section(b".text")
+    cave = (text_va + vsize + 15) & ~15
+    # 1. "equipped == smoke"
+    expr_rva = cave
+    expr = (bytes.fromhex("488b01 488b4068 48ba") + struct.pack("<Q", SMOKE)
+            + bytes.fromhex("483990f0000000 0f94c0 c3"))
+    # 2. the copied node
+    node_rva = (expr_rva + len(expr) + 15) & ~15
+    for off, target, nxt in FIXUPS:
+        if off == FLAG_CALL:
+            target = expr_rva
+        node[off:off + 4] = rel32(node_rva + nxt, target)
+    if u64(node, NODE_SCRIPT_IMM) != BARRIER_SCRIPT:
+        raise ValueError("barrier script hash not where expected")
+    struct.pack_into("<Q", node, NODE_SCRIPT_IMM, SMOKE_SCRIPT)
+    # 3. execute_node hook
+    exec_rva = (node_rva + NODE_LEN + 15) & ~15
+    stub_a = bytearray(bytes.fromhex("488b4110 483d") + struct.pack("<I", NEW_NODE) + b"\x0f\x84\0\0\0\0"
+                       + b"\xba" + struct.pack("<I", 0x8936533F) + b"\xe9\0\0\0\0")
+    stub_a[12:16] = rel32(exec_rva + 16, node_rva)
+    stub_a[22:26] = rel32(exec_rva + 26, EXEC_RESUME)
+    # 4. next_node hook: wraith --out--> new node; everything else as before
+    next_rva = (exec_rva + len(stub_a) + 15) & ~15
+    stub_b = (b"\x48\x81\xf9" + struct.pack("<I", WRAITH_NODE)    # cmp rcx, wraith
+              + b"\x75\x1a"                                       # jne L
+              + b"\x48\x85\xd2" + b"\x74\x0f"                     # test rdx,rdx; je G
+              + b"\x48\xb8" + struct.pack("<Q", OUT_PORT)         # mov rax, out
+              + b"\x48\x39\xc2" + b"\x75\x06"                     # cmp rdx,rax; jne L
+              + b"\xb8" + struct.pack("<I", NEW_NODE) + b"\xc3"   # G: mov eax,new; ret
+              + b"\x48\x83\xc8\xff\xc3")                          # L: or rax,-1; ret
+    end = next_rva + len(stub_b)
+
+    pe.grow_text(end - text_va)
+    pe.write(expr_rva, expr)
+    pe.write(node_rva, bytes(node))
+    pe.write(exec_rva, bytes(stub_a))
+    pe.write(next_rva, stub_b)
+    pe.write(EXEC_ENTRY, b"\xe9" + rel32(EXEC_ENTRY + 5, exec_rva) + b"\x90" * 4)
+    pe.write(NEXT_DEFAULT, b"\xe9" + rel32(NEXT_DEFAULT + 5, next_rva))
+
+    # 5. .pdata entry for the copied node (sorted: it is the highest address)
+    exc_rva, exc_size = struct.unpack_from("<II", pe.d, pe.opt + 112 + 3 * 8)
+    o, _, pvsize, pva, prsize, _ = pe.section(b".pdata")
+    if exc_rva != pva or exc_size + 12 > prsize:
+        raise ValueError("no room for a .pdata entry")
+    last = u32(pe.read(exc_rva + exc_size - 12, 4), 0)
+    if last >= node_rva:
+        raise ValueError(".pdata would not stay sorted")
+    pe.write(exc_rva + exc_size, struct.pack("<III", node_rva, node_rva + NODE_LEN, NODE_UNWIND))
+    struct.pack_into("<I", pe.d, pe.opt + 112 + 3 * 8 + 4, exc_size + 12)
+    struct.pack_into("<I", pe.d, o + 8, max(pvsize, exc_size + 12))
+    return bytes(pe.d)
 
 
 def patch_controller(asset: bytes) -> bytes:
     mz = asset.find(b"MZ")
-    at = mz + rva_to_raw(asset[mz:], FLAG_EXPR_RVA)
-    n = len(FLAG_EXPR_OLD)
-    if asset[at:at + n] == FLAG_EXPR_NEW:
-        return asset
-    if asset[at:at + n] != FLAG_EXPR_OLD:
-        raise ValueError("unexpected bytes in the barrier flag expression: wrong controller build")
-    return asset[:at] + FLAG_EXPR_NEW + asset[at + n:]
+    return asset[:mz] + add_smoke_branch(asset[mz:])
+
+
+def attach_smoke_script(blob: bytes) -> bytes:
+    """Add a smoke-script entry after each player actor's barrier-script entry."""
+    stride, hdr = 720, 0x38
+    count = u64(blob, 0x28)
+    if u64(blob, 0x08) != count * stride or u64(blob, 0x30) != count:
+        raise ValueError("unexpected CScriptCR framing")
+    entries = [blob[hdr + stride * i:hdr + stride * (i + 1)] for i in range(count)]
+    pool = blob[hdr + stride * count:]
+    out, added = [], 0
+    for e in entries:
+        out.append(e)
+        if u64(e, 8) in PLAYER_ACTORS and u64(e, 32) == BARRIER_SCRIPT:
+            if any(u64(x, 8) == u64(e, 8) and u64(x, 32) == SMOKE_SCRIPT for x in entries):
+                continue                              # already attached
+            for t in (48, 104, 160, 216, 272, 328, 384, 440, 496, 552, 608, 664):
+                if u64(e, t + 8):
+                    raise ValueError("barrier entry carries pool data")
+            new = bytearray(e)
+            struct.pack_into("<Q", new, 0, SMOKE_SCRIPT)
+            struct.pack_into("<Q", new, 32, SMOKE_SCRIPT)
+            out.append(bytes(new))
+            added += 1
+    head = bytearray(blob[:hdr])
+    struct.pack_into("<Q", head, 0x08, len(out) * stride)
+    struct.pack_into("<Q", head, 0x28, len(out))
+    struct.pack_into("<Q", head, 0x30, len(out))
+    return bytes(head) + b"".join(out) + pool, added
 
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--base", required=True, help="dir holding the live 607d858c90268f9a/ JSON")
-    ap.add_argument("--src", required=True, help="extract root (for the controller script)")
+    ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv[1:])
 
@@ -91,10 +264,23 @@ def main(argv) -> int:
     print(save(args.out, EQUIPMENT, eq_path, equipment))
     print("tacmods:", [t["name"] for t in tacmods])
 
-    asset = open(os.path.join(args.src, SCRIPTS, CONTROLLER), "rb").read()
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
-    open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(patch_controller(asset))
-    print(f"{SCRIPTS}/{CONTROLLER}: barrier enabled for shield or smoke (stage 1 test)")
+    ctrl = open(os.path.join(args.src, SCRIPTS, CONTROLLER), "rb").read()
+    open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(patch_controller(ctrl))
+    print(f"{SCRIPTS}/{CONTROLLER}: fifth tac mod branch -> mp_combat_ability_smoke")
+
+    barrier = open(os.path.join(args.src, SCRIPTS, f"{BARRIER_SCRIPT:x}"), "rb").read()
+    open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(barrier)
+    os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
+    open(os.path.join(args.out, SCRIPT_RESOURCE, f"{SMOKE_SCRIPT:x}"), "wb").write(bytes(4))
+    print(f"{SCRIPTS}/{SMOKE_SCRIPT:x}: mp_combat_ability_smoke (barrier copy for now)")
+
+    os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
+    staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)
+    src = staged if os.path.exists(staged) else os.path.join(args.src, SCRIPT_CR, GLOBAL_LEVEL)
+    fixed, added = attach_smoke_script(open(src, "rb").read())
+    open(staged, "wb").write(fixed)
+    print(f"global level: smoke script attached to {added} player actor(s)")
     return 0
 
 
