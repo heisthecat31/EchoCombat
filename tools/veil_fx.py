@@ -888,6 +888,10 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     blob, fixups = bytearray(), []
     spn = transplant(det, SPAWN_PARTICLE, blob, fixups)
     exp = transplant(PE(stun_pe), ACTIVATE_EXPLOSION, blob, fixups) if point else {}
+    # POINT's sound: the detonator's PLAYSOUNDNODE (a temporary emitter, the standard sound
+    # component, as the translocator's), not the wall's own -- through the wall's sound
+    # component it came out muffled to a fizzle
+    psnd = transplant(det, PLAY_SOUND, blob, fixups) if point else {}
     blob += bytes(-len(blob) % 16)
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
@@ -916,7 +920,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     # Bind: the wall's own call, then the particle node's Bind. rdi = setup_bindings'
     # table: nodes bind with ([rdi], [rdi+10h]).
     b = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at["bind"] + 9, WALL_BIND_TARGET))
-    for bind in [spn["bind"]] + ([exp["bind"]] if point else []):
+    for bind in [spn["bind"]] + ([exp["bind"], psnd["bind"]] if point else []):
         b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, va + bind)
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
@@ -1015,7 +1019,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
             put("point_sound", preview_sound_stub(at["point_sound"], WALL_SOUND_CTOR, at["snd_tramp"],
                                                   at["events"], len(PREVIEW_EVENTS)))
         else:
-            put("point_sound", sound_stub(at["point_sound"], WALL_SOUND_CTOR, at["snd_tramp"],
+            put("point_sound", sound_stub(at["point_sound"], va + psnd["ctor"], va + psnd["exec"],
                                           point.get("event", POINT_EVENT)))
     put("phys", bytes(p))
 
