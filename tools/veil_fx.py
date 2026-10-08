@@ -421,78 +421,36 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
 # The tac mod graph runs only on the user's client, so clouds and sound spawned
 # by the smoke script are seen and heard there alone. The one networked thing it
 # does is create the barrier wall (R15NetPooledActorCreate): every machine gets
-# the wall, and the wall script runs on every machine. So:
+# the wall, and the wall script runs on every machine. Which wall is the veil
+# travels separately, through VeilNet.dll (plugin/veilnet.cpp):
 #
-# * the smoke script creates the wall as the barrier does, but its custom-param
-#   node (d11498f0) sends a marker in the symbol param (node+40h, -1 for the
-#   energy barrier), which travels with the wall;
-# * the wall script reads its own custom params back with a
-#   R15NETPOOLEDACTORQUERYEXPRESSION transplanted from c3178dbdb1250dce (a
-#   pooled actor script that reads its own params the same way). A wall that
-#   carries the marker hides its model, skips EnablePhysics (no collision), and
+# * the smoke script creates the wall as the barrier does; its custom-param node
+#   (d11498f0), which runs just before, bumps a use counter (mark_param);
+# * VeilNet on that client sees it, takes a "veil token" and sends the veil to the
+#   server, which takes one too and relays it to every other client's VeilNet;
+# * the wall script's spawn nodes wait a moment for a token (GATE, TOKEN_DECIDE). A
+#   wall that takes one hides its model, skips EnablePhysics (no collision), and
 #   instead spawns the smoke clouds (detonator SPAWNPARTICLEEFFECTNODE) and plays
 #   UMBRAL VEIL's sound (the wall's own PLAYSOUNDNODE). Every other wall -- the
 #   energy barrier -- is untouched.
+#
+# (Custom params do not work for this: the wall script's
+# R15NetPooledActorQueryExpression never read back what the veil's param node sent.)
 
 VEIL_MARKER = 0x534D4F4B                      # "SMOK": fits the param node's imm32
 PARAM_SYMBOL = 0x63FD                         # barrier param node: mov qword [rbp-29h], -1 (node+40h)
 PARAM_SYMBOL_OLD = bytes.fromhex("48c745d7ffffffff")
 
-QUERY_SCRIPT = "c3178dbdb1250dce"
-#: R15NETPOOLEDACTORQUERYEXPRESSION in c3178dbdb1250dce (named by its CodeView records):
-#: (rva, size, sha256, rip-relative disp32 offsets -- from pe_reloc.py, fixed here so
-#: no disassembler is needed at deploy time; the SHA-256 guards against another build)
-QUERY = {
-    "ctor": (0x2190, 115, "9982ea0180ead0b3136fbbfcfed52061783c71f01369e91a265c0d1158f51dd3", []),
-    "get": (0x2210, 343, "3be3e47fb5ecc8c74907d542dbc7bc5d9f8d45b870218a7b153b6939f9aeb516", []),
-    "exec": (0x2370, 20, "fd9574df37a316c9053663813a296105511c091330704360ec6dc34e0ddf2a16", [0x9, 0x10]),
-    "bind": (0x1FC0, 453, "6aa45d7c5018d553cb325a36331480de12c896ea50941e354812e54e87ac427d",
-             [0x22, 0x29, 0x30, 0x37, 0x4e, 0x55, 0x5c, 0x73, 0x7a, 0x81, 0x98, 0x9f, 0xa6, 0xbd, 0xc4,
-              0xcb, 0xe2, 0xe9, 0xf0, 0x107, 0x10e, 0x115, 0x12c, 0x133, 0x13a, 0x14e, 0x155, 0x15c,
-              0x173, 0x17a, 0x181, 0x198, 0x19f, 0x1ac]),
-}
-QUERY_NODE_SIZE = 0xA0
-#: The query's inputs (from its Get, 0x2210): actor +38h (24-byte reference, default
-#: -1 = the script's own actor), component +50h, key +58h, type (int) +60h, then the
-#: defaults: vec4 +64h, vec3 +74h, int +80h, symbol +88h, real +90h, flag +94h. It reads
-#: one keyed custom param of the actor. c3178dbdb1250dce asks (R15NetPooledActor, its
-#: keys 85a13342fc84507e / ab13b21e070b88cc / c0a835a1489e60fc, type 1); the barrier's
-#: custom-param node (execute_node_d11498f0) sends its params under key 2fde81964a625286.
-POOLED_ACTOR_COMPONENT = 0x105121C3E1A26CE8
-BARRIER_PARAM_KEY = 0x2FDE81964A625286
-QUERY_KEYS = (BARRIER_PARAM_KEY,)
-QUERY_TYPE = 1
-#: outputs a marker could land in: symbol outputs (8 bytes) and int outputs (4 bytes)
-QUERY_OUT_Q, QUERY_OUT_D = (0x88,), (0x80,)
-#: The query's results land in the result buffer passed to Execute; they are read back
-#: through the accessors its Bind registers per output: (id slot, accessor slot) in
-#: c3178dbdb1250dce's .data (decoded from R15NETPOOLEDACTORQUERYEXPRESSION::Bind),
-#: and where decide() keeps each one (node offset, in the node's own output layout).
-QUERY_GETTERS = [
-    ("symboloutput", 0xB1C8, 0xB1A8, 0x88),
-    ("intoutput", 0xB0E4, 0xB0B0, 0x80),
-    ("vec3output.x", 0xB0F0, 0xB128, 0x74),
-    ("vec3output.y", 0xB08C, 0xB1F0, 0x78),
-    ("vec3output.z", 0xB248, 0xB108, 0x7C),
-]
 WALL_BIND_CALL, WALL_BIND_TARGET = 0x3DE0, 0x17F0   # setup_bindings: call <a node's Bind>
 
-# --- diagnostics: what the veil sends and what each wall reads back ----------------
+# --- the veil's use counter --------------------------------------------------------
 #: Spare bytes past echovr.exe's .data (rva 0x2104ca4..0x2105000 in build b6d08277...,
 #: mapped read/write with it, never used by the game). Three 0x100-byte records:
-#: +000 decide() from the wall's show node, +100 from its physics node, +200 the
-#: veil's custom-param node as sent. PowerBoost.dll logs each change.
+#: +000 / +100 the wall's show / physics node (GATE keeps how long it waited at +14h),
+#: +200 the veil's custom-param node: count, 3, ctx, the node (0x50). VeilNet.dll
+#: watches that count: each bump is a use of the veil on this machine.
 DEBUG_RVA = 0x2104D00
 RVA_MARK = struct.pack("<I", 0x11223344)
-#: after the query ran (rbx = ctx, esi = record 1/2): r11 = record; count, site, ctx,
-#: then the node (0xA0) and the first 0x40 bytes of the query's result buffer
-DEBUG_REC = bytes.fromhex(
-    "6548a16000000000000000488b40104805443322118d4effc1e1084801c84989c341ff034189730449895b08"
-    "4c8d4424204d8d4b18b9140000004d8b104d89114983c0084983c108ffc975ee4c8d8424c00000004d8d8bb8"
-    "000000b9080000004d8b104d89114983c0084983c108ffc975ee")
-#: the record pointer moves to rsi (callee-saved: a later query call may clobber r11)
-DEBUG_KEEP = bytes.fromhex("4c89de")                  # mov rsi, r11
-DEBUG_RESULT = bytes.fromhex("894610")                # mov [rsi+10h], eax
 #: param node Execute(rcx = node, rdx = ctx): record 3 = count, 3, ctx, node (0x50)
 DEBUG_PARAM = bytes.fromhex(
     "6548a16000000000000000488b4010480544332211ff00c7400403000000488950084531c04e8b0c014e894c"
@@ -500,17 +458,17 @@ DEBUG_PARAM = bytes.fromhex(
 PARAM_EXEC_CALL, PARAM_EXEC = 0x64F1, 0x22A0           # param node: call R15NETPOOLEDACTORCUSTOMPARAMNODE::Execute
 
 
-def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER, debug: bool = True) -> bytes:
-    """The smoke script's custom-param node sends `marker` as the wall's symbol param."""
+def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER) -> bytes:
+    """The smoke script's custom-param node bumps the use counter VeilNet.dll watches
+    (and still sends `marker` as the wall's symbol param, harmless)."""
     pe = PE(barrier_pe)
     if pe.read(PARAM_SYMBOL, 8) != PARAM_SYMBOL_OLD \
             or pe.read(PARAM_EXEC_CALL, 5) != b"\xe8" + rel32(PARAM_EXEC_CALL + 5, PARAM_EXEC):
         raise ValueError("unexpected barrier param node: wrong barrier script build")
-    if debug:                                 # record the node as sent, then Execute it
-        stub = DEBUG_PARAM.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA + 0x200))
-        va = add_section(pe, VEIL, len(stub) + 5)
-        pe.write(va, stub + b"\xe9" + rel32(va + len(stub) + 5, PARAM_EXEC))
-        pe.write(PARAM_EXEC_CALL, b"\xe8" + rel32(PARAM_EXEC_CALL + 5, va))
+    stub = DEBUG_PARAM.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA + 0x200))   # record, then Execute
+    va = add_section(pe, VEIL, len(stub) + 5)
+    pe.write(va, stub + b"\xe9" + rel32(va + len(stub) + 5, PARAM_EXEC))
+    pe.write(PARAM_EXEC_CALL, b"\xe8" + rel32(PARAM_EXEC_CALL + 5, va))
     pe.write(PARAM_SYMBOL, PARAM_SYMBOL_OLD[:4] + struct.pack("<I", marker))
     for rva in PRIMING_SHOW:                  # no priming hologram, as before
         if pe.read(rva, 5) != SHOW_ON:
@@ -519,56 +477,28 @@ def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER, debug: bool = True)
     return bytes(pe.d)
 
 
-def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -> dict:
-    """transplant() where one copied function may call another: funcs = {key: (rva,
-    size, sha256, disps)} (disps from pe_reloc.py). A reference to another of `funcs`
-    is re-aimed at its copy; .data slots get fresh zeroed copies, anything else is
-    copied as a C string."""
-    src = PE(src_pe)
-    _, _, dvs, dva, _, _ = src.section(b".data")
-    codes, disps = {}, {}
-    for k, (rva, size, sha, ds) in funcs.items():
-        codes[k], disps[k] = src.read(rva, size), ds
-        if hashlib.sha256(codes[k]).hexdigest() != sha:
-            raise ValueError(f"function at {rva:#x} differs: wrong {QUERY_SCRIPT} build")
-    funcs = {k: v[:2] for k, v in funcs.items()}
-    starts = {rva: k for k, (rva, _) in funcs.items()}
-    target = lambda k, d: funcs[k][0] + d + 4 + struct.unpack_from("<i", codes[k], d)[0]
-    slots = {}
-    for k in funcs:
-        for d in disps[k]:
-            t = target(k, d)
-            if t in starts or t in slots:
-                continue
-            if dva <= t < dva + dvs:
-                blob += bytes(-len(blob) % 8)
-                slots[t] = len(blob)
-                blob += bytes(8)
-    for k in funcs:
-        for d in disps[k]:
-            t = target(k, d)
-            if t not in starts and t not in slots:
-                blob += bytes(-len(blob) % 8)
-                slots[t] = len(blob)
-                blob += c_string(src, t)
-    offs = {}
-    for k in funcs:
-        blob += bytes(-len(blob) % 16)
-        offs[k] = len(blob)
-        blob += codes[k]
-    for k in funcs:
-        for d in disps[k]:
-            t = target(k, d)
-            fixups.append((offs[k] + d, offs[starts[t]] if t in starts else slots[t]))
-    offs["slots"] = slots                      # source rva -> blob offset, for .data slots too
-    return offs
+#: VeilNet.dll's veil tokens: spare bytes past echovr.exe's .data, +00 u32 count,
+#: +08 u64 expiry (KUSER_SHARED_DATA interrupt time), +10 / +14 u32 walls that became
+#: the veil / stayed barriers (VeilNet logs both). See plugin/veilnet.cpp.
+TOKEN_RVA = 0x2104CC0
+#: decide(rcx = node ctx, edx = 0 just look / else decide for good) -> eax 1 veil,
+#: 0 barrier, 2 undecided (no token yet, edx = 0). The decision is kept per wall in 4
+#: bytes added to its script's global data ([[ctx]+68h]+158h: "SMOK" / "NORM"), so its
+#: show and physics nodes agree and a wall takes at most one token. Taking a token:
+#: unexpired, count > 0, lock cmpxchg count - 1. Assembled with keystone; 0x11223344
+#: marks TOKEN_RVA.
+TOKEN_DECIDE = bytes.fromhex(
+    "4c8b114d8b5268418b82580100003d4b4f4d5374503d4d524f4e74636548a16000000000000000488b4010"
+    "4805443322114989c049c7c10800fe7f4d8b094d3b48087327418b0085c07e208d48fff0410fb10875ef41"
+    "c782580100004b4f4d53f041ff4010b801000000c385d2741341c782580100004d524f4ef041ff401431c0"
+    "c3b802000000c3")
 
 
-#: Wait gate at a wall node's entry (rcx = ctx). The veil's params reach a wall after
-#: it spawns (on the user's client the param node even runs after the wall's spawn
-#: nodes), so a node asks decide() (edx = 0: no record) every frame, returning -1
+#: Wait gate at a wall node's entry (rcx = ctx). On remote machines the veil's
+#: token and the wall come by different routes (VeilNet's UDP relay, the game's own
+#: messages), so a node asks decide() (edx = 0: just look) every frame, returning -1
 #: (still running; the engine calls it again next frame, as it does a delay node)
-#: with ctx+18h = GATE_MAGIC | the start time, until something has arrived or
+#: with ctx+18h = 4000000000000000h | the start time, until the wall is decided or
 #: GATE_LIMIT has passed. Then it records the wait (ms + 1, record+14h), resets the
 #: state to 0 and goes on into the node as if it had just started. Assembled with
 #: keystone: the call (decide), 0x55667788 (the limit), 0x11223344 (the record field
@@ -580,7 +510,7 @@ GATE = bytes.fromhex(
     "c4285e5bc331f6488b53184885d2742748c7c00800fe7f488b0048b9ffffffffffffff3f4821ca4829d031d2"
     "b91027000048f7f18d70016548a16000000000000000488b4010480544332211893048c74318000000004889"
     "d94883c4285e5be9181f0000")
-GATE_LIMIT = 10_000_000                       # 1 s, in 100 ns (KUSER_SHARED_DATA interrupt time)
+GATE_LIMIT = 2_500_000                        # 0.25 s, in 100 ns (KUSER_SHARED_DATA interrupt time)
 #: where the wall waits for its params: execute_node_fac8332c (ShowModel, its entry
 #: push rbx; sub rsp, 50h -- replayed by the gate) and the EnablePhysics node.
 WALL_SHOW_NODE, WALL_SHOW_NODE_OLD = 0x6D30, bytes.fromhex("4053 4883ec50")
@@ -598,52 +528,11 @@ def gate_stub(at: int, decide: int, record: int, cont: int, prologue: bytes = b"
     return bytes(b)
 
 
-def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = True, getters=()) -> bytes:
-    """decide(rcx = node ctx, edx = record 1/2, 0 for none) -> eax 1 when this wall carries
-    the veil's marker, 0 when its params have arrived without it, 2 when nothing has
-    arrived yet (no position: every barrier and veil sends one)."""
-    b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6"))
-    b += bytes.fromhex("c78424c0040000 02000000")                       # [rsp+4C0h] = 2: nothing yet
-    yes = []
-    for key in QUERY_KEYS:                     # one query per candidate key
-        b += bytes.fromhex("488d4c2420 4889da e8")
-        b += rel32(at + len(b) + 4, q_ctor)                               # ctor(node, ctx)
-        b += b"\x48\xb8" + struct.pack("<Q", POOLED_ACTOR_COMPONENT) + bytes.fromhex("4889442470")  # node+50h
-        b += b"\x48\xb8" + struct.pack("<Q", key) + bytes.fromhex("4889442478")                     # node+58h
-        b += bytes.fromhex("c7842480000000") + struct.pack("<I", QUERY_TYPE)                         # node+60h
-        b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
-        b += rel32(at + len(b) + 4, q_exec)                               # Execute(node, buffer)
-        for id_slot, fn_slot, node_off in getters:  # accessor(result, id, &node[off])
-            b += b"\x8b\x15" + rel32(at + len(b) + 6, id_slot)               # mov edx, [id]
-            b += bytes.fromhex("4c8d8424") + struct.pack("<I", 0x20 + node_off)  # lea r8, [rsp+20h+off]
-            b += bytes.fromhex("488d8c24c0000000")                         # lea rcx, [rsp+0C0h]
-            b += b"\xff\x15" + rel32(at + len(b) + 6, fn_slot)               # call [accessor]
-        b += bytes.fromhex("8b842494000000 0b842498000000 0b84249c000000 01c0 740b")  # vec3 (any bits but sign)
-        b += bytes.fromhex("c78424c0040000 00000000")                   # arrived: [rsp+4C0h] = 0
-        if debug and key == QUERY_KEYS[0]:   # the record shows the first query (esi = 0: none)
-            rec = DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA)) + DEBUG_KEEP
-            b += bytes.fromhex("85f6 0f84") + struct.pack("<i", len(rec)) + rec
-        for off in QUERY_OUT_Q:
-            b += bytes.fromhex("488b8424") + struct.pack("<I", 0x20 + off) + b"\x48\x3d" + struct.pack("<I", marker)
-            b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
-        for off in QUERY_OUT_D:
-            b += bytes.fromhex("8b8424") + struct.pack("<I", 0x20 + off) + b"\x3d" + struct.pack("<I", marker)
-            b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
-    b += bytes.fromhex("8b8424c0040000 eb05")                             # no: eax = 0 / 2
-    y = len(b)
-    b += bytes.fromhex("b801000000")                                      # yes: eax = 1
-    for j in yes:
-        b[j:j + 4] = struct.pack("<i", y - (j + 4))
-    if debug:
-        b += bytes.fromhex("85f6 7403") + DEBUG_RESULT
-    b += bytes.fromhex("4881c4c8040000 5e 5b c3")
-    return bytes(b)
-
-
-def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
+def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
                  life: float = 8.0, spread: float = 1.5, emission: float = 8.0, particle_scale: float = 2.5,
-                 alpha: float = 10.0, shade: float = 0.9, event: int = None, marker: int = VEIL_MARKER) -> bytes:
-    """The barrier wall script: a wall carrying `marker` becomes UMBRAL VEIL on every machine."""
+                 alpha: float = 10.0, shade: float = 0.9, event: int = None) -> bytes:
+    """The barrier wall script: a wall that takes a veil token (VeilNet.dll) becomes
+    UMBRAL VEIL, on every machine."""
     event = VEIL_EVENT if event is None else event
     if not 1 <= count <= 16:
         raise ValueError("count must be 1..16")
@@ -652,14 +541,11 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
         raise ValueError("wall script already patched")
     if pe.read(WALL_SHOW, 5) != SHOW_ON or pe.read(WALL_PHYS, 8) != WALL_PHYS_OLD \
             or pe.read(WALL_SHOW_NODE, 6) != WALL_SHOW_NODE_OLD \
-            or pe.read(WALL_BIND_CALL, 5) != b"\xe8" + rel32(WALL_BIND_CALL + 5, WALL_BIND_TARGET):
+            or pe.read(WALL_BIND_CALL, 5) != b"\xe8" + rel32(WALL_BIND_CALL + 5, WALL_BIND_TARGET) \
+            or pe.read(WALL_GLOBAL_LEN_FN, 6) != b"\xb8" + struct.pack("<I", GLOBAL_LEN) + b"\xc3":
         raise ValueError("unexpected wall script build")
-    q = PE(query_pe)
-    if q.read(QUERY["exec"][0], 3) != bytes.fromhex("4c8bc1"):
-        raise ValueError("unexpected query script build")
 
     blob, fixups = bytearray(), []
-    qo = transplant_auto(query_pe, QUERY, blob, fixups)
     spn = transplant(det, SPAWN_PARTICLE, blob, fixups)
     blob += bytes(-len(blob) % 16)
     ring_off = len(blob)
@@ -681,18 +567,14 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
             raise ValueError(f"{name} stub too long")
         blob[parts[name]:parts[name] + len(code)] = code
 
-    # Bind: the wall's own call, then the query's and the particle node's Binds. rdi =
-    # setup_bindings' table: nodes bind with ([rdi], [rdi+10h]), expressions with
-    # ([rdi+8], [rdi+18h]) -- c3178dbdb1250dce binds the query that way; given the
-    # node pair, the engine logs "Failed to find script binding for 0x46EFE2D3B20F6F80".
+    # Bind: the wall's own call, then the particle node's Bind. rdi = setup_bindings'
+    # table: nodes bind with ([rdi], [rdi+10h]).
     b = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at["bind"] + 9, WALL_BIND_TARGET))
-    for bind, regs in ((va + qo["bind"], "488b5718 488b4f08"), (va + spn["bind"], "488b5710 488b0f")):
-        b += bytes.fromhex(regs + "e8") + rel32(at["bind"] + len(b) + len(bytes.fromhex(regs)) + 5, bind)
+    b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, va + spn["bind"])
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
-    getters = [(va + qo["slots"][i], va + qo["slots"][f], o) for _, i, f, o in QUERY_GETTERS]
-    put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker, getters=getters))
-    pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = record 1
+    put("decide", TOKEN_DECIDE.replace(RVA_MARK, struct.pack("<I", TOKEN_RVA)))
+    pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = 1: decide for good
     post = bytes.fromhex("3c01 0f95c0") + SHOW_POST[2:]                # al = (decide != 1): show unless veil
     s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + post
     put("show", s)
@@ -703,7 +585,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     put("sound", sound_stub(at["sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC, event))
     # The node runs again each frame while its EnablePhysics / sound is still busy
     # (ctx+18h != 0): decide again, without a record, and spawn no more clouds.
-    p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 48837b1800 7402 31d2 e8"))  # edx = record 2 / none
+    p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 48837b1800 7402 31d2 e8"))  # edx = 2 (for good) / 0
     p += rel32(at["phys"] + len(p) + 4, at["decide"])
     p += bytes.fromhex("3c01 74")                                           # decide == 1: veil
     jnz = len(p)
@@ -717,11 +599,12 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     p += rel32(at["phys"] + len(p) + 4, at["sound"])
     put("phys", bytes(p))
 
-    # Both spawn nodes first wait for the wall's params (see GATE).
+    # Both spawn nodes first wait a moment for a token (see GATE).
     put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
     put("gate_phys", gate_stub(at["gate_phys"], at["decide"], 2, at["phys"]))
 
     pe.write(va, bytes(blob))
+    pe.write(WALL_GLOBAL_LEN_FN, b"\xb8" + struct.pack("<I", GLOBAL_LEN + 8) + b"\xc3")   # + the decision
     pe.write(WALL_BIND_CALL, b"\xe8" + rel32(WALL_BIND_CALL + 5, at["bind"]))
     pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
     pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["gate_show"]) + b"\x90")

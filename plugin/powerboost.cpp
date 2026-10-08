@@ -297,59 +297,6 @@ void LinkMade(void *dcs, uint32_t index) {
     SendDamageDealt(dcs, index, -marker, 0, 0);
 }
 
-// UMBRAL VEIL diagnostics. The veil's scripts write three 0x100-byte records into
-// spare bytes past echovr.exe's .data (tools/veil_fx.py, DEBUG_RVA): 0 / 1 = the
-// barrier wall's decide() from its show / physics node (what the pooled-actor query
-// read back from the wall's custom params), 2 = the veil's custom-param node as sent.
-// Each record starts with a counter; this logs every record that changes.
-constexpr uintptr_t VEIL_DEBUG_RVA = 0x2104d00;
-
-void Hex(char *out, const uint8_t *p, int n) {
-    for (int i = 0; i < n; ++i) sprintf_s(out + i * 3, 4, "%02x ", p[i]);
-}
-
-DWORD WINAPI VeilMonitor(LPVOID base) {
-    const uint8_t *rec = (const uint8_t *)base + VEIL_DEBUG_RVA;
-    uint32_t seen[3] = { *(const uint32_t *)rec, *(const uint32_t *)(rec + 0x100), *(const uint32_t *)(rec + 0x200) };
-    static const char *site[3] = { "wall show node", "wall physics node", "veil param node (sent)" };
-    char hex[0xa0 * 3 + 1];
-    for (;;) {
-        Sleep(50);
-        for (int k = 0; k < 3; ++k) {
-            const uint8_t *r = rec + k * 0x100;
-            uint32_t n = *(const uint32_t *)r;
-            if (n == seen[k]) continue;
-            seen[k] = n;
-            const uint8_t *node = r + 0x18;
-            if (k == 2) {
-                Hex(hex, node, 0x50);
-                Log("VEIL %s #%u ctx %p symbolparam(+40) %llx | node %s", site[k], n, *(void *const *)(r + 8),
-                    *(const unsigned long long *)(node + 0x40), hex);
-                continue;
-            }
-            const float *v3 = (const float *)(node + 0x74), *v4 = (const float *)(node + 0x64);
-            // +10: decide() 1 = veil, 0 = params without the marker, 2 = no params at all;
-            // +14: how long the node waited for them (ms + 1; 0 = it did not wait)
-            static const char *what[3] = { "barrier", "SMOKE WALL", "barrier (no params arrived)" };
-            uint32_t d = *(const uint32_t *)(r + 0x10), waited = *(const uint32_t *)(r + 0x14);
-            char w[32] = "did not wait";
-            if (waited) sprintf_s(w, "waited %u ms", waited - 1);
-            Log("VEIL %s #%u ctx %p -> %s, %s | type %08x int80 %08x component %llx key %llx "
-                "sym88 %llx vec3 (%.2f %.2f %.2f) vec4 (%.2f %.2f %.2f %.2f) real %.3f flag %u",
-                site[k], n, *(void *const *)(r + 8), what[d < 3 ? d : 0], w,
-                *(const uint32_t *)(node + 0x60), *(const uint32_t *)(node + 0x80),
-                *(const unsigned long long *)(node + 0x50), *(const unsigned long long *)(node + 0x58),
-                *(const unsigned long long *)(node + 0x88), v3[0], v3[1], v3[2], v4[0], v4[1], v4[2], v4[3],
-                *(const float *)(node + 0x90), node[0x94]);
-            Hex(hex, node, 0xa0);
-            Log("     query node %s", hex);
-            Hex(hex, r + 0xb8, 0x40);
-            Log("     result     %s", hex);
-        }
-    }
-    return 0;
-}
-
 // Called from the bubble's radius check (see InstallCone). Returns 0 to treat the
 // target as out of range. bubble: the bubble's record; target: its position;
 // dcs/index: the target's damageable.
@@ -484,7 +431,6 @@ void Install() {
         Log(InstallCone(base) ? "POWER BOOST link: cone on the heal bubble radius check" : "cone patch failed");
     }
     g_server = HasArg("-server");
-    if (HANDLE t = CreateThread(nullptr, 0, VeilMonitor, base, 0, nullptr)) CloseHandle(t);
     Real_Heal = (heal_fn)(base + HEAL_RVA);
     Real_Damage = (damage_fn)(base + DAMAGE_RVA);
     DetourTransactionBegin();

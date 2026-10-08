@@ -6,7 +6,7 @@ package main
 //	                              Written from the stage's script assets (6eace9f64204fd0,
 //	                              a 20-byte header before the PE); each original is kept
 //	                              once as <hash>.dll.orig.
-//	bin/win10/plugins/*.dll       PowerBoost.dll, DroneFix.dll
+//	bin/win10/plugins/*.dll       PowerBoost.dll, DroneFix.dll, VeilNet.dll
 //	bin/win10/dbgcore.dll         the plugin loader, which loads plugins/. A dbgcore.dll
 //	                              already there from another mod is moved into plugins/
 //	                              so the loader still loads it; an older plugin loader
@@ -55,7 +55,7 @@ func (b bundle) plugins() []string {
 func (b bundle) preflight() {
 	var missing []string
 	for _, p := range []string{b.stage(), filepath.Join(b.stage(), scriptsType), b.bin("dbgcore.dll"),
-		b.bin("plugins", "PowerBoost.dll"), b.bin("plugins", "DroneFix.dll")} {
+		b.bin("plugins", "PowerBoost.dll"), b.bin("plugins", "DroneFix.dll"), b.bin("plugins", "VeilNet.dll")} {
 		if _, err := os.Stat(p); err != nil {
 			missing = append(missing, p)
 		}

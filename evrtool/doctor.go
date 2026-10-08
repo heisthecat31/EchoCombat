@@ -9,7 +9,7 @@ package main
 //   - is echovr.exe the build the plugins were made for (their hook sites)?
 //   - what is in plugins/ (a dbgcore.dll moved there from another mod, a second
 //     loader, a stray copy of a plugin)
-//   - the end of PowerBoost.log / DroneFix.log
+//   - the end of PowerBoost.log / DroneFix.log / VeilNet.log
 import (
 	"bytes"
 	"crypto/sha256"
@@ -172,6 +172,7 @@ func doctor(game, bundleDir string) {
 	tail(filepath.Join(plugins, "loader.log"), 12)
 	tail(filepath.Join(plugins, "PowerBoost.log"), 8)
 	tail(filepath.Join(plugins, "DroneFix.log"), 4)
+	tail(filepath.Join(plugins, "VeilNet.log"), 8)
 
 	fmt.Println("== scripts (Echo loads script code from bin\\win10\\scripts, not the package)")
 	if bundleDir == "" {

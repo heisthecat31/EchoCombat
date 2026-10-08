@@ -21,7 +21,7 @@
    Echo actually loads script code from.
 4. The DLLs (build_powerboost.bat, build_dronefix.bat, build_loader.bat, with
    MSVC; --no-build installs the committed out/ copies) go into each install:
-   PowerBoost.dll and DroneFix.dll in bin/win10/plugins/, the plugin loader as
+   PowerBoost.dll, DroneFix.dll and VeilNet.dll in bin/win10/plugins/, the plugin loader as
    bin/win10/dbgcore.dll.
 5. Launch the headless instances from the server install, then the VR client
    from the other install.
@@ -89,7 +89,7 @@ SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
 STUN_SCRIPT = "190ed14ff6dc4ad8"
 SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
 WALL_SCRIPT = "ac4e9374a146d3a4"
-#: R15NETPOOLEDACTORQUERYEXPRESSION is transplanted from it into the wall script (networked UMBRAL VEIL)
+#: (no longer used: the networked UMBRAL VEIL once read its params with this script's query)
 QUERY_SCRIPT = "c3178dbdb1250dce"
 HEAL_SCRIPT = "6a0f689e5b91c666"
 BUFF_SCRIPT = "4b65d1b0088d2682"
@@ -334,6 +334,7 @@ def patch_side_package(install: str):
 #: (build script, the DLL it writes to out/, where it goes under bin/win10)
 DLLS = [("build_powerboost.bat", "PowerBoost.dll", os.path.join("plugins", "PowerBoost.dll")),
         ("build_dronefix.bat", "DroneFix.dll", os.path.join("plugins", "DroneFix.dll")),
+        ("build_veilnet.bat", "VeilNet.dll", os.path.join("plugins", "VeilNet.dll")),
         ("build_loader.bat", "dbgcore.dll", "dbgcore.dll")]
 
 
@@ -358,7 +359,7 @@ def is_plugin_loader(data: bytes) -> bool:
 
 
 def install_dlls(install: str):
-    """PowerBoost.dll and DroneFix.dll into bin/win10/plugins/, and the plugin loader as
+    """PowerBoost.dll, DroneFix.dll and VeilNet.dll into bin/win10/plugins/, and the plugin loader as
     bin/win10/dbgcore.dll (echovr.exe loads it at startup; it loads plugins/). A
     dbgcore.dll from another mod is moved into plugins/ so it still loads; an older
     plugin loader is replaced (kept as dbgcore.dll.bak) so nothing loads twice."""

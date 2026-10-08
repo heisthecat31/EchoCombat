@@ -38,9 +38,11 @@ can be equipped, charges, and its use reaches the scripts. This is stage 2:
    The barrier's own flag stays "== shield".
 4. Networked (default): the tac mod graph runs on the user's client only, so
    the smoke script no longer spawns anything itself. It creates the barrier
-   wall as the barrier does, with a marker in the wall's symbol param; the wall
-   script, on every machine, reads it back and turns that wall into the veil
-   (veil_fx.network_wall). --local keeps the old client-only veil.
+   wall as the barrier does, and its custom-param node bumps a counter that
+   VeilNet.dll (plugin/veilnet.cpp) watches: VeilNet tells the server, the server
+   every client, and on every machine the next wall to spawn takes the "veil
+   token" and turns into the veil (veil_fx.network_wall). --local keeps the old
+   client-only veil.
 
     python tools/fix_smoke.py --base <dir with 607d858c90268f9a/> --src <extract root> --out <dir>
 """
@@ -329,19 +331,18 @@ def main(argv) -> int:
     det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()
     networked = not (args.local or args.mailbox)
     if networked:
-        from veil_fx import QUERY_SCRIPT, mark_param, network_wall
+        from veil_fx import mark_param, network_wall
         mz, dmz = barrier.find(b"MZ"), det.find(b"MZ")
         open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(
             barrier[:mz] + mark_param(barrier[mz:]))
         wall = open(os.path.join(args.src, SCRIPTS, WALL_SCRIPT), "rb").read()
-        query = open(os.path.join(args.src, SCRIPTS, QUERY_SCRIPT), "rb").read()
         wmz = wall.find(b"MZ")
         open(os.path.join(args.out, SCRIPTS, WALL_SCRIPT), "wb").write(wall[:wmz] + network_wall(
-            wall[wmz:], query[query.find(b"MZ"):], det[dmz:], count=args.count, scale=args.scale, life=args.life,
+            wall[wmz:], det[dmz:], count=args.count, scale=args.scale, life=args.life,
             spread=args.spread, emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha,
             shade=args.shade))
-        print(f"{SCRIPTS}/{WALL_SCRIPT}: barrier wall script: a wall carrying the veil marker hides, has no "
-              f"collision, and spawns the smoke and sound -- on every machine")
+        print(f"{SCRIPTS}/{WALL_SCRIPT}: barrier wall script: a wall that takes a veil token "
+              f"(VeilNet.dll) hides, has no collision, and spawns the smoke and sound -- on every machine")
     else:
         open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
             barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,
