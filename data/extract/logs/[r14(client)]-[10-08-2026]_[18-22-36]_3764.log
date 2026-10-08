@@ -1,0 +1,791 @@
+[10-08-2026] [18:22:36]: ======= Build: goldmaster 631547 from //rad/rad15_live('r') =======
+[10-08-2026] [18:22:36]: CL Args: echovr  -windowed -noovr 
+[10-08-2026] [18:22:36]: 
+[10-08-2026] [18:22:36]: ---> Starting 7 worker threads in the scheduler.
+[10-08-2026] [18:22:36]: 
+[10-08-2026] [18:22:36]: Initializing enumerate thread: 0000019E351AA2C0
+[10-08-2026] [18:22:36]: Forking enumerate thread: 00007FF67A24FA20 : 0000019E351AA2C0
+[10-08-2026] [18:22:37]: Enabling D3D12 Device Removed Extended Data (DRED)
+[10-08-2026] [18:22:37]: Creating D3D12 device on adapter 'NVIDIA GeForce RTX 5060'
+[10-08-2026] [18:22:37]: Successfully created device.
+[10-08-2026] [18:22:37]: Initializing extensions ...
+[10-08-2026] [18:22:37]: Nvidia driver version: r610_85 (61088)
+[10-08-2026] [18:22:37]: Successfully initialized extensions.
+[10-08-2026] [18:22:37]: Loading global archives
+[10-08-2026] [18:22:37]: Loading archive 0xCB3A93530D07FDC5
+[10-08-2026] [18:22:37]: Loading game archives
+[10-08-2026] [18:22:37]: Initializing renderer
+[10-08-2026] [18:22:37]: Finished initializing engine
+[10-08-2026] [18:22:37]: ### Applying new graphics settings ###
+[10-08-2026] [18:22:37]:     Graphics quality: Custom
+[10-08-2026] [18:22:37]:     Texture quality: Medium
+[10-08-2026] [18:22:37]:     Cascade shadow resolution: 2048
+[10-08-2026] [18:22:37]:     Spot shadow resolution: 768
+[10-08-2026] [18:22:37]:     Shadow MSAA: 4x
+[10-08-2026] [18:22:37]:     Volumetrics: Disabled
+[10-08-2026] [18:22:37]:     Bloom: Disabled
+[10-08-2026] [18:22:37]:     Light Quality: Low
+[10-08-2026] [18:22:37]:     FX Quality: Low
+[10-08-2026] [18:22:37]:     Mesh Quality: Low
+[10-08-2026] [18:22:37]:     MSAA mode: None
+[10-08-2026] [18:22:37]:     TAA: Enabled
+[10-08-2026] [18:22:37]:     Multi-Res: Enabled
+[10-08-2026] [18:22:37]:     Adaptive Res: Disabled
+[10-08-2026] [18:22:37]:     Resolution Scale: 1.100000
+[10-08-2026] [18:22:37]:     Fullscreen: Enabled
+[10-08-2026] [18:22:37]: Loading archive 0xC6BC8607972268C9
+[10-08-2026] [18:22:37]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [18:22:37]: Creating DEMO provider
+[10-08-2026] [18:22:37]: Creating RAD provider
+[10-08-2026] [18:22:37]: Using RAD provider for mic input
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:37]: [NETGAME] Resetting local connection stats
+[10-08-2026] [18:22:37]: [NSUSER] Setting local user data storage directory to C:\Users\lucas\AppData\Local\RAD\EchoVR\users
+[10-08-2026] [18:22:37]: [NETGAME] NetGame switching state (from logged out, to loading root)
+[10-08-2026] [18:22:37]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [18:22:37]: [LEVELLOAD] Loading level '0xAC360E41E4EDE056'
+[10-08-2026] [18:22:37]: [LEVELLOAD] Loading level '0x43934C379CF1E366'
+[10-08-2026] [18:22:37]: No item assignment found for item: 0x7F630C94B0EAFD0B
+[10-08-2026] [18:22:37]: No item assignment found for item: 0x1719C695329F5910
+[10-08-2026] [18:22:37]: [SETTINGS TRANSLATOR] removing feature 'rift'
+[10-08-2026] [18:22:37]: [SETTINGS TRANSLATOR] processing setting 'game|experimentalthrowing'
+[10-08-2026] [18:22:37]: ### Applying new graphics settings ###
+[10-08-2026] [18:22:37]:     Graphics quality: Custom
+[10-08-2026] [18:22:37]:     Texture quality: Medium
+[10-08-2026] [18:22:37]:     Cascade shadow resolution: 2048
+[10-08-2026] [18:22:37]:     Spot shadow resolution: 768
+[10-08-2026] [18:22:37]:     Shadow MSAA: 4x
+[10-08-2026] [18:22:37]:     Volumetrics: Disabled
+[10-08-2026] [18:22:37]:     Bloom: Disabled
+[10-08-2026] [18:22:37]:     Light Quality: Low
+[10-08-2026] [18:22:37]:     FX Quality: Low
+[10-08-2026] [18:22:37]:     Mesh Quality: Low
+[10-08-2026] [18:22:37]:     MSAA mode: None
+[10-08-2026] [18:22:37]:     TAA: Enabled
+[10-08-2026] [18:22:37]:     Multi-Res: Enabled
+[10-08-2026] [18:22:37]:     Adaptive Res: Disabled
+[10-08-2026] [18:22:37]:     Resolution Scale: 1.100000
+[10-08-2026] [18:22:37]:     Fullscreen: Enabled
+[10-08-2026] [18:22:37]: [LEVELLOAD] Finished loading level '0x43934C379CF1E366' in 73 ms
+[10-08-2026] [18:22:37]: [LEVELLOAD] Allocator used: 643288, available: 133574440
+[10-08-2026] [18:22:37]: [LEVELLOAD] Enabling level '0x43934C379CF1E366'
+[10-08-2026] [18:22:37]: [LEVELLOAD] Level '0xAC360E41E4EDE056' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [18:22:37]: '0x05CE113632359CE3' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: '0x90FB42D145CA476B' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: '0xF0B6D16660E5E275' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: '0xE6652937BF86AFC9' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: '0x9D3ED5B9760EEBEF' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: '0x9344B604478E3CBD' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: '0x3EF440AF73ED3A79' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [18:22:37]: [BLACKBOARD] Unable to resolve script actor for blackboard value 0xF565D0591C4B5CDB on actor 0xF6FB648D5664F26A
+[10-08-2026] [18:22:37]: [SETTINGS TRANSLATOR] removing feature 'rift'
+[10-08-2026] [18:22:37]: [SETTINGS TRANSLATOR] processing setting 'game|experimentalthrowing'
+[10-08-2026] [18:22:37]: ### Applying new graphics settings ###
+[10-08-2026] [18:22:37]:     Graphics quality: Custom
+[10-08-2026] [18:22:37]:     Texture quality: Medium
+[10-08-2026] [18:22:37]:     Cascade shadow resolution: 2048
+[10-08-2026] [18:22:37]:     Spot shadow resolution: 768
+[10-08-2026] [18:22:37]:     Shadow MSAA: 4x
+[10-08-2026] [18:22:37]:     Volumetrics: Disabled
+[10-08-2026] [18:22:37]:     Bloom: Disabled
+[10-08-2026] [18:22:37]:     Light Quality: Low
+[10-08-2026] [18:22:37]:     FX Quality: Low
+[10-08-2026] [18:22:37]:     Mesh Quality: Low
+[10-08-2026] [18:22:37]:     MSAA mode: None
+[10-08-2026] [18:22:37]:     TAA: Enabled
+[10-08-2026] [18:22:37]:     Multi-Res: Enabled
+[10-08-2026] [18:22:37]:     Adaptive Res: Disabled
+[10-08-2026] [18:22:37]:     Resolution Scale: 1.100000
+[10-08-2026] [18:22:37]:     Fullscreen: Enabled
+[10-08-2026] [18:22:37]: [CONFIGS] RequestConfig: type=main_menu, id=main_menu
+[10-08-2026] [18:22:37]: ~ Scriptnode can't find actor in gamespace ~
+	Script Actor:     0x710CD6662636E6B8
+	Script:           0x26EBC7ED80EBA931
+	Node Type:        EnableComponentNode
+	Node UUID:        c9971725
+	Target Actor:     0x41D2D7311B3A020C
+	Gamespace:        
+: raduri://0x26EBC7ED80EBA931?elementname=c9971725&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:22:37]: [LEVELLOAD] Finished loading level '0xAC360E41E4EDE056' in 308 ms
+[10-08-2026] [18:22:37]: [LEVELLOAD] Allocator used: 6871192, available: 127346536
+[10-08-2026] [18:22:37]: [LEVELLOAD] Enabling level '0xAC360E41E4EDE056'
+[10-08-2026] [18:22:37]: [SCRIPT] 0xEDC9026F9F7DA90C: Tried to call function Disable externally but concurrent calls were set too low. Increase on FunctionDef node.
+[10-08-2026] [18:22:37]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/config established
+[10-08-2026] [18:22:37]: [NETGAME] Service status request failed: 400 Bad Request
+[10-08-2026] [18:22:38]: [CONFIGS] ConfigSuccessCB: type=0x1509EE27440E1D7B, id=0x1509EE27440E1D7B {"type":"main_menu","splash":{"offseason":{"link":"https://en.wikipedia.org/wiki/Lone_Echo","texture":"ui_menu_splash_screen_poster_a_shutdown_clr"}},"id":"main_menu","news":{"offseason":{"link":"https://en.wikipedia.org/wiki/Lone_Echo","texture":"None"},"sentiment":{"link":"https://en.wikipedia.org/wiki/Lone_Echo","texture":"ui_mnu_news_latest"}},"_ts":0,"splash_version":1,"help_link":"https://en.wikipedia.org/wiki/Lone_Echo","news_link":"https://en.wikipedia.org/wiki/Lone_Echo","discord_link":"https://en.wikipedia.org/wiki/Lone_Echo"}
+[10-08-2026] [18:22:38]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [18:22:38]: [NSUSER] Creating user DMO-3296391650685316405
+[10-08-2026] [18:22:38]: [NETGAME] Logging in...
+[10-08-2026] [18:22:38]: [LOGIN] Logging in DMO-3296391650685316405: {"displayname":"demo [192.168.1.157:0]","publisher_lock":"rad15_live","bypassauth":true,"lobbyversion":1680630467,"system_info":{"headset_type":"No VR","cpu":"AMD Ryzen 7 5700X 8-Core Processor             ","driver_version":"r610_85 (61088)","network_type":"Ethernet","video_card":"NVIDIA GeForce RTX 5060","num_physical_cores":8,"num_logical_cores":16,"memory_total":32,"memory_used":12749,"dedicated_gpu_memory":7896},"desiredclientprofileversion":0}
+[10-08-2026] [18:22:38]: [NETGAME] NetGame switching state (from loading root, to logging in)
+[10-08-2026] [18:22:38]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName established
+[10-08-2026] [18:22:38]: [NSUSER] LoginId: 0D4FB429-3E1C-C80A-7CAB-4186239A1C72:
+
+[10-08-2026] [18:22:38]: [NSUSER] Login settings received: {"iap_unlocked":false,"remote_log_social":false,"remote_log_warnings":false,"remote_log_errors":false,"remote_log_rich_presence":false,"remote_log_metrics":true,"env":"live","matchmaker_queue_mode":"disabled","config_data":{}}
+[10-08-2026] [18:22:38]: [PROFILE] Getting logged in user DMO-3296391650685316405's profile: {"defaultclientprofileid":"default","defaultserverprofileid":"default_new_item_types","unlocksetids":{"all":{}},"statgroupids":{"arena":{},"daily_2026_10_08":{},"arena_practice_ai":{},"arena_public_ai":{},"combat":{},"weekly_2026_10_05":{}}}
+[10-08-2026] [18:22:38]: [DOCUMENTS] Requesting document (eula)
+[10-08-2026] [18:22:38]: [DEBUGPRINT] [MENU_GAME_ADMINS_PAGES] EULA is missing text_ga
+[10-08-2026] [18:22:38]: [NSUSER] loaded C:\Users\lucas\AppData\Local\RAD\EchoVR\users\DMO\demoprofile.json: {"social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF"},"legal":{"eula_version":1,"points_policy_version":1,"game_admin_version":1786950021,"splash_screen_version":2}}
+[10-08-2026] [18:22:38]: [NSUSER] applied demo profile changes: {"social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF"},"legal":{"points_policy_version":1,"eula_version":1,"splash_screen_version":2,"game_admin_version":1786950021}}
+[10-08-2026] [18:22:38]: [NSUSER] saved C:\Users\lucas\AppData\Local\RAD\EchoVR\users\DMO\demoprofile.json: {"social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF"},"legal":{"points_policy_version":1,"eula_version":1,"splash_screen_version":2,"game_admin_version":1786950021}}
+[10-08-2026] [18:22:38]: [NETGAME] NetGame switching state (from logging in, to logged in)
+[10-08-2026] [18:22:38]: [DOCUMENTS] Document received (0xC8C33E483F6612B1) {"type":"eula","lang":"en","link_cc":"https://en.wikipedia.org/wiki/Lone_Echo","mark_as_read_profile_key":"legal|eula_version","version":1,"link_pp":"https://en.wikipedia.org/wiki/Lone_Echo","version_ga":1,"mark_as_read_profile_key_ga":"legal|game_admin_version","text":"Warning: This is an unofficial server. By continuing, you indicate your connection is intentional, for legal personal research purposes.","text_ga":"Unofficial server operators have visibility into game traffic, while players with authorized Game Admin roles may act as spectators or moderators to observe player interactions.","link_ec":"https://en.wikipedia.org/wiki/Lone_Echo","link_cp":"https://en.wikipedia.org/wiki/Lone_Echo","link_vr":"https://en.wikipedia.org/wiki/Lone_Echo","link_ea":"https://en.wikipedia.org/wiki/Lone_Echo","link_ga":"https://en.wikipedia.org/wiki/Lone_Echo","link_tc":"https://en.wikipedia.org/wiki/Lone_Echo"}
+[10-08-2026] [18:22:38]: [NSUSER] sent profile update: {}
+[10-08-2026] [18:22:38]: [NSUSER] saved C:\Users\lucas\AppData\Local\RAD\EchoVR\users\DMO\demoprofile.json: {"social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF"},"legal":{"points_policy_version":1,"eula_version":1,"splash_screen_version":2,"game_admin_version":1786950021}}
+[10-08-2026] [18:22:38]: [SOCIALGROUPS] Social lobby group info received
+[10-08-2026] [18:22:38]: [SOCIALGROUPS] active group = THE PLAYGROUND
+[10-08-2026] [18:22:38]: [NSUSER] profile update succeeded
+[10-08-2026] [18:22:43]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/config closed
+[10-08-2026] [18:22:59]: [DEBUGPRINT] PickRandomTip: context = 0x41D2C432172E0810
+[10-08-2026] [18:22:59]: Beginning multiplayer
+[10-08-2026] [18:22:59]: [NETGAME] Resetting player data
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [18:22:59]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [18:22:59]: [NSLOBBY] loading matchmaking library 'pnsradmatchmaking'
+[10-08-2026] [18:22:59]: [NETGAME] NetGame switching state (from logged in, to loading global)
+[10-08-2026] [18:22:59]: Ending multiplayer gameplay
+[10-08-2026] [18:22:59]: [NETGAME] Resetting local connection stats
+[10-08-2026] [18:22:59]: [NETGAME] AFK detection enabled (by init)
+[10-08-2026] [18:22:59]: Loading default camera data
+[10-08-2026] [18:22:59]: [NETGAME] Initializing HTTP API
+[10-08-2026] [18:22:59]: [NETGAME] Failed to bind HTTP listener to 127.0.0.1:6721
+[10-08-2026] [18:22:59]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [18:22:59]: [LEVELLOAD] Loading level '0x3F9915D3001DC28E'
+[10-08-2026] [18:23:00]: [LEVELLOAD] Level '0x3F9915D3001DC28E' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [18:23:00]: CDialogue2CS in level 0x3F9915D3001DC28E could not find CSubtitleCS.
+[10-08-2026] [18:23:00]: List element 0x097E30913F760259 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F76025A in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F76025B in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F760254 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F760255 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA29550A in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA29550B in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA295508 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA295509 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA29550E in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F760259 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F76025A in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F76025B in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F760254 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x097E30913F760255 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA29550A in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA29550B in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA295508 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA295509 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:00]: List element 0x0FA085F6EA29550E in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [18:23:01]: [DEBUGPRINT]  [ARM COMPUTER] Closing social controls
+[10-08-2026] [18:23:01]: [NETGAME] Unknown player 0xffffffff checking for emote play
+[10-08-2026] [18:23:01]: [NETGAME] Unknown player 0xffffffff checking for emote play
+[10-08-2026] [18:23:01]: Ran out of pooled objective markers, contact a programmer.
+[10-08-2026] [18:23:01]: [LEVELLOAD] Finished loading level '0x3F9915D3001DC28E' in 1016 ms
+[10-08-2026] [18:23:01]: [LEVELLOAD] Allocator used: 49472072, available: 84745656
+[10-08-2026] [18:23:01]: [NETGAME] NetGame switching state (from loading global, to lobby)
+[10-08-2026] [18:23:01]: [NETGAME] Find social lobby '0x042D9CF9CFDDCF76'
+[10-08-2026] [18:23:01]: [NETGAME] Requesting search for a public session of gametype 0x042D9CF9CFDDCF76, level , group 90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF
+[10-08-2026] [18:23:01]: [NETGAME] NetClientLobby switching state (from idle, to finding)
+[10-08-2026] [18:23:01]: [NSLOBBY] requesting find session with version 0xC62F01D78F77910D
+[10-08-2026] [18:23:01]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/matching established
+[10-08-2026] [18:23:01]: received ping request for 2 servers
+[10-08-2026] [18:23:01]: server [217.142.21.215:6793] external ping canceled
+[10-08-2026] [18:23:01]: server [217.142.21.215:6793] final ping 17ms
+[10-08-2026] [18:23:01]: [NSLOBBY] received lobby session success
+[10-08-2026] [18:23:01]: [NETGAME] NetClientLobby switching state (from finding, to joining lobby)
+[10-08-2026] [18:23:01]: [NSLOBBY] attempting connection to server [217.142.21.215:6793]
+[10-08-2026] [18:23:01]: [SYSNET] Setting low latency option for peer [217.142.21.215:6793]
+[10-08-2026] [18:23:01]: [SYSNET] Setting low latency option for peer [192.168.1.157:6793]
+[10-08-2026] [18:23:01]: [NSLOBBY] requesting 1 player session in game session {BA04F721-5AD5-0A63-3A2A-75AF2498539E}
+[10-08-2026] [18:23:01]: [NSLOBBY] connected to internal host peer [192.168.1.157:6793]
+[10-08-2026] [18:23:01]: [NSLOBBY] destroying candidate host peer [217.142.21.215:6793]
+[10-08-2026] [18:23:01]: R14NetClient: Destroy Peer 0 [217.142.21.215:6793] (disconnected), max send interval: 12700, rcvd: 0
+[10-08-2026] [18:23:01]: [NSLOBBY] received player sessions success for 1 players
+[10-08-2026] [18:23:01]: [NSLOBBY] requesting to join server with 1 players
+[10-08-2026] [18:23:01]: [NSLOBBY] received join setup
+[10-08-2026] [18:23:01]: [NSLOBBY] received join accepted for 1 entrants
+[10-08-2026] [18:23:01]: [NETGAME] NetClientLobby switching state (from joining lobby, to joined)
+[10-08-2026] [18:23:01]: [NETGAME] LobbyJoinAcceptedCB
+[10-08-2026] [18:23:01]: [NETGAME] Adding player user to slot 1, idx 0
+[10-08-2026] [18:23:01]: Creating encoder with bitrate of 24000
+[10-08-2026] [18:23:01]: [NET SOCIAL] User AccountName [DEMO] joined - local player all ghosted False, user ghosted in profile False
+[10-08-2026] [18:23:01]: [NETGAME] Adding remote user to slot 0, idx 1
+[10-08-2026] [18:23:01]: [NETGAME] Player Actor Allocating '0x9E65216FB71012F2'
+[10-08-2026] [18:23:01]: [NET SOCIAL] User AccountName joined - local player all ghosted False, user ghosted in profile False
+[10-08-2026] [18:23:01]: [NETGAME] User 'AccountName' participating
+[10-08-2026] [18:23:01]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [18:23:01]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [18:23:01]: [NETGAME] 	User Index             : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Team Slot              : 16
+[10-08-2026] [18:23:01]: [NETGAME] 	Team ID                : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Actor                  : 0x9E65216FB71012F2 (enabled)  (pooled)
+[10-08-2026] [18:23:01]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:01]: [NETGAME] 	In VR                  : true
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadouts               : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadout Number         : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:01]: Resetting player data ???-0 (slot: 0)
+[10-08-2026] [18:23:01]: [PROFILE] Getting other user OVR-ORG-14387's profile: {"statgroupids":{"arena":{},"arena_practice_ai":{},"daily_2026_10_08":{},"arena_public_ai":{},"combat":{},"weekly_2026_10_05":{}}}
+[10-08-2026] [18:23:01]: [NETGAME] Loading map '0xD09AFD15B1C75C04'
+[10-08-2026] [18:23:01]: [NETGAME] NetGame switching state (from lobby, to loading level)
+[10-08-2026] [18:23:01]: [LEVELLOAD] Loading level '0x4D82118C7C91B6BB'
+[10-08-2026] [18:23:01]: [NETGAME] Entrant Data Changed (slot: 1)
+[10-08-2026] [18:23:01]: [NETGAME] Entrant Data Changed (slot: 1)
+[10-08-2026] [18:23:01]: [NETGAME] Entrant Data Changed (slot: 1)
+[10-08-2026] [18:23:01]: [NETGAME] Profile received for 'OVR-ORG-14387'
+[10-08-2026] [18:23:01]: [NETGAME] Applying loadout items for user AccountName
+[10-08-2026] [18:23:01]: [NETGAME] Load and apply 0xCA4CC178F3707385 for user AccountName
+[10-08-2026] [18:23:01]: [NETGAME] Load and apply 0x84615A707AF5CE20 for user AccountName
+[10-08-2026] [18:23:01]: [NETGAME] Load and apply 0x65535200CF6EC196 for user AccountName
+[10-08-2026] [18:23:01]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [18:23:01]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [18:23:01]: [NETGAME] 	User Index             : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Team Slot              : 16
+[10-08-2026] [18:23:01]: [NETGAME] 	Team ID                : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Actor                  : 0x9E65216FB71012F2 (enabled)  (pooled)
+[10-08-2026] [18:23:01]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:01]: [NETGAME] 	In VR                  : true
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:01]: [LEVELLOAD] Level '0x4D82118C7C91B6BB' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [18:23:01]: [BLACKBOARD] Unable to resolve script actor for blackboard value 0xF565D0591C4B5CDB on actor 0x8FC4E87041FD4411
+[10-08-2026] [18:23:01]: [LEVELLOAD] Finished loading level '0x4D82118C7C91B6BB' in 73 ms
+[10-08-2026] [18:23:01]: [LEVELLOAD] Allocator used: 4875336, available: 129342392
+[10-08-2026] [18:23:01]: [LEVELLOAD] Loading level '0xD09AFD15B1C75C04'
+[10-08-2026] [18:23:01]: [NETGAME] ServerInfoCB
+[10-08-2026] [18:23:01]: [NETGAME] 	Server ID         : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Server Location   : RAD office
+[10-08-2026] [18:23:01]: [NETGAME] 	Server Country    : US West
+[10-08-2026] [18:23:01]: [NSLOBBY] entrant 1 changed from team 65535 to team 3
+[10-08-2026] [18:23:01]: [NETGAME] LobbyOwnerDataChangedCB
+[10-08-2026] [18:23:01]: [NETGAME] User 'AccountName [DEMO]' participating
+[10-08-2026] [18:23:01]: [NETGAME] 	Name                   : AccountName [DEMO]
+[10-08-2026] [18:23:01]: [NETGAME] 	XPlatformID            : DMO-3296391650685316405
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID                 : [1, 0]
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID Hex             : 0x00000001
+[10-08-2026] [18:23:01]: [NETGAME] 	User Index             : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	User Slot              : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Team Slot              : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:01]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Actor                  : 0x118D53732E37FF19 (enabled) 
+[10-08-2026] [18:23:01]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:01]: [NETGAME] 	In VR                  : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:01]: [TEAM] AccountName [DEMO] | Team Bits 0xffffffff | Untargetable Bits 0xffffffff | Alignment 65535
+[10-08-2026] [18:23:01]: [NETGAME] New user settings for 'AccountName [DEMO]' after team [3] settings applied
+[10-08-2026] [18:23:01]: [NETGAME] 	Team (3) new team count (1)
+[10-08-2026] [18:23:01]: [NETGAME] 	Name                   : AccountName [DEMO]
+[10-08-2026] [18:23:01]: [NETGAME] 	XPlatformID            : DMO-3296391650685316405
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID                 : [1, 0]
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID Hex             : 0x00000001
+[10-08-2026] [18:23:01]: [NETGAME] 	User Index             : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	User Slot              : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Team Slot              : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:01]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Actor                  : 0x118D53732E37FF19 (enabled) 
+[10-08-2026] [18:23:01]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:01]: [NETGAME] 	In VR                  : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:01]: [NETGAME] User 'AccountName' participating
+[10-08-2026] [18:23:01]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [18:23:01]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [18:23:01]: [NETGAME] 	User Index             : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Team Slot              : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:01]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Actor                  : 0x9E65216FB71012F2 (enabled)  (pooled)
+[10-08-2026] [18:23:01]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:01]: [NETGAME] 	In VR                  : true
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:01]: [TEAM] AccountName | Team Bits 0xffffffff | Untargetable Bits 0xffffffff | Alignment 65535
+[10-08-2026] [18:23:01]: [NETGAME] New user settings for 'AccountName' after team [3] settings applied
+[10-08-2026] [18:23:01]: [NETGAME] 	Team (3) new team count (2)
+[10-08-2026] [18:23:01]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [18:23:01]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [18:23:01]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [18:23:01]: [NETGAME] 	User Index             : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Team Slot              : 0
+[10-08-2026] [18:23:01]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:01]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:01]: [NETGAME] 	Actor                  : 0x9E65216FB71012F2 (enabled)  (pooled)
+[10-08-2026] [18:23:01]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:01]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:01]: [NETGAME] 	In VR                  : true
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:01]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:01]: [NETGAME] Applying loadout items for user AccountName
+[10-08-2026] [18:23:01]: [NETGAME] Entrant Data Changed (slot: 0)
+[10-08-2026] [18:23:02]: [LEVELLOAD] Level '0xD09AFD15B1C75C04' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [18:23:02]: [NETID] Level '0xD09AFD15B1C75C04' waiting for ids
+[10-08-2026] [18:23:02]: [NETID] Level '0xD09AFD15B1C75C04' received ids
+[10-08-2026] [18:23:02]: [NETID] Level '0xD09AFD15B1C75C04' waiting for ids
+[10-08-2026] [18:23:02]: [NETID] Level '0xD09AFD15B1C75C04' received ids
+[10-08-2026] [18:23:02]: [BALANCE] Level '0xD09AFD15B1C75C04' waiting for initial settings
+[10-08-2026] [18:23:02]: [BALANCE] Level '0xD09AFD15B1C75C04' received initial settings
+[10-08-2026] [18:23:02]: More than one R15NetPackageDownload component found.
+[10-08-2026] [18:23:02]: CDialogue2CS in level 0xD09AFD15B1C75C04 could not find CSubtitleCS.
+[10-08-2026] [18:23:04]: List element 0x8525325F077517B4 in page 0xD640F184F154C32A (canvas 0x4ABDE06702765448) is extraneous - disabling
+[10-08-2026] [18:23:05]: [DEBUGPRINT] [WILLIAM]: Route 3
+[10-08-2026] [18:23:05]: ~ R15NetEquippedItemExpression has an invalid slot name ~
+	Script:           0x5AF8D2C64A37B4FA
+	Node UUID:        5fa70bfa
+: raduri://0x5AF8D2C64A37B4FA?elementname=5fa70bfa&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:05]: [CANVASUI] Cannot find canvas element  on canvas 0x5AF8D2C64A37B4FA from component 0x35EC9A0128EC916F (actor 0x8A19221EB4DE5FC2)
+[10-08-2026] [18:23:05]: Cannot find element  in canvas component  on actor 0x8A19221EB4DE5FC2: raduri://0x5AF8D2C64A37B4FA?elementname=5fa70bfa&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:05]: ~ R15NetEquippedItemExpression has an invalid slot name ~
+	Script:           0x58FCC84E67212EE8
+	Node UUID:        2872017b
+: raduri://0x58FCC84E67212EE8?elementname=2872017b&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:05]: [CANVASUI] Cannot find canvas element  on canvas 0x58FCC84E67212EE8 from component 0x35EC9A0128EC916F (actor 0x293A30EF9B0D95A7)
+[10-08-2026] [18:23:05]: Cannot find element  in canvas component  on actor 0x293A30EF9B0D95A7: raduri://0x58FCC84E67212EE8?elementname=2872017b&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:05]: ~ R15NetEquippedItemExpression has an invalid slot name ~
+	Script:           0x3EE08C9484F73858
+	Node UUID:        3923343f
+: raduri://0x3EE08C9484F73858?elementname=3923343f&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:05]: [CANVASUI] Cannot find canvas element  on canvas 0x3EE08C9484F73858 from component 0x35EC9A0128EC916F (actor 0xDA273FA0E7732491)
+[10-08-2026] [18:23:05]: Cannot find element  in canvas component  on actor 0xDA273FA0E7732491: raduri://0x3EE08C9484F73858?elementname=3923343f&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:05]: [NETGAME] Applying loadout items for user AccountName [DEMO] To Actor 0x2385B7622AA1190D
+[10-08-2026] [18:23:05]: [NETGAME] Load and apply 0xCA4CC178F3707385 for user [INVALID]
+[10-08-2026] [18:23:05]: [NETGAME] Load and apply 0x84615A707AF5CE20 for user [INVALID]
+[10-08-2026] [18:23:05]: [NETGAME] Load and apply 0x65535200CF6EC196 for user [INVALID]
+[10-08-2026] [18:23:05]: R14StandardPOICI cannot find another actor/component:
+	Source Actor: 0x7708A9D0E2A91F33
+	Source Component: 0x48792E387629A705
+	Target Actor: 0x6F55DA97EED75904
+	Target Component: 0xD76D94C01C800834
+[10-08-2026] [18:23:05]: [NETVAR] Level '0xD09AFD15B1C75C04' waiting for initial vars
+[10-08-2026] [18:23:05]: [NETVAR] Level '0xD09AFD15B1C75C04' received initial vars
+[10-08-2026] [18:23:05]: [LEVELLOAD] Finished loading level '0xD09AFD15B1C75C04' in 3673 ms
+[10-08-2026] [18:23:05]: [LEVELLOAD] Allocator used: 22083376, available: 112134352
+[10-08-2026] [18:23:05]: [LEVELLOAD] Loading level '0x6DAA00A6D33D44B7'
+[10-08-2026] [18:23:05]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/transaction established
+[10-08-2026] [18:23:05]: Reconcile IAP: No Errors
+[10-08-2026] [18:23:05]: Reconcile IAP returned balance 0
+[10-08-2026] [18:23:05]: Reconcile IAP returned transactionid 1
+[10-08-2026] [18:23:05]: No consumed skus
+[10-08-2026] [18:23:05]: Allocating large upload buffer for resource with size 74 MB
+[10-08-2026] [18:23:05]: [LEVELLOAD] Level '0x6DAA00A6D33D44B7' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [18:23:05]: [NETID] Level '0x6DAA00A6D33D44B7' waiting for ids
+[10-08-2026] [18:23:05]: [NETID] Level '0x6DAA00A6D33D44B7' received ids
+[10-08-2026] [18:23:05]: [NETID] Level '0x6DAA00A6D33D44B7' waiting for ids
+[10-08-2026] [18:23:05]: [NETID] Level '0x6DAA00A6D33D44B7' received ids
+[10-08-2026] [18:23:05]: [DEBUGPRINT] PickRandomTip: context = 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:05]: [LOADING TIPS] Couldn't find any tips with context 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:05]: [LOADING TIPS] Current tip is null, need to pick a tip or pass a valid context
+[10-08-2026] [18:23:06]: [LOADING TIPS] Couldn't find any tips with context 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:06]: [LOADING TIPS] Current tip is null, need to pick a tip or pass a valid context
+[10-08-2026] [18:23:06]: [LOADING TIPS] Couldn't find any tips with context 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:06]: [LEVELLOAD] Finished loading level '0x6DAA00A6D33D44B7' in 1579 ms
+[10-08-2026] [18:23:06]: [LEVELLOAD] Allocator used: 4638232, available: 129579496
+[10-08-2026] [18:23:06]: [LEVELLOAD] Loading level '0xCB9977F7FC2B4526'
+[10-08-2026] [18:23:07]: Allocating large upload buffer for resource with size 64 MB
+[10-08-2026] [18:23:07]: [LEVELLOAD] Level '0xCB9977F7FC2B4526' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [18:23:07]: [NETID] Level '0xCB9977F7FC2B4526' waiting for ids
+[10-08-2026] [18:23:07]: [NETID] Level '0xCB9977F7FC2B4526' received ids
+[10-08-2026] [18:23:07]: [NETID] Level '0xCB9977F7FC2B4526' waiting for ids
+[10-08-2026] [18:23:07]: [NETID] Level '0xCB9977F7FC2B4526' received ids
+[10-08-2026] [18:23:12]: [DEBUGPRINT] PickRandomTip: context = 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:12]: [LOADING TIPS] Couldn't find any tips with context 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:12]: [LOADING TIPS] Current tip is null, need to pick a tip or pass a valid context
+[10-08-2026] [18:23:12]: [LOADING TIPS] Couldn't find any tips with context 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:12]: [LOADING TIPS] Current tip is null, need to pick a tip or pass a valid context
+[10-08-2026] [18:23:12]: [LOADING TIPS] Couldn't find any tips with context 0xDF7238DE0B6103B8
+[10-08-2026] [18:23:13]: [LEVELLOAD] Finished loading level '0xCB9977F7FC2B4526' in 7109 ms
+[10-08-2026] [18:23:13]: [LEVELLOAD] Allocator used: 67231960, available: 66985768
+[10-08-2026] [18:23:13]: [NETGAME] NetGame switching state (from loading level, to ready for game)
+[10-08-2026] [18:23:14]: [NETGAME] NetGame switching state (from ready for game, to in game)
+[10-08-2026] [18:23:14]: Beginning multiplayer gameplay
+[10-08-2026] [18:23:14]: [LEVELLOAD] Disabling level '0xAC360E41E4EDE056'
+[10-08-2026] [18:23:14]: [LEVELLOAD] Enabling level '0xD09AFD15B1C75C04'
+[10-08-2026] [18:23:14]: [LEVELLOAD] Enabling level '0x3F9915D3001DC28E'
+[10-08-2026] [18:23:14]: [NET SOCIAL] User AccountName enabled - local player all ghosted False, user ghosted in profile False
+[10-08-2026] [18:23:14]: [NET SOCIAL] User AccountName [DEMO] enabled - local player all ghosted False, user ghosted in profile False
+[10-08-2026] [18:23:14]: [NETGAME] Applying loadout items for user AccountName
+[10-08-2026] [18:23:14]: [NETGAME] Applying loadout items for user AccountName [DEMO]
+[10-08-2026] [18:23:14]: [NETGAME] Load and apply 0xCA4CC178F3707385 for user AccountName [DEMO]
+[10-08-2026] [18:23:14]: [NETGAME] Load and apply 0x84615A707AF5CE20 for user AccountName [DEMO]
+[10-08-2026] [18:23:14]: [NETGAME] Load and apply 0x65535200CF6EC196 for user AccountName [DEMO]
+[10-08-2026] [18:23:14]: [NETGAME] NetClientLobby switching state (from joined, to in game)
+[10-08-2026] [18:23:14]: [DEBUGPRINT] Unable to update progress panel due to invalid echo pass data
+[10-08-2026] [18:23:14]: [DEBUGPRINT] Unable to update offseason panel due to invalid echo pass data
+[10-08-2026] [18:23:14]: [DEBUGPRINT] Unable to update progress panel due to invalid echo pass data
+[10-08-2026] [18:23:14]: [CANVASUI] Cannot find canvas element  on canvas 0x2E5174B86CBAAE18 from component 0x35EC9A0128EC916F (actor 0xD8BEAC9C1179F847)
+[10-08-2026] [18:23:14]: Cannot find element  in canvas component 0x35EC9A0128EC916F on actor 0xD8BEAC9C1179F847: raduri://0x28B99597505A5F16?elementname=9b913f48&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:14]: [CANVASUI] Cannot find canvas element 0xCAADDA7905A3D78E on canvas 0x207A6ACCC8F80E9E from component 0x35EC9A0128EC916F (actor 0x4ADCDC492B8E9040)
+[10-08-2026] [18:23:14]: CScrollablePageScrollNode cannot find element 0xCAADDA7905A3D78E on actor 0x4ADCDC492B8E9040 (0x35EC9A0128EC916F): raduri://0x1703A89B7EBECDA1?elementname=9e6b6c50&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:14]: [NETGAME] Cannot stop sound preview on actor 'AccountName [DEMO]' since active sound handle doesn't exist
+[10-08-2026] [18:23:14]: [NETGAME] Cannot stop sound preview on actor 'AccountName [DEMO]' since active sound handle doesn't exist
+[10-08-2026] [18:23:14]: [NETGAME] Cannot stop sound preview on actor 'AccountName [DEMO]' since active sound handle doesn't exist
+[10-08-2026] [18:23:14]: [NETGAME] Applying loadout items for user AccountName [DEMO] To Actor 0x45084B8C7613E8B4
+[10-08-2026] [18:23:14]: [NETGAME] Applying loadout items for user AccountName [DEMO] To Actor 0x45084B8C7613E8B4
+[10-08-2026] [18:23:14]: [NETGAME] Applying loadout items for user AccountName [DEMO] To Actor 0x45084B8C7613E8B4
+[10-08-2026] [18:23:14]: [POINTER INTERFACE] Unable to find a valid active pointer component from pointer component system in gamespace 0x3F9915D3001DC28E
+[10-08-2026] [18:23:14]: [TEXT RESIZE] Unable to change font size for string of length 0 on element 0xA8452DE53657BD6E (canvas 0x3EE08C9484F73858)
+[10-08-2026] [18:23:14]: [TEXT RESIZE] Unable to change font size for string of length 0 on element 0x41D2D3380237384E (canvas 0x646818ADD10DB778)
+[10-08-2026] [18:23:14]: [LEVELLOAD] Enabling level '0xCB9977F7FC2B4526'
+[10-08-2026] [18:23:14]: [LEVELLOAD] Enabling level '0x6DAA00A6D33D44B7'
+[10-08-2026] [18:23:14]: [NETGAME] Entrant Data Changed (slot: 1)
+[10-08-2026] [18:23:14]: [NETGAME] User DMO-3296391650685316405 (AccountName [DEMO]) spawned
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for unlock level for unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for arena unlock level for unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for combat unlock level for unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: ~ R15NetEquippedItemExpression has an invalid slot name ~
+	Script:           0xF762837DB44BC4EA
+	Node UUID:        6f6b612d
+: raduri://0xF762837DB44BC4EA?elementname=6f6b612d&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for unlock level for unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for arena unlock level for unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for combat unlock level for unknown item 
+[10-08-2026] [18:23:14]: [TEXT RESIZE] Unable to change font size for string of length 0 on element 0xAD61746A255453C3 (canvas 0xF762837DB44BC4EA)
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Looking for purchased status of unknown item 
+[10-08-2026] [18:23:14]: [NETGAME] Cannot stop sound preview on actor 'AccountName [DEMO]' since active sound handle doesn't exist
+[10-08-2026] [18:23:14]: [NETGAME] Applying loadout items for user AccountName [DEMO] To Actor 0x45084B8C7613E8B4
+[10-08-2026] [18:23:14]: [NETGAME] Pattern item (0x33AF221B66BAE2EE), is missing _bsk texture refrence
+[10-08-2026] [18:23:14]: [NETGAME] Pattern item (0x33AF221B66BAE2EE), is missing _bsk texture refrence
+[10-08-2026] [18:23:14]: [NETGAME] Apply Booster 0x84615A707AF5CE20 for user AccountName
+[10-08-2026] [18:23:14]: [NETGAME] Apply Chassis 0xCA4CC178F3707385 for user AccountName
+[10-08-2026] [18:23:14]: Starting model swap from 0xDAC6537A23236325 to 0xDAC6537A23236325
+[10-08-2026] [18:23:14]: [NETGAME] Apply Chassis 0xCA4CC178F3707385 for user AccountName [DEMO]
+[10-08-2026] [18:23:14]: Starting model swap from 0x0BC70D64A78BCDCC to 0x0BC70D64A78BCDCC
+[10-08-2026] [18:23:14]: [NETGAME] Entrant Data Changed (slot: 1)
+[10-08-2026] [18:23:14]: [DEBUGPRINT]  [ARM COMPUTER] Closing social controls
+[10-08-2026] [18:23:14]: ~ CApplyLevelSettingsNode is already active, so this is ignored: ~
+	Script:           0x4C7060D58275F6B0
+	Node UUID:        d594a350
+	Level:            0xCB9977F7FC2B4526
+	LockID:           1785763089208: raduri://0x4C7060D58275F6B0?elementname=d594a350&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:14]: ~ CApplyLevelSettingsNode is already active, so this is ignored: ~
+	Script:           0x4C7060D58275F6B0
+	Node UUID:        d594a350
+	Level:            0xD09AFD15B1C75C04
+	LockID:           1784667798712: raduri://0x4C7060D58275F6B0?elementname=d594a350&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:19]: [NETGAME] User 'AccountName [DEMO]' playing emote '0x951368423D93B091'
+[10-08-2026] [18:23:19]: [NETGAME] PlayEmoteCB for user AccountName [DEMO]
+[10-08-2026] [18:23:29]: [R15GAME] Swapping the player with '0xF1E70ACD0DDE0312'
+[10-08-2026] [18:23:29]: [NET SOCIAL] User AccountName [DEMO] enabled - local player all ghosted False, user ghosted in profile False
+[10-08-2026] [18:23:29]: [NETGAME] Applying loadout items for user AccountName [DEMO]
+[10-08-2026] [18:23:29]: [NETGAME] Pattern item (0x33AF221B66BAE2EE), is missing _bsk texture refrence
+[10-08-2026] [18:23:29]: [NETGAME] Apply Chassis 0xCA4CC178F3707385 for user AccountName [DEMO]
+[10-08-2026] [18:23:29]: Starting model swap from 0x0BC70D64A78BCDCC to 0x0BC70D64A78BCDCC
+[10-08-2026] [18:23:29]: [NETGAME] User 'AccountName [DEMO]' participating
+[10-08-2026] [18:23:29]: [NETGAME] 	Name                   : AccountName [DEMO]
+[10-08-2026] [18:23:29]: [NETGAME] 	XPlatformID            : DMO-3296391650685316405
+[10-08-2026] [18:23:29]: [NETGAME] 	UserID                 : [1, 0]
+[10-08-2026] [18:23:29]: [NETGAME] 	UserID Hex             : 0x00000001
+[10-08-2026] [18:23:29]: [NETGAME] 	User Index             : 0
+[10-08-2026] [18:23:29]: [NETGAME] 	User Slot              : 1
+[10-08-2026] [18:23:29]: [NETGAME] 	Team Slot              : 1
+[10-08-2026] [18:23:29]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:29]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:29]: [NETGAME] 	Actor                  : 0x13983255EE1DBCBE (enabled) 
+[10-08-2026] [18:23:29]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:29]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:29]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:29]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:29]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:29]: [NETGAME] 	In VR                  : false
+[10-08-2026] [18:23:29]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:29]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:29]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:29]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:29]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:29]: [NETGAME] Applying loadout items for user AccountName [DEMO]
+[10-08-2026] [18:23:29]: [NETGAME] Entrant Data Changed (slot: 1)
+[10-08-2026] [18:23:29]: [CANVASUI] Cannot find canvas element 0x2CB3DA4E171B6871 on canvas 0x13361C4773E07B3E from component 0xE55AF932C88EC864 (actor 0x13983255EE1DBCBE)
+[10-08-2026] [18:23:29]: ~ Scriptnode (SetAlphaUINode) can't find canvas ui item ~
+	Script:           0x500851025E2A0BEE
+	Node Type:        CCanvasUICS
+	Node UUID:        2159d2d9
+	Actor:            0x41D2D7311B3A020C
+	Component Name:   0xE55AF932C88EC864
+	Item:             0x2CB3DA4E171B6871
+: raduri://0x500851025E2A0BEE?elementname=2159d2d9&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:29]: ~ CApplyLevelSettingsNode is already active, so this is ignored: ~
+	Script:           0x4C7060D58275F6B0
+	Node UUID:        d594a350
+	Level:            0x6DAA00A6D33D44B7
+	LockID:           1784680673496: raduri://0x4C7060D58275F6B0?elementname=d594a350&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:29]: ~ CApplyLevelSettingsNode is already active, so this is ignored: ~
+	Script:           0x4C7060D58275F6B0
+	Node UUID:        d594a350
+	Level:            0xD09AFD15B1C75C04
+	LockID:           1784667801112: raduri://0x4C7060D58275F6B0?elementname=d594a350&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:29]: [CANVASUI] Cannot find canvas element 0x2CB3DA4E171B6871 on canvas 0x13361C4773E07B3E from component 0xE55AF932C88EC864 (actor 0x13983255EE1DBCBE)
+[10-08-2026] [18:23:29]: ~ CApplyLevelSettingsNode is already active, so this is ignored: ~
+	Script:           0x4C7060D58275F6B0
+	Node UUID:        d594a350
+	Level:            0xCB9977F7FC2B4526
+	LockID:           1785763088408: raduri://0x4C7060D58275F6B0?elementname=d594a350&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:29]: ~ Scriptnode (SetAlphaUINode) can't find canvas ui item ~
+	Script:           0x500851025E2A0BEE
+	Node Type:        CCanvasUICS
+	Node UUID:        2159d2d9
+	Actor:            0x41D2D7311B3A020C
+	Component Name:   0xE55AF932C88EC864
+	Item:             0x2CB3DA4E171B6871
+: raduri://0x500851025E2A0BEE?elementname=2159d2d9&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:29]: [NETGAME] User 'AccountName [DEMO]' playing emote '0x951368423D93B091'
+[10-08-2026] [18:23:29]: [NETGAME] PlayEmoteCB for user AccountName [DEMO]
+[10-08-2026] [18:23:30]: [CANVASUI] Cannot find canvas element 0x2CB3DA4E171B6871 on canvas 0x13361C4773E07B3E from component 0xE55AF932C88EC864 (actor 0x13983255EE1DBCBE)
+[10-08-2026] [18:23:30]: ~ Scriptnode (SetAlphaUINode) can't find canvas ui item ~
+	Script:           0x500851025E2A0BEE
+	Node Type:        CCanvasUICS
+	Node UUID:        2159d2d9
+	Actor:            0x41D2D7311B3A020C
+	Component Name:   0xE55AF932C88EC864
+	Item:             0x2CB3DA4E171B6871
+: raduri://0x500851025E2A0BEE?elementname=2159d2d9&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [18:23:38]: [DYNAMIC COVER] Owner 4544541699637327090 (0x9E65216FB71012F2)
+[10-08-2026] [18:23:41]: [NETGAME] User 'AccountName [DEMO]' has finished playing emote
+[10-08-2026] [18:23:49]: Ending multiplayer
+[10-08-2026] [18:23:49]: [NETGAME] EndMultiplayer
+[10-08-2026] [18:23:49]: [NETGAME] LeaveGame
+[10-08-2026] [18:23:49]: [NETGAME] Removing all users...
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName' disconnected
+[10-08-2026] [18:23:49]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [18:23:49]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [18:23:49]: [NETGAME] 	User Index             : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [18:23:49]: [NETGAME] 	Team Slot              : 0
+[10-08-2026] [18:23:49]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:49]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:49]: [NETGAME] 	Actor                  : 0x9E65216FB71012F2 (enabled)  (pooled)
+[10-08-2026] [18:23:49]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:49]: [NETGAME] 	In VR                  : true
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName' participating
+[10-08-2026] [18:23:49]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [18:23:49]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [18:23:49]: [NETGAME] 	User Index             : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [18:23:49]: [NETGAME] 	Team Slot              : 0
+[10-08-2026] [18:23:49]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:49]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:49]: [NETGAME] 	Actor                  : 0x9E65216FB71012F2 (enabled)  (pooled)
+[10-08-2026] [18:23:49]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:49]: [NETGAME] 	In VR                  : true
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:49]: Resetting player data OVR-ORG-14387 (slot: 0)
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName' disconnected IsServer 0, gameOver: 0
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName' IsSocial: 1 MatchIsPrivate: 0 MatchIsAI: 0
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName' IsHumanUser: 1 IsSpectator: 0
+[10-08-2026] [18:23:49]: [NETGAME] [CLIENTPLAYERCONNSTATS]: entrantid: 0 packetlossratio: 0.00 peertime: 149574224 pendingpeerdelta: -666 adjforwardcount: 1159 adjbackcount: 712 totalforwardadj: 371057 totalbackadj: 353590 lasttimerecvd: 149573461 discardedpingestpct: 0.00%
+[10-08-2026] [18:23:49]: [NETGAME] [PINGSTATS]: entrantid: 0 est: 16666.00 min: 0 max: 0 std: 0.00 med: 0
+[10-08-2026] [18:23:49]: [NETGAME] Resetting client player connection stats 0
+[10-08-2026] [18:23:49]: [NETGAME] [SVRPLAYERCONNSTATS]: entrantid: 0 packetlossratio: 0.00 clienttime: 0 discardedpingestpct: 0.00%
+[10-08-2026] [18:23:49]: [NETGAME] [PINGSTATS]: entrantid: 0 est: 0.00 min: 0 max: 0 std: 0.00 med: 0
+[10-08-2026] [18:23:49]: [NETGAME] Resetting server player connection stats 0
+[10-08-2026] [18:23:49]: [NETGAME] 	Number of team members [0, 0, 0]
+[10-08-2026] [18:23:49]: [NETGAME] 	Number of users '1'
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName [DEMO]' disconnected
+[10-08-2026] [18:23:49]: [NETGAME] 	Name                   : AccountName [DEMO]
+[10-08-2026] [18:23:49]: [NETGAME] 	XPlatformID            : DMO-3296391650685316405
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID                 : [1, 0]
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID Hex             : 0x00000001
+[10-08-2026] [18:23:49]: [NETGAME] 	User Index             : 0
+[10-08-2026] [18:23:49]: [NETGAME] 	User Slot              : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Team Slot              : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:49]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:49]: [NETGAME] 	Actor                  : 0x13983255EE1DBCBE (enabled) 
+[10-08-2026] [18:23:49]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:49]: [NETGAME] 	In VR                  : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName [DEMO]' participating
+[10-08-2026] [18:23:49]: [NETGAME] 	Name                   : AccountName [DEMO]
+[10-08-2026] [18:23:49]: [NETGAME] 	XPlatformID            : DMO-3296391650685316405
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID                 : [1, 0]
+[10-08-2026] [18:23:49]: [NETGAME] 	UserID Hex             : 0x00000001
+[10-08-2026] [18:23:49]: [NETGAME] 	User Index             : 0
+[10-08-2026] [18:23:49]: [NETGAME] 	User Slot              : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Team Slot              : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [18:23:49]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [18:23:49]: [NETGAME] 	Actor                  : 0x13983255EE1DBCBE (enabled) 
+[10-08-2026] [18:23:49]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [18:23:49]: [NETGAME] 	In VR                  : false
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [18:23:49]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [18:23:49]: Resetting player data DMO-3296391650685316405 (slot: 1)
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName [DEMO]' disconnected IsServer 0, gameOver: 0
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName [DEMO]' IsSocial: 1 MatchIsPrivate: 0 MatchIsAI: 0
+[10-08-2026] [18:23:49]: [NETGAME] User 'AccountName [DEMO]' IsHumanUser: 1 IsSpectator: 0
+[10-08-2026] [18:23:49]: [NETGAME] [LOCALCONNSTATS]: packetlossratio: 0.00 predictionoffset: 27777 (target: 16666) localtime: 71320340 servertime: 160102227 pendingserverdelta: 333, discardedframepct: 0.00%
+[10-08-2026] [18:23:49]: [NETGAME] Resetting local connection stats
+[10-08-2026] [18:23:49]: [NETGAME] [CLIENTPLAYERCONNSTATS]: entrantid: 1 packetlossratio: 0.00 peertime: 71287305 pendingpeerdelta: -666 adjforwardcount: 1202 adjbackcount: 604 totalforwardadj: 407049 totalbackadj: 339312 lasttimerecvd: 71285911 discardedpingestpct: 0.00%
+[10-08-2026] [18:23:49]: [NETGAME] [PINGSTATS]: entrantid: 1 est: 16666.00 min: 16666 max: 16666 std: 0.00 med: 16666
+[10-08-2026] [18:23:49]: [NETGAME] Resetting client player connection stats 1
+[10-08-2026] [18:23:49]: [NETGAME] [SVRPLAYERCONNSTATS]: entrantid: 1 packetlossratio: 0.00 clienttime: 0 discardedpingestpct: 0.00%
+[10-08-2026] [18:23:49]: [NETGAME] [PINGSTATS]: entrantid: 1 est: 0.00 min: 0 max: 0 std: 0.00 med: 0
+[10-08-2026] [18:23:49]: [NETGAME] Resetting server player connection stats 1
+[10-08-2026] [18:23:49]: [NETGAME] 	Number of team members [0, 0, 0]
+[10-08-2026] [18:23:49]: [NETGAME] 	Number of users '0'
+[10-08-2026] [18:23:49]: [NETLOBBY] Ending session
+[10-08-2026] [18:23:49]: [NSLOBBY] ending session
+[10-08-2026] [18:23:49]: [NSLOBBY] leaving session
+[10-08-2026] [18:23:49]: [NSLOBBY] unregistering
+[10-08-2026] [18:23:49]: [LEVELLOAD] Disabling level '0xCB9977F7FC2B4526'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Disabling level '0xD09AFD15B1C75C04'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Disabling level '0x3F9915D3001DC28E'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Disabling level '0x6DAA00A6D33D44B7'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Enabling level '0xAC360E41E4EDE056'
+[10-08-2026] [18:23:49]: [R15GAME] Clearing pause mode override
+[10-08-2026] [18:23:49]: [NETGAME] NetGame switching state (from in game, to logged in)
+[10-08-2026] [18:23:49]: [NSLOBBY] leaving session
+[10-08-2026] [18:23:49]: [NSLOBBY] ending session
+[10-08-2026] [18:23:49]: [NSLOBBY] leaving session
+[10-08-2026] [18:23:49]: [NSLOBBY] unregistering
+[10-08-2026] [18:23:49]: disconnecting matchmaker
+[10-08-2026] [18:23:49]: [NETGAME] Destroying global gs
+[10-08-2026] [18:23:49]: [LEVELLOAD] Disabling level '0xAC360E41E4EDE056'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Disabling level '0x43934C379CF1E366'
+[10-08-2026] [18:23:49]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | value_true = ui_menu_splash_screen_poster_a_default_clr
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [18:23:49]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | value_false = ui_menu_splash_screen_poster_a_shutdown_clr
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [18:23:49]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | condition = 0
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [18:23:49]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | value_out = ui_menu_splash_screen_poster_a_shutdown_clr
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0xAC360E41E4EDE056'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0x6DAA00A6D33D44B7'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0x4D82118C7C91B6BB'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0xD09AFD15B1C75C04'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0xCB9977F7FC2B4526'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0x3F9915D3001DC28E'
+[10-08-2026] [18:23:49]: [LEVELLOAD] Unloading level '0x43934C379CF1E366'
+[10-08-2026] [18:23:50]: [NETGAME] LogOut
+[10-08-2026] [18:23:50]: [NSUSER] Destroying user DMO-3296391650685316405
+[10-08-2026] [18:23:50]: [LOGIN] Logging DMO-3296391650685316405 out
+[10-08-2026] [18:23:50]: [NETGAME] NetGame switching state (from logged in, to logged out)
+[10-08-2026] [18:23:50]: [SYSNET] Clearing low latency option
+[10-08-2026] [18:23:50]: Joining enumerate thread: 00007FF67A24FA20
