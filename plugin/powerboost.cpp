@@ -31,8 +31,9 @@
 // fix_buff.py gives POWER BOOST's bubble radius len + init_angle / 100000 (12.00037
 // = 12 m, 37 deg). The radius check is patched to call ConeFilter first: for such a
 // bubble, a target also needs to be within that angle of the owner's aim, and a
-// target that passes gets the dr buff (on the server; the marker heal only sets dr
-// and its duration now). Repair Matrix (a whole radius) is untouched. The owner is
+// target that passes gets the dr buff. The bubble's targeting runs on clients only,
+// so the client that used POWER BOOST sends each link to the server as a link marker
+// (2,000,000 + the same encoding), the way it sends the use marker (see LinkMade). Repair Matrix (a whole radius) is untouched. The owner is
 // looked up the way the function does it (+0x44cc40, +0x638830): position at +8F8h,
 // orientation quaternion (x, y, z, w) at +BD0h. Which local axis is "aim" is set by
 // axis= in PowerBoost.ini ([cone], default +z); the log shows the angle to each
@@ -59,6 +60,8 @@ constexpr uint8_t SEND_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x8
 
 constexpr float MARKER_BASE = 1000000.0f;
 constexpr float MARKER_END = 2000000.0f;
+constexpr float LINK_BASE = 2000000.0f;   // link marker: the client's "I linked this one" (same encoding)
+constexpr float LINK_END = 3000000.0f;
 
 using heal_fn = void(__fastcall *)(void *cs, uint32_t index, float amount, uint64_t a4, uint64_t a5);
 using damage_fn = void(__fastcall *)(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6);
@@ -84,6 +87,7 @@ object_fn OwnerObject = nullptr;
 
 volatile float g_dr = 0.15f;              // from the latest marker
 volatile unsigned g_dr_seconds = 10;
+volatile ULONGLONG g_used_at = 0;         // when this client last used POWER BOOST
 float g_axis[3] = { 0, 0, 1 };            // owner-local aim axis (PowerBoost.ini [cone] axis=)
 
 struct Buff {
@@ -149,6 +153,7 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
         g_dr = (v / 1000) / 1000.0f;              // what the link hands out (see ConeFilter)
         g_dr_seconds = v % 1000;
         if (!g_server) {                          // used here: hand it to the server
+            g_used_at = GetTickCount64();
             Log("marker %.0f for %p/%u -> server", amount, cs, index & 0xffff);
             SendDamageDealt(cs, index, -amount, 0, 0);
             return;
@@ -156,6 +161,13 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
         Log("POWER BOOST used by %p/%u: links give x%.3f damage for %u s", cs, index & 0xffff,
             1.0f - g_dr, (unsigned)g_dr_seconds);
         return;                                   // a marker, not a heal
+    }
+    if (amount >= LINK_BASE && amount < LINK_END) {
+        if (g_server) {                           // a client linked this damageable
+            unsigned v = (unsigned)(amount - LINK_BASE + 0.5f);
+            AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000, false);
+        }
+        return;
     }
     Real_Heal(cs, index, amount, a4, a5);
 }
@@ -183,6 +195,28 @@ float AngleTo(const float *q, const float *axis, const float *d, float dist) {
     float len = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
     float c = (f[0] * d[0] + f[1] * d[1] + f[2] * d[2]) / (len * dist);
     return acosf(c < -1 ? -1 : c > 1 ? 1 : c) * 57.29578f;
+}
+
+// A link to (dcs, index). The bubble's targeting only runs on clients, so the client
+// that used POWER BOOST (it sent a marker within the last 30 s) tells the server, at
+// most once a second per target: a DamageDealt of -(link marker), which the server's
+// handler turns into a heal of the marker, where Hooked_Heal buffs that damageable
+// (a buff still running is left as is). Other clients see the same link and stay quiet.
+void LinkMade(void *dcs, uint32_t index) {
+    ULONGLONG now = GetTickCount64();
+    if (g_server) { AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, false); return; }
+    if (g_used_at == 0 || now - g_used_at > 30000) return;
+    static struct { void *cs; uint16_t index; ULONGLONG at; } sent[16];
+    int slot = 0;
+    for (int i = 0; i < 16; ++i) {
+        if (sent[i].cs == dcs && sent[i].index == (uint16_t)index) { slot = i; break; }
+        if (sent[i].at < sent[slot].at) slot = i;
+    }
+    if (sent[slot].cs == dcs && sent[slot].index == (uint16_t)index && now - sent[slot].at < 1000) return;
+    sent[slot] = { dcs, (uint16_t)index, now };
+    float marker = LINK_BASE + (float)((unsigned)(g_dr * 1000.0f + 0.5f) * 1000 + g_dr_seconds);
+    Log("link to %p/%u -> server (marker %.0f)", dcs, index & 0xffff, marker);
+    SendDamageDealt(dcs, index, -marker, 0, 0);
 }
 
 // Called from the bubble's radius check (see InstallCone). Returns 0 to treat the
@@ -214,7 +248,7 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
             "+z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", dcs, index & 0xffff, dist, off, angle,
             ok ? "LINK" : "no", a[0], a[1], a[2], a[3], a[4], a[5], q[0], q[1], q[2], q[3]);
     }
-    if (ok && g_server) AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, false);
+    if (ok) LinkMade(dcs, index);
     return ok;
 }
 
