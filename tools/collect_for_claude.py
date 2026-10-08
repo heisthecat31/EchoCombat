@@ -69,6 +69,9 @@ LEVEL_TABLES = {
 WHOLE_FOLDERS = {
     "2d90ee7bd8175ec2": "CR15NetMagazinePouchCRWin10",
 }
+#: Actors whose every table entry is collected (barrier wall, to clone as the smoke wall).
+ACTOR_SCAN = [0x3D8B8CA4D5292926]
+
 #: Level loaded before every map; holds the player actor.
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 #: Tac mod scripts: barrier, sensor, wraith, heal, and the trigger/charge script they call.
@@ -317,6 +320,26 @@ def main(argv) -> int:
                         "--out", os.path.join(OUT, "components_global.txt"),
                         "--scripts", *TACMOD_SCRIPTS], stdout=subprocess.DEVNULL)
         c.copied.append("components_global.txt  (actors running tac mod scripts, global level)")
+
+    # Every per-level table that mentions one of the ACTOR_SCAN actors, so an
+    # actor can be cloned completely (UMBRAL VEIL's smoke wall from the barrier wall).
+    scan = []
+    needles = [struct.pack("<Q", a) for a in ACTOR_SCAN]
+    for t in sorted(os.listdir(extract)) if os.path.isdir(extract) else []:
+        if t == SCRIPTS_TYPE:
+            continue
+        for level in LEVELS:
+            path = os.path.join(extract, t, level)
+            if os.path.isfile(path) and os.path.getsize(path) < 8 * 1024 * 1024:
+                blob = open(path, "rb").read()
+                if any(n in blob for n in needles):
+                    scan.append(f"{t}/{level}")
+                    c.copy(path, f"{t}/{level}", "mentions a scanned actor")
+    if not args.dry_run:
+        os.makedirs(OUT, exist_ok=True)
+        with open(os.path.join(OUT, "actor_scan.txt"), "w", newline="\n") as fh:
+            fh.write("\n".join(scan) + "\n")
+    c.copied.append(f"actor_scan.txt  ({len(scan)} tables mention the scanned actors)")
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(sorted(set(SEARCH[h] for h in hits)))}" for asset, hits in found]
