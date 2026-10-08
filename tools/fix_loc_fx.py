@@ -115,19 +115,22 @@ def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT
     t = bytearray(TELEPORT_OLD + b"\xe9")
     t += rel32(at["tramp"] + len(t) + 4, TELEPORT_NODE + len(TELEPORT_OLD))
     put("tramp", bytes(t))
-    # hook: the teleport node; once it is done (rax >= 0), the effect and the sound
-    h = bytearray(bytes.fromhex("53 4883ec20 4889cb e8"))
-    h += rel32(at["hook"] + len(h) + 4, at["tramp"])
-    h += bytes.fromhex("4885c0 78")                                 # test rax,rax; js done
-    js = len(h)
-    h += b"\0"
-    h += bytes.fromhex("6548a16000000000000000 488b4010 f0ff80") + struct.pack("<I", LOC_COUNTER_RVA)  # a teleport
+    # hook: the teleport node. On its first run (state 0, not aborting) -- the teleport
+    # takes a few frames, and the effect came ~0.1 s late when it waited for the end --
+    # the effect, the sound and the network message; then the teleport, its state 0.
+    h = bytearray(bytes.fromhex("53 4883ec20 4889cb 48837b1800 75"))   # state != 0: carrying on
+    j1 = len(h)
+    h += b"\0" + bytes.fromhex("80bbdb00000000 75")                    # aborting
+    j2 = len(h)
+    h += b"\0" + bytes.fromhex("6548a16000000000000000 488b4010 f0ff80") + struct.pack("<I", LOC_COUNTER_RVA)
     for stub in ("spawn", "sound"):
         h += bytes.fromhex("48c7431800000000 4889d9 e8")           # state 0; rcx = ctx; call
         h += rel32(at["hook"] + len(h) + 4, at[stub])
-    h += bytes.fromhex("48c7431800000000 31c0")                     # state 0; done
-    h[js] = len(h) - (js + 1)
-    h += bytes.fromhex("4883c420 5b c3")
+    h += bytes.fromhex("48c7431800000000")                         # state 0 for the teleport
+    h[j1] = len(h) - (j1 + 1)
+    h[j2] = len(h) - (j2 + 1)
+    h += bytes.fromhex("4889d9 4883c420 5b e9")                    # on into the teleport
+    h += rel32(at["hook"] + len(h) + 4, at["tramp"])
     put("hook", bytes(h))
 
     # the dispatcher's first two instructions, then on into it

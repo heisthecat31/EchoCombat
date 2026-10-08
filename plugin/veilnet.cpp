@@ -58,6 +58,7 @@ constexpr uintptr_t POINT_TOKEN_RVA = 0x2104ce0;
 constexpr uintptr_t POINT_COUNTER_RVA = 0x2104f80;
 constexpr uintptr_t LOC_TOKEN_RVA = 0x2104d20;
 constexpr uintptr_t LOC_COUNTER_RVA = 0x2104d40;
+constexpr uintptr_t POINT_FIRED_RVA = 0x2104d44;    // POINTs whose stun went off here
 constexpr ULONGLONG TOKEN_LIFE = 15000000;      // 1.5 s, in 100 ns
 constexpr uint32_t MAGIC = 0x4c564345;          // "ECVL"
 constexpr uint32_t MAGIC2 = 0x4c494556;         // "VEIL"
@@ -297,6 +298,8 @@ DWORD WINAPI Tick(LPVOID) {
     LONG seen_uses = *uses, seen_veils = g_shared->veils, seen_barriers = g_shared->barriers;
     LONG seen_point_uses = *point_uses, seen_points = g_point->veils;
     LONG seen_loc_uses = *loc_uses, seen_locs = g_loc->veils;
+    volatile LONG *point_fired = (volatile LONG *)(g_base + POINT_FIRED_RVA);
+    LONG seen_fired = *point_fired;
     sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0, next_pick = 0;
     for (;;) {
@@ -340,6 +343,8 @@ DWORD WINAPI Tick(LPVOID) {
         if (b != seen_barriers) { seen_barriers = b; Log("a barrier wall found no token: energy barrier (%ld so far)", b); }
         LONG pt = g_point->veils;
         if (pt != seen_points) { seen_points = pt; Log("a barrier wall took a point token: POINT (%ld so far)", pt); }
+        LONG pf = *point_fired;
+        if (pf != seen_fired) { seen_fired = pf; Log("POINT went off here: stun explosion activated (%ld so far)", pf); }
         LONG lc = g_loc->veils;
         if (lc != seen_locs) { seen_locs = lc; Log("a translocator puck took a teleport token: effect and sound shown (%ld so far)", lc); }
     }

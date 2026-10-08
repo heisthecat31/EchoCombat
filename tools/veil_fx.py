@@ -549,6 +549,8 @@ from veil_sound import POINT_SND_EVENT as POINT_EVENT          # noqa: E402
 PREVIEW_EVENTS = [0x7741E93B] + ARC_EVENTS
 #: --point-sound-preview's counter (per machine): after POINT's tokens
 POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
+#: POINTs that went off (fired the stun) on this machine: VeilNet.dll logs it
+POINT_FIRED_RVA = 0x2104D44
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
 #: gives "POIN" / eax 3. 0x22334455 marks POINT_TOKEN_RVA, 0x11223344 TOKEN_RVA.
 POINT_DECIDE = bytes.fromhex(
@@ -645,6 +647,7 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> by
     wait = len(b)
     b += bytes(4)
     b += bytes.fromhex("c7805c01000001000000")                       # gone off
+    b += bytes.fromhex("6548a16000000000000000 488b4010 f0ff80") + struct.pack("<I", POINT_FIRED_RVA)  # counted
     for stub in (spawn, explode):
         b += bytes.fromhex("48c7431800000000 4889d9 e8") + rel32(at + len(b) + 16, stub)
     b += bytes.fromhex("48c7431800000000 eb")
@@ -653,7 +656,10 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> by
     # gone off already: carry on with a sound still playing (ctx+18h its state); a fresh
     # run of the node (state 0) just finishes, so the sound never plays twice
     b[cont:cont + 4] = struct.pack("<i", len(b) - (cont + 4))
-    b += bytes.fromhex("48837b1800 750a 31c0 4883c420 5b c3 90 90")
+    # (a node that was still waiting out the charge-up -- the other node fired -- holds
+    # the busy marker, not a sound's state: it just finishes, its state cleared)
+    b += bytes.fromhex("488b4318 4885c0 7417 48ba0000000000000020 4839d0 7510 48c7431800000000"
+                       "31c0 4883c420 5b c3")
     b[fire] = len(b) - (fire + 1)
     b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, sound)
     b[wait:wait + 4] = struct.pack("<i", len(b) - (wait + 4))
@@ -847,7 +853,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
              "gate_show": 256, "gate_phys": 256, "renew": 128, "renew_phys": 128}
     if point:
-        sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
+        sizes.update({"bind": 96, "phys": 192, "point": 256, "point_spawn": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
                       "events": 4 * len(ARC_EVENTS) + 4})
     for name, size in sizes.items():
@@ -906,11 +912,21 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     p += bytes.fromhex("4889d9 4883c420 5b e9")
     p += rel32(at["phys"] + len(p) + 4, at["sound"])
     if point:
-        # POINT goes off from the ShowModel node, which runs as the wall appears (the
-        # EnablePhysics node only runs once the wall turns solid, seconds later): a
-        # POINT wall's EnablePhysics node just finishes.
+        # POINT goes off from the ShowModel node, which runs as the wall appears. Where
+        # that node never starts it (the headless server: no stun there, so nobody was
+        # stunned), the EnablePhysics node does: it carries on a POINT it is running
+        # (ctx+18h busy) or starts one not started yet (+15Ch = 0), else just finishes.
+        # Whichever node sees the charge-up end first fires; the other then finishes.
         skip = len(p)
+        p += bytes.fromhex("48837b1800 0f85")
+        busy = len(p)
+        p += bytes(4)
+        p += bytes.fromhex("488b03 488b4068 83b85c01000000 0f84")
+        fresh = len(p)
+        p += bytes(4)
         p += bytes.fromhex("31c0 4883c420 5b c3")
+        for j in (busy, fresh):
+            p[j:j + 4] = rel32(at["phys"] + j + 4, at["point"])
         p[to_point:to_point + 4] = struct.pack("<i", skip - (to_point + 4))
         put("point", point_block(at["point"], int(point["charge_up_time"] * 1e7), at["point_spawn"],
                                  at["point_boom"], at["point_sound"]))
