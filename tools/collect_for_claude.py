@@ -8,7 +8,8 @@ Copies them into `data/extract/`, keeping the extract's `<type>/<asset>` layout:
 * the magazine pouch table (`CR15NetMagazinePouchCR`), whole folder
 * the ordnance script DLLs (dot, det, shared magazine script, arc, stun, burst, loc)
 * every other script that mentions one of the external functions the DOT script
-  calls for its remote trigger, listed in `search.txt`
+  calls for its remote trigger, or that reads trigger input or the pouch's
+  last-thrown magazine; all matches are listed in `search.txt`
 * `echovr.exe`
 * `le_symbol_names.py`, which `script_pe.py` needs
 * the newest client logs
@@ -66,6 +67,11 @@ SEARCH = {
     0x048BCC7D19398C03: "DOT ext fn (deposited / exploded)",
     0x4CC1130866B48FC1: "DOT ext fn (release)",
     0xDD8165E98A3BD99E: "DOT ext fn param name",
+    # Whatever sends the detonator its remote trigger.  Matched as text: the
+    # scripts embed their debug info, so node type names show up verbatim.
+    b"R15MAGAZINEPOUCHLASTCREATED": "uses the pouch's last-thrown magazine",
+    b"R15TRIGGEREXPRESSION": "reads trigger input",
+    b"delegate_ontriggered": "handles OnTriggered",
 }
 
 SCRIPTS_TYPE = "6eace9f64204fd0"
@@ -77,6 +83,7 @@ SCRIPTS = {
     "190ed14ff6dc4ad8": "mp_combat_grenade_stun",
     "cad33e1bc81ffbee": "mp_combat_grenade_burst",
     "9398a165c004a9c0": "mp_combat_grenade_translocator",
+    "3a678375df604b4f": "script on the only R15Trigger actor (26b939fcac9fbff8)",
 }
 LOG_COUNT = 3
 
@@ -111,9 +118,9 @@ class Collector:
         self.copied.append(f"{rel}  {size:>10,}  {label}")
 
 
-def search_scripts(folder: str) -> list[tuple[str, list[int]]]:
-    """Every script asset in `folder` holding one of the SEARCH hashes."""
-    needles = {h: struct.pack("<Q", h) for h in SEARCH}
+def search_scripts(folder: str) -> list[tuple[str, list]]:
+    """Every script asset in `folder` holding one of the SEARCH hashes or strings."""
+    needles = {k: k if isinstance(k, bytes) else struct.pack("<Q", k) for k in SEARCH}
     found = []
     for asset in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         blob = open(os.path.join(folder, asset), "rb").read()
