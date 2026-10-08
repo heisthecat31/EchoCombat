@@ -54,6 +54,10 @@ LEVEL_TABLES = {
     "2b292830e51c4fd2": "CR15DampenerCRWin10",
     "39284e7992befc92": "CR15TriggerCRWin10",
     "4af215b19b297c34": "CR15NetExplosionCRWin10",
+    "1875febbeab23f44": "CR15FrisbeeCRWin10",
+    "4e7c2e6a7ebd80e": "CSoundCRWin10",
+    "ea51a0d76eb90142": "CModelCRWin10",
+    "21a09c2016d8f3e6": "CParticleEffectCRWin10",
 }
 #: type folder -> name, copied whole (not stored per level).
 WHOLE_FOLDERS = {

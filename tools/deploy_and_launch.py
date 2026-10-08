@@ -7,7 +7,8 @@
    they edit when it has one, otherwise the extract's.
      fix_drone.py                            drone registry / damage / cooldown, on that JSON
      fix_drone_script.py, fix_drone_bullet.py
-     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py
+     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_frisbee.py,
+     fix_dot_sound.py
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -65,11 +66,13 @@ DOT_TRIGGER_SCRIPT = "4e8af51fe7d6af8c"
 FIX_TYPES = [
     "5b723f040a3778ee", "dde8fffc5b4d7ad4", "f2676c58c07bab0c", "2b292830e51c4fd2",
     "92abd3e1432bf5e8", "d99f6bbd8009c92c", "4fd65c8d2b63d470", "21a09c2016d8f3e6",
+    "1875febbeab23f44",
 ]
 LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",
           "cb9977f7fc2b4526", "df5ca7b7dfa383d4"]
 SCRIPTS_TYPE = "6eace9f64204fd0"
 DET_SCRIPT = "190ed14fe3da5ed1"
+DOT_SCRIPT = "97d0806e6ea89130"
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -98,7 +101,7 @@ def gunpatch_root(path: str) -> str:
 def overlay(base: str, extract: str):
     """build/source: the tables the fix tools read, gun patch copy first, else the extract."""
     from_patch = set()
-    wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT)]
+    wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT), (SCRIPTS_TYPE, DOT_SCRIPT)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):
@@ -129,6 +132,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
+    tool("fix_dot_frisbee.py", *src)
+    tool("fix_dot_sound.py", *src)
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
 
 
@@ -159,20 +164,25 @@ def repack(install: str):
     print("   DOT trigger script present:", out.strip())
 
 
-def install_script_dll(install: str):
-    """Echo loads script code from bin/win10/scripts/<hash>.dll, not from the package:
-    put the DOT trigger script's PE there. The detonator's DLL on disk is checked
-    against its packaged asset first, to be sure the two hold the same image."""
+def install_script_dlls(install: str):
+    """Echo loads script code from bin/win10/scripts/<hash>.dll, not from the package,
+    so every staged script (the new DOT trigger script, the sound-patched DOT script)
+    is written there too. An original DLL is kept once as <hash>.dll.orig.
+    The detonator's DLL on disk is checked against its packaged asset first, to be
+    sure the two hold the same image."""
     folder = os.path.join(install, "bin", "win10", "scripts")
     os.makedirs(folder, exist_ok=True)
     det = open(os.path.join(SOURCE, SCRIPTS_TYPE, DET_SCRIPT), "rb").read()
     det_dll = os.path.join(folder, f"{DET_SCRIPT}.dll")
     if os.path.exists(det_dll) and open(det_dll, "rb").read() != det[det.find(b"MZ"):]:
         print(f"   warning: {det_dll} differs from the packaged detonator script")
-    asset = open(os.path.join(STAGE, SCRIPTS_TYPE, DOT_TRIGGER_SCRIPT), "rb").read()
-    dest = os.path.join(folder, f"{DOT_TRIGGER_SCRIPT}.dll")
-    open(dest, "wb").write(asset[asset.find(b"MZ"):])
-    print(f"   wrote {dest}")
+    for name in sorted(os.listdir(os.path.join(STAGE, SCRIPTS_TYPE))):
+        asset = open(os.path.join(STAGE, SCRIPTS_TYPE, name), "rb").read()
+        dest = os.path.join(folder, f"{name}.dll")
+        if os.path.exists(dest) and not os.path.exists(dest + ".orig") and name != DOT_TRIGGER_SCRIPT:
+            shutil.copy2(dest, dest + ".orig")
+        open(dest, "wb").write(asset[asset.find(b"MZ"):])
+        print(f"   wrote {dest}")
 
 
 def launch(install: str, args: str, label: str):
@@ -211,7 +221,7 @@ def main(argv) -> int:
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping)
         for install in (args.server_install, args.client_install):
             repack(install)
-            install_script_dll(install)
+            install_script_dlls(install)
 
     if args.no_launch:
         return 0
