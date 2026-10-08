@@ -178,7 +178,7 @@ SCRIPTS = {
     "e1975416e8dcf7a": "mp_combat_ability_sensor",     # extract names drop leading zeros
     "e1971566197d460": "mp_combat_ability_wraith",
     "6a0f689e5b91c666": "heal tac mod (reads ability_properties|heal|*)",
-    "a4d346a174934eac": "barrier wall actor script (R15NetDynamicCover)",
+    "ac4e9374a146d3a4": "barrier wall actor script (R15NetDynamicCover)",
 }
 LOG_COUNT = 3
 
