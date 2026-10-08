@@ -27,7 +27,8 @@ behaviour and tuning, recoloured from green to dark gold:
    from ability_properties.buff at deploy, through a R15NetDamageableHeal node
    transplanted from the wraith script and run just before the
    R15NetHealBubbleActivate node (which still runs, so the ability ends and
-   recharges as before). PowerBoost.dll (plugin/powerboost.cpp) catches the marker
+   recharges as before; the heal runs on a snapshot of the node's context, see
+   marker_stub). PowerBoost.dll (plugin/powerboost.cpp) catches the marker
    on your client, forwards it to the server as a negative DamageDealt (which the
    server turns back into a heal), and the server's copy reduces your damage taken
    by dr for dr_duration. Next: the 12 m / 37 deg
@@ -97,20 +98,39 @@ def buff_marker(dr: float, seconds: float) -> float:
     return float(MARKER_BASE + permille * 1000 + secs)
 
 
+#: what marker_stub snapshots around the heal: the execute context (state at +18h,
+#: data block pointer at +B0h, flags up to +DBh) and the node data block it points to
+CTX_SAVE, DATA_SAVE = 0xE0, 0x100
+
+
 def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) -> bytes:
     """execute_node replacement: one R15NetDamageableHeal on "self" of `amount`, then the
     original execute_node (its first 6 bytes replayed here, then a jump to `resume`), so
-    the heal bubble still activates and the ability ends and recharges as before."""
-    b = bytearray(bytes.fromhex("53 4883ec50 4889cb"))              # push rbx; sub rsp,50h; rbx=rcx
-    b += bytes.fromhex("80bbdb00000000 75")                          # aborting: straight to the original
-    skip = len(b)
-    b += b"\0"
+    the heal bubble still activates and the ability ends and recharges as before.
+
+    Every node function keeps its progress in the shared context: a state at +18h
+    (0 = not entered yet) and a data block at [+B0h]. The heal runs its whole state
+    machine there, so left alone it hands the bubble node a finished state and a data
+    block in the heal's layout (the crash on use). So the heal runs only on the node's
+    first entry (state <= 0), and the context and data block are snapshotted before it
+    and put back after it, exactly as the bubble node would have found them."""
+    b = bytearray(bytes.fromhex("53 56 57 4881ec30020000 4889cb"))   # 3 pushes + 230h: aligned
+    jumps = []
+    b += bytes.fromhex("80bbdb00000000 0f85"); jumps.append(len(b)); b += bytes(4)   # aborting
+    b += bytes.fromhex("48837b1800 0f8f"); jumps.append(len(b)); b += bytes(4)       # already entered
+    b += bytes.fromhex("4889de 488d7c2450 b9") + struct.pack("<I", CTX_SAVE // 8) + bytes.fromhex("f348a5")
+    b += bytes.fromhex("488bb3b0000000 488dbc2430010000 b9") + struct.pack("<I", DATA_SAVE // 8) \
+        + bytes.fromhex("f348a5")
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # node (30h bytes) at rsp+20h
     b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
     b += bytes.fromhex("c7442448") + struct.pack("<f", amount)                  # node+28 heal amount
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
-    b[skip] = len(b) - (skip + 1)
-    b += bytes.fromhex("4889d9 4883c450 5b")                         # rcx=rbx; undo our frame
+    b += bytes.fromhex("488bbc2400010000 488db42430010000 b9") + struct.pack("<I", DATA_SAVE // 8) \
+        + bytes.fromhex("f348a5")                                    # data block back (saved ptr)
+    b += bytes.fromhex("488d742450 4889df b9") + struct.pack("<I", CTX_SAVE // 8) + bytes.fromhex("f348a5")
+    for j in jumps:
+        b[j:j + 4] = struct.pack("<i", len(b) - (j + 4))
+    b += bytes.fromhex("4889d9 4881c430020000 5f 5e 5b")              # rcx=rbx; undo our frame
     b += ACTIVATE_OLD + b"\xe9" + rel32(at + len(b) + len(ACTIVATE_OLD) + 5, resume)
     return bytes(b)
 
@@ -129,7 +149,7 @@ def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
     blob += bytes(48)
     blob += bytes(-len(blob) % 16)
     stub_off = len(blob)
-    blob += bytes(128)
+    blob += bytes(256)
     va = add_section(pe, b".buff\0\0\0", len(blob))
     for d, target in fixups:
         blob[d:d + 4] = rel32(va + d + 4, va + target)
@@ -190,7 +210,7 @@ def gold_script(heal_pe: bytes, gold=GOLD, tint=TINT) -> bytes:
     for _ in CLASSES:
         blob += bytes(-len(blob) % 16)
         stubs.append(len(blob))
-        blob += bytes(128)
+        blob += bytes(256)
     va = add_section(pe, GOLD_SECTION, len(blob))
     for (entry, field, mode), off in zip(CLASSES, stubs):
         stub = recolor_stub(va + off, entry, field, mode, va + (0 if mode == "max" else 16))
