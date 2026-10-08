@@ -281,6 +281,54 @@ def commit_and_push(push: bool) -> int:
     return 1
 
 
+def bank_events(blob: bytes) -> list[int]:
+    """Event ids (HIRC object type 4) in a Wwise sound bank."""
+    events, o = [], 0
+    while o + 8 <= len(blob):
+        tag, size = blob[o:o + 4], struct.unpack_from("<I", blob, o + 4)[0]
+        if tag == b"HIRC":
+            n, p = struct.unpack_from("<I", blob, o + 8)[0], o + 12
+            for _ in range(n):
+                kind, osize, oid = struct.unpack_from("<BII", blob, p)
+                if kind == 4:
+                    events.append(oid)
+                p += 5 + osize
+        o += 8 + size
+    return events
+
+
+def sound_scan(extract: str, game: str, dry_run: bool) -> str:
+    """Every Wwise sound bank (files starting BKHD, in the extract or the install)
+    and the event ids it defines, so sound names can be checked offline."""
+    paths = []
+    for t in sorted(os.listdir(extract)) if os.path.isdir(extract) else []:
+        folder = os.path.join(extract, t)
+        if not os.path.isdir(folder):
+            continue
+        for asset in os.listdir(folder):
+            path = os.path.join(folder, asset)
+            try:
+                with open(path, "rb") as fh:
+                    if fh.read(4) == b"BKHD":
+                        paths.append(path)
+            except OSError:
+                pass
+    paths += glob.glob(os.path.join(game, "**", "*.bnk"), recursive=True)
+    lines = []
+    for path in paths:
+        try:
+            events = bank_events(open(path, "rb").read())
+        except (OSError, struct.error):
+            continue
+        rel = os.path.relpath(path, extract if path.startswith(extract) else game)
+        lines += [f"{rel.replace(os.sep, '/')}  {e:08x}" for e in events]
+    if not dry_run:
+        os.makedirs(OUT, exist_ok=True)
+        with open(os.path.join(OUT, "sound_events.txt"), "w", newline="\n") as fh:
+            fh.write("\n".join(lines) + "\n")
+    return f"sound_events.txt  ({len(paths)} banks, {len(lines)} events)"
+
+
 def particle_scan(extract: str, c: "Collector", dry_run: bool) -> None:
     """Find the particle effect asset folder(s) and list every effect in them.
 
@@ -379,6 +427,7 @@ def main(argv) -> int:
     c.copied.append(f"actor_scan.txt  ({len(scan)} tables mention the scanned actors)")
 
     particle_scan(extract, c, args.dry_run)
+    c.copied.append(sound_scan(extract, args.game, args.dry_run))
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(sorted(set(SEARCH[h] for h in hits)))}" for asset, hits in found]

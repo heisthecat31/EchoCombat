@@ -4,7 +4,7 @@ The smoke script starts as a copy of the barrier script (fix_smoke.py), whose
 graph runs, on use, ... -> custom param -> R15NetPooledActorCreate (node
 6fb98e2c, the wall) -> ... This module makes that node spawn `count`
 detonator explosion smoke effects (particle effect c9eb32d35038eb4c) around
-the player instead, larger and longer-lived than the detonator's, left behind
+the player instead (and the barrier's priming hologram is never shown), larger and longer-lived than the detonator's, left behind
 where the veil was used. No wall is created, so there is nothing to collide
 with, and both teams see the smoke.
 
@@ -70,6 +70,12 @@ BIND_CALL = 0x3F00                     # call R15NETPOOLEDACTORCREATENODE::Bind
 CREATE_BIND = 0x2450
 CREATE_NODE = 0x69F0                   # execute_node_6fb98e2c
 CREATE_NODE_OLD = bytes.fromhex("48895c2408")   # mov [rsp+8], rbx
+
+#: The two ShowModel nodes that show the barrier's priming hologram while the
+#: tac mod is primed (models 24fc2eb812572ff7 and 4aa624c591ce1dda, on the
+#: local player): `mov byte ptr [rsp+48h], 1` (show) becomes 0 (hide).
+PRIMING_SHOW = [0x74F8, 0x6668]        # execute_node_367b0674, execute_node_b8a054bc
+SHOW_ON, SHOW_OFF = bytes.fromhex("c644244801"), bytes.fromhex("c644244800")
 
 VEIL = b".veil\0\0\0"
 RWX_CODE = 0xE0000020
@@ -158,8 +164,8 @@ def ring_offsets(count: int, spread: float) -> bytes:
 
 
 def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
-                 life: float = 8.0, spread: float = 1.5, emission: float = 4.0,
-                 particle_scale: float = 2.5, alpha: float = 4.0, shade: float = 0.35) -> bytes:
+                 life: float = 8.0, spread: float = 1.5, emission: float = 8.0,
+                 particle_scale: float = 2.5, alpha: float = 10.0, shade: float = 0.9) -> bytes:
     if not 1 <= count <= 16:
         raise ValueError("count must be 1..16")
     pe, det = PE(barrier_pe), PE(det_pe)
@@ -168,6 +174,9 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     call = pe.read(BIND_CALL, 5)
     if call != b"\xe8" + rel32(BIND_CALL + 5, CREATE_BIND) or pe.read(CREATE_NODE, 5) != CREATE_NODE_OLD:
         raise ValueError("unexpected barrier script build")
+    for rva in PRIMING_SHOW:
+        if pe.read(rva, 5) != SHOW_ON:
+            raise ValueError("unexpected priming ShowModel node: wrong barrier script build")
     ctor, execute, bind = (det_function(det, s) for s in (DET_CTOR, DET_EXEC, DET_BIND))
 
     # Classify every target: .data slot (statics) or .rdata string (names).
@@ -230,4 +239,6 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     pe.write(va, bytes(blob))
     pe.write(BIND_CALL, b"\xe8" + rel32(BIND_CALL + 5, at))
     pe.write(CREATE_NODE, b"\xe9" + rel32(CREATE_NODE + 5, va + spawn_off))
+    for rva in PRIMING_SHOW:
+        pe.write(rva, SHOW_OFF)
     return bytes(pe.d)

@@ -269,10 +269,10 @@ def main(argv) -> int:
     ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
     ap.add_argument("--life", type=float, default=8.0, help="how much longer the smoke lasts than the detonator's")
     ap.add_argument("--spread", type=float, default=1.5, help="metres between the clouds")
-    ap.add_argument("--emission", type=float, default=4.0, help="particles per cloud, x the detonator's")
+    ap.add_argument("--emission", type=float, default=8.0, help="particles per cloud, x the detonator's")
     ap.add_argument("--particle-scale", type=float, default=2.5, help="size of each smoke puff")
-    ap.add_argument("--alpha", type=float, default=4.0, help="opacity multiplier")
-    ap.add_argument("--shade", type=float, default=0.35, help="colour multiplier (lower = darker)")
+    ap.add_argument("--alpha", type=float, default=10.0, help="opacity multiplier")
+    ap.add_argument("--shade", type=float, default=0.9, help="colour multiplier (lower = darker)")
     args = ap.parse_args(argv[1:])
 
     eq_path, equipment = load(args.base, EQUIPMENT)
