@@ -51,15 +51,16 @@ LOC_EVENT, LOC_ACTION = 2819690668, 1031878165
 #: one copy (+8.5 dB over the earlier 6).
 LOC_COPIES = 16
 LOC_SOUND, LOC_SOUND_BANK = 159312186, 3901061564
-#: POINT's sound (POINT_MEDIA, picked from sound_candidates/), like the stun field's, is held in the
+#: POINT's sound (assets/point.wav, the arc mine sound picked from sound_candidates/) was held in the
 #: grenade bank c823e2c9bc0168ad, which is not loaded in every match, so POINT went
-#: silent. Their media (Vorbis, embedded) are copied into this bank, which always is (the
+#: silent. It is embedded in this bank as PCM, like the veil's, which always is loaded (the
 #: veil's sound plays from it), each as a new sound object (a copy of SOUND with the media
 #: swapped), played together by event POINT_SND_EVENT (FNV-1 of
 #: "play_echocombat_point"), POINT_COPIES of each.
 POINT_SND_EVENT, POINT_SND_ACTION, POINT_SND_SOUND = 3404182162, 771004983, 583511709
 POINT_SRC_BANK = "c823e2c9bc0168ad"
-POINT_MEDIA = [818626942]                     # an arc mine sound (sound_candidates/arc6_818626942.wav), the user's pick
+#: the media id POINT's sound (assets/point.wav, embedded as PCM) takes in this bank
+POINT_MEDIA = [818626942]
 POINT_COPIES = 2
 #: RIFF header of the game's mono 48 kHz PCM wems, up to the data chunk's size.
 FMT = bytes.fromhex("666d742018000000feff010080bb0000007701000200100006000000014100004a554e4b0400000000000000")
@@ -190,7 +191,7 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
         actions = []
         for k, m in enumerate(point_media):                      # a sound object per media
             body = bytearray(done)
-            struct.pack_into("<IBII", body, 0, PLUGIN_VORBIS, 0, m, len(point_media[m]))
+            struct.pack_into("<IBII", body, 0, PLUGIN_PCM, 0, m, len(point_media[m]))
             hirc += hirc_object(2, POINT_SND_SOUND + k, bytes(body))
             for c in range(POINT_COPIES):
                 actions.append(POINT_SND_ACTION + k * POINT_COPIES + c)
@@ -213,12 +214,14 @@ def main(argv) -> int:
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
     ap.add_argument("--wav", default=os.path.join(ROOT, "assets", "umbral_veil.wav"))
+    ap.add_argument("--point-wav", default=os.path.join(ROOT, "assets", "point.wav"),
+                    help="POINT's sound, mono 16-bit 48 kHz (default: the arc mine sound the user picked, "
+                         "sound_candidates/arc6_818626942.wav)")
     args = ap.parse_args(argv[1:])
     asset = open(os.path.join(args.src, BANK_TYPE, BANK), "rb").read()
     pcm = read_wav(args.wav)
-    src_bank = os.path.join(args.src, BANK_TYPE, POINT_SRC_BANK)
-    media = bank_media(open(src_bank, "rb").read())
-    point_media = {m: media[m] for m in POINT_MEDIA}
+    # POINT's sound as 16-bit PCM, like the veil's (the copied Vorbis media never played)
+    point_media = {POINT_MEDIA[0]: pcm_wem(read_wav(args.point_wav))}
     fixed = replace_sound(asset, pcm, point_media=point_media)
     os.makedirs(os.path.join(args.out, BANK_TYPE), exist_ok=True)
     open(os.path.join(args.out, BANK_TYPE, BANK), "wb").write(fixed)

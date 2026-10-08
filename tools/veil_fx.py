@@ -979,7 +979,9 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         put("point_spawn", spawn_stub(at["point_spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, 1,
                                       pf, asset=point.get("fx", POINT_FX), duration=point.get("time", 2.5)))
         # the charge-up indicator (POINT_CHARGE_FX), at the stun mine's own size
-        cf = {EMISSION_RATE: 1.0, LIFE: 1.0, ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0, COLOR_B: 1.0}
+        # (the burst alone was over well before the charge-up: its particles live x4)
+        cf = {EMISSION_RATE: 1.0, LIFE: point.get("charge_life", 4.0), ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0,
+              COLOR_B: 1.0}
         cf.update({o: point.get("charge_scale", 1.0) for o in SCALE})
         cf.update({o: 1.0 for o in PARTICLE_SCALE})
         put("point_charge", spawn_stub(at["point_charge"], va + spn["ctor"], va + spn["exec"], va + ring_off, 1,
