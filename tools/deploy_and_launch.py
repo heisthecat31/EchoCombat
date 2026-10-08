@@ -7,7 +7,8 @@
    they edit when it has one, otherwise the extract's.
      fix_drone.py                            drone registry / damage / cooldown, on that JSON
      fix_drone_script.py, fix_drone_bullet.py
-     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_sound.py
+     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_sound.py,
+     fix_shared_frisbee.py
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -71,6 +72,7 @@ LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",
 SCRIPTS_TYPE = "6eace9f64204fd0"
 DET_SCRIPT = "190ed14fe3da5ed1"
 DOT_SCRIPT = "97d0806e6ea89130"
+SHARED_SCRIPT = "190ed14fe6c74dd3"
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -99,7 +101,8 @@ def gunpatch_root(path: str) -> str:
 def overlay(base: str, extract: str):
     """build/source: the tables the fix tools read, gun patch copy first, else the extract."""
     from_patch = set()
-    wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT), (SCRIPTS_TYPE, DOT_SCRIPT)]
+    wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT), (SCRIPTS_TYPE, DOT_SCRIPT),
+                                                    (SCRIPTS_TYPE, SHARED_SCRIPT)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):
@@ -131,8 +134,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
     # fix_dot_frisbee.py is deliberately not run: with the frisbee component the
-    # DOT glides on instead of slowing to a stop like the arc mine. The shared
-    # script then logs "can't find component 0x84C65832F0B8B181", which is harmless.
+    # DOT glides on instead of slowing to a stop like the arc mine. Instead the
+    # shared script skips enabling it for the DOT, as it already does for the arc.
+    tool("fix_shared_frisbee.py", *src)
     tool("fix_dot_sound.py", *src)
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
 
