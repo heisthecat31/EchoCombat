@@ -2,6 +2,12 @@
 setlocal
 rem Takes EchoCombat back out and leaves any other mods in place.
 cd /d "%~dp0"
+if not exist "%~dp0evrtool.exe" (
+    echo evrtool.exe is missing next to uninstall.bat: extract the whole zip, and check
+    echo your antivirus did not remove it.
+    pause
+    exit /b 1
+)
 set "GAME=%~1"
 if defined GAME goto check
 rem Suggest the first install found, then ask.
@@ -28,13 +34,13 @@ echo No bin\win10\echovr.exe in "%GAME%".
 goto ask
 :found
 set "DATA=%GAME%\_data\5932408047\rad15\win10"
-evrtool.exe unmerge "%DATA%"
+"%~dp0evrtool.exe" unmerge "%DATA%"
 if errorlevel 1 (
     pause
     exit /b 1
 )
 set "EVR_PKG=2b47aab238f60515"
-evrtool.exe unmerge "%DATA%"
+"%~dp0evrtool.exe" unmerge "%DATA%"
 set "EVR_PKG="
 
 set "SCRIPTS=%GAME%\bin\win10\scripts"

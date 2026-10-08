@@ -51,7 +51,7 @@ def main() -> int:
             sys.exit(f"out/{dll} not built")
         shutil.copy2(src, plugins)
     env = dict(os.environ, GOOS="windows", GOARCH="amd64")
-    subprocess.run(["go", "build", "-trimpath", "-ldflags=-s -w", "-o", os.path.join(OUT, "evrtool.exe"), "."],
+    subprocess.run(["go", "build", "-trimpath", "-o", os.path.join(OUT, "evrtool.exe"), "."],
                    cwd=os.path.join(ROOT, "evrtool"), env=env, check=True)
     for f in ("install.bat", "uninstall.bat", "README.txt"):
         shutil.copy2(os.path.join(ROOT, "release", f), OUT)
