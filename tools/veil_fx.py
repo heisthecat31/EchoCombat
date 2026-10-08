@@ -458,12 +458,38 @@ QUERY_SELF = bytes.fromhex("e86ca2e1c32151107e5084fc4233a185")
 QUERY_OUT_Q, QUERY_OUT_D = (0x88, 0x50, 0x58), (0x80, 0x60)
 WALL_BIND_CALL, WALL_BIND_TARGET = 0x3DE0, 0x17F0   # setup_bindings: call <a node's Bind>
 
+# --- diagnostics: what the veil sends and what each wall reads back ----------------
+#: Spare bytes past echovr.exe's .data (rva 0x2104ca4..0x2105000 in build b6d08277...,
+#: mapped read/write with it, never used by the game). Three 0x100-byte records:
+#: +000 decide() from the wall's show node, +100 from its physics node, +200 the
+#: veil's custom-param node as sent. PowerBoost.dll logs each change.
+DEBUG_RVA = 0x2104D00
+RVA_MARK = struct.pack("<I", 0x11223344)
+#: after the query ran (rbx = ctx, esi = record 1/2): r11 = record; count, site, ctx,
+#: then the node (0xA0) and the first 0x40 bytes of the query's result buffer
+DEBUG_REC = bytes.fromhex(
+    "6548a16000000000000000488b40104805443322118d4effc1e1084801c84989c341ff034189730449895b08"
+    "4c8d4424204d8d4b18b9140000004d8b104d89114983c0084983c108ffc975ee4c8d8424c00000004d8d8bb8"
+    "000000b9080000004d8b104d89114983c0084983c108ffc975ee")
+DEBUG_RESULT = bytes.fromhex("41894310")             # mov [r11+10h], eax
+#: param node Execute(rcx = node, rdx = ctx): record 3 = count, 3, ctx, node (0x50)
+DEBUG_PARAM = bytes.fromhex(
+    "6548a16000000000000000488b4010480544332211ff00c7400403000000488950084531c04e8b0c014e894c"
+    "00184983c0084983f85072ed")
+PARAM_EXEC_CALL, PARAM_EXEC = 0x64F1, 0x22A0           # param node: call R15NETPOOLEDACTORCUSTOMPARAMNODE::Execute
 
-def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER) -> bytes:
+
+def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER, debug: bool = True) -> bytes:
     """The smoke script's custom-param node sends `marker` as the wall's symbol param."""
     pe = PE(barrier_pe)
-    if pe.read(PARAM_SYMBOL, 8) != PARAM_SYMBOL_OLD:
+    if pe.read(PARAM_SYMBOL, 8) != PARAM_SYMBOL_OLD \
+            or pe.read(PARAM_EXEC_CALL, 5) != b"\xe8" + rel32(PARAM_EXEC_CALL + 5, PARAM_EXEC):
         raise ValueError("unexpected barrier param node: wrong barrier script build")
+    if debug:                                 # record the node as sent, then Execute it
+        stub = DEBUG_PARAM.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA + 0x200))
+        va = add_section(pe, VEIL, len(stub) + 5)
+        pe.write(va, stub + b"\xe9" + rel32(va + len(stub) + 5, PARAM_EXEC))
+        pe.write(PARAM_EXEC_CALL, b"\xe8" + rel32(PARAM_EXEC_CALL + 5, va))
     pe.write(PARAM_SYMBOL, PARAM_SYMBOL_OLD[:4] + struct.pack("<I", marker))
     for rva in PRIMING_SHOW:                  # no priming hologram, as before
         if pe.read(rva, 5) != SHOW_ON:
@@ -516,15 +542,17 @@ def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -
     return offs
 
 
-def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int) -> bytes:
-    """decide(rcx = node ctx) -> eax 1 when this wall carries the veil's marker."""
-    b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 488d4c2420 4889da e8"))
+def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = True) -> bytes:
+    """decide(rcx = node ctx, edx = record 1/2) -> eax 1 when this wall carries the veil's marker."""
+    b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6 488d4c2420 4889da e8"))
     b += rel32(at + len(b) + 4, q_ctor)                                   # ctor(node, ctx)
     c0, c1 = struct.unpack("<QQ", QUERY_SELF)
     b += b"\x48\xb8" + struct.pack("<Q", c0) + bytes.fromhex("4889442470")   # node+50h
     b += b"\x48\xb8" + struct.pack("<Q", c1) + bytes.fromhex("4889442478")   # node+58h
     b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
     b += rel32(at + len(b) + 4, q_exec)                                   # Execute(node, buffer)
+    if debug:
+        b += DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA))
     yes = []
     for off in QUERY_OUT_Q:
         b += bytes.fromhex("488b8424") + struct.pack("<I", 0x20 + off) + b"\x48\x3d" + struct.pack("<I", marker)
@@ -537,6 +565,8 @@ def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int) -> bytes:
     b += bytes.fromhex("b801000000")                                      # yes: eax = 1
     for j in yes:
         b[j:j + 4] = struct.pack("<i", y - (j + 4))
+    if debug:
+        b += DEBUG_RESULT
     b += bytes.fromhex("4881c4c8040000 5e 5b c3")
     return bytes(b)
 
@@ -565,7 +595,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
     parts = {}
-    for name, size in (("bind", 64), ("decide", 256), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
+    for name, size in (("bind", 64), ("decide", 384), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
         blob += bytes(size)
@@ -575,7 +605,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     at = {k: va + o for k, o in parts.items()}
 
     def put(name, code):
-        if len(code) > {"bind": 64, "decide": 256, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
+        if len(code) > {"bind": 64, "decide": 384, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
             raise ValueError(f"{name} stub too long")
         blob[parts[name]:parts[name] + len(code)] = code
 
@@ -589,14 +619,15 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
     put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker))
-    s = SHOW_PRE + b"\xe8" + rel32(at["show"] + len(SHOW_PRE) + 5, at["decide"]) + SHOW_POST
+    pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = record 1
+    s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + SHOW_POST
     put("show", s)
     floats = {EMISSION_RATE: emission, LIFE: life, ALPHA: alpha, COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
     floats.update({o: scale for o in SCALE})
     floats.update({o: particle_scale for o in PARTICLE_SCALE})
     put("spawn", spawn_stub(at["spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats))
     put("sound", sound_stub(at["sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC, event))
-    p = bytearray(bytes.fromhex("53 4883ec20 4889cb e8"))
+    p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 e8"))     # edx = record 2
     p += rel32(at["phys"] + len(p) + 4, at["decide"])
     p += bytes.fromhex("84c0 75")
     jnz = len(p)
