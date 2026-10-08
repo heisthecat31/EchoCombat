@@ -304,14 +304,16 @@ def main(argv) -> int:
                     help="POINT's sound event (default: veil_fx.POINT_EVENT, an arc mine sound)")
     ap.add_argument("--point-sound-preview", action="store_true",
                     help="each POINT use plays the next of the arc mine's sounds (veil_fx.ARC_EVENTS), to pick one")
-    ap.add_argument("--point-scale", type=float, default=2.0, help="size of POINT's burst effect")
-    ap.add_argument("--count", type=int, default=7, help="smoke clouds per use")
+    ap.add_argument("--point-scale", type=float, default=4.0, help="size of POINT's burst effect")
+    ap.add_argument("--point-life", type=float, default=3.0, help="POINT's burst particle lifetime, x the stun mine's")
+    ap.add_argument("--point-time", type=float, default=5.0, help="seconds before POINT's burst is removed")
+    ap.add_argument("--count", type=int, default=4, help="smoke clouds per use")
     ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
-    ap.add_argument("--life", type=float, default=8.0, help="how much longer the smoke lasts than the detonator's")
+    ap.add_argument("--life", type=float, default=5.0, help="how much longer the smoke lasts than the detonator's")
     ap.add_argument("--spread", type=float, default=1.5, help="metres between the clouds")
-    ap.add_argument("--emission", type=float, default=8.0, help="particles per cloud, x the detonator's")
-    ap.add_argument("--particle-scale", type=float, default=2.5, help="size of each smoke puff")
-    ap.add_argument("--alpha", type=float, default=10.0, help="opacity multiplier")
+    ap.add_argument("--emission", type=float, default=3.0, help="particles per cloud, x the detonator's")
+    ap.add_argument("--particle-scale", type=float, default=3.5, help="size of each smoke puff")
+    ap.add_argument("--alpha", type=float, default=14.0, help="opacity multiplier")
     ap.add_argument("--shade", type=float, default=0.9, help="colour multiplier (lower = darker)")
     ap.add_argument("--local", action="store_true",
                     help="the old, client-only veil: clouds and sound spawned by the smoke script itself, so only "
@@ -345,7 +347,7 @@ def main(argv) -> int:
         _, settings = load(args.base, WEAPON_SETTINGS)
         t = settings["ability_properties"]["point"]
         point = {"charge_up_time": t["charge_up_time"], "stun_duration": t["stun_duration"],
-                 "scale": args.point_scale,
+                 "scale": args.point_scale, "life": args.point_life, "time": args.point_time,
                  "event": POINT_EVENT if args.point_event is None else args.point_event,
                  "preview": args.point_sound_preview}
         stun = open(os.path.join(args.src, SCRIPTS, STUN_SCRIPT), "rb").read()

@@ -92,6 +92,7 @@ BARRIER_SCRIPT = "b87ba2039b049d5e"
 SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
 STUN_SCRIPT = "190ed14ff6dc4ad8"
 SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
+POINT_SOUND_BANK = "c823e2c9bc0168ad"           # the stun field's sounds, copied into the veil bank
 WALL_SCRIPT = "ac4e9374a146d3a4"
 #: (no longer used: the networked UMBRAL VEIL once read its params with this script's query)
 QUERY_SCRIPT = "c3178dbdb1250dce"
@@ -145,6 +146,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, BARRIER_SCRIPT),
                                                     (SCRIPTS_TYPE, STUN_SCRIPT),
                                                     (SOUND_BANK_TYPE, VEIL_BANK),
+                                                    (SOUND_BANK_TYPE, POINT_SOUND_BANK),
                                                     (SCRIPTS_TYPE, WALL_SCRIPT),
                                                     (SCRIPTS_TYPE, QUERY_SCRIPT),
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
@@ -462,13 +464,15 @@ def main(argv) -> int:
                     help="how fast a thrown DOT slows down (higher = stops sooner); 25 = arc mine")
     ap.add_argument("--no-smoke", action="store_true",
                     help="leave UMBRAL VEIL out (stock tac mod controller), e.g. to A/B a tac mod")
-    ap.add_argument("--veil-count", default="7", help="UMBRAL VEIL smoke clouds per use")
+    # UMBRAL VEIL's particle load is clouds x emission x life (7 x 8 x 8 cost ~45 fps);
+    # fewer, bigger, more opaque puffs keep the cover at about 1/7 of the particles.
+    ap.add_argument("--veil-count", default="4", help="UMBRAL VEIL smoke clouds per use")
     ap.add_argument("--veil-scale", default="6", help="UMBRAL VEIL cloud size (detonator's is about 2)")
-    ap.add_argument("--veil-life", default="8", help="UMBRAL VEIL smoke lifetime, x the detonator's")
+    ap.add_argument("--veil-life", default="5", help="UMBRAL VEIL smoke lifetime, x the detonator's")
     ap.add_argument("--veil-spread", default="1.5", help="UMBRAL VEIL metres between clouds")
-    ap.add_argument("--veil-emission", default="8", help="UMBRAL VEIL particles per cloud, x the detonator's")
-    ap.add_argument("--veil-puff", default="2.5", help="UMBRAL VEIL size of each smoke puff")
-    ap.add_argument("--veil-alpha", default="10", help="UMBRAL VEIL opacity multiplier")
+    ap.add_argument("--veil-emission", default="3", help="UMBRAL VEIL particles per cloud, x the detonator's")
+    ap.add_argument("--veil-puff", default="3.5", help="UMBRAL VEIL size of each smoke puff")
+    ap.add_argument("--veil-alpha", default="14", help="UMBRAL VEIL opacity multiplier")
     ap.add_argument("--veil-shade", default="0.9", help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")

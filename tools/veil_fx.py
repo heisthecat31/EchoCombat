@@ -540,7 +540,9 @@ POINT_FX = 0x4CE12AE42C1B6269
 #: in the order --point-sound-preview plays them; POINT_EVENT is the one it plays
 ARC_EVENTS = [0x9BA74430, 0x84545E9B, 0xDA4D002D, 0xD19CD68D, 0xD5D7FDC7, 0x7F295300, 0xB1C3DEA9,
               0xE9ECEA06, 0x9B54488D]
-POINT_EVENT = ARC_EVENTS[0]
+#: POINT's sound: veil_sound.py's event in the veil bank, which every match loads (the arc
+#: mine's bank is not, so ARC_EVENTS[0] was silent)
+from veil_sound import POINT_SND_EVENT as POINT_EVENT          # noqa: E402
 #: what --point-sound-preview cycles through: the stun field's sound first (heard in an
 #: earlier build, so a silent #1 means the sound path, not the event, is at fault), then
 #: the arc mine's
@@ -600,10 +602,12 @@ WALL_SOUND_ENTRY = bytes.fromhex("48895c2408")
 
 
 def mute_stub(at: int) -> bytes:
-    """PLAYSOUNDNODE::Execute's entry: a POINT wall's own sounds (the barrier's) are done
-    at once, silently; POINT's sound comes through the trampoline instead."""
-    b = bytearray(bytes.fromhex("488b02 488b4068 80b858010000") + bytes([DECIDED_POINT]))
-    b += bytes.fromhex("7503 31c0 c3") + WALL_SOUND_ENTRY + b"\xe9"
+    """PLAYSOUNDNODE::Execute's entry: a POINT or UMBRAL VEIL wall's own sounds (the
+    barrier's, its running-out noise among them) are done at once, silently; POINT's and
+    the veil's sounds come through the trampoline instead."""
+    b = bytearray(bytes.fromhex("488b02 488b4068 0fb68058010000"))     # al = the decision
+    b += bytes.fromhex("3c%02x 7404 3c%02x 7503" % (DECIDED_POINT, DECIDED_VEIL))
+    b += bytes.fromhex("31c0 c3") + WALL_SOUND_ENTRY + b"\xe9"
     b += rel32(at + len(b) + 4, WALL_SOUND_EXEC + len(WALL_SOUND_ENTRY))
     return bytes(b)
 
@@ -695,9 +699,14 @@ WALL_SHOW_NODE, WALL_SHOW_NODE_OLD = 0x6D30, bytes.fromhex("4053 4883ec50")
 DECIDED_VEIL, DECIDED_POINT, DECIDED_NORM = ord("S"), ord("P"), ord("N")
 TIME_SHIFT = 20                               # 2^20 x 100 ns = 0.105 s
 RENEW_AFTER = 8 * 10_000_000 >> TIME_SHIFT    # 8 s
+#: the EnablePhysics node runs seconds after the ShowModel node (once the wall is
+#: solid): a reset there would turn a hidden veil / POINT wall into an invisible solid
+#: barrier, so it waits longer. Still under the gap between two lives of a wall (its
+#: last run, the veil's 14 s sound at most, to the next use, 30 s+ after the last).
+RENEW_AFTER_PHYS = 14 * 10_000_000 >> TIME_SHIFT    # 14 s
 
 
-def renew_stub(at: int, cont: int) -> bytes:
+def renew_stub(at: int, cont: int, after: int = RENEW_AFTER) -> bytes:
     """At a spawn node's entry (rcx = ctx, kept): a new life clears the wall's decision,
     then on to `cont` (the gate)."""
     b = bytearray(bytes.fromhex("80b9db000000 00 75"))                 # cmp byte [rcx+0DBh], 0; jne done
@@ -707,7 +716,7 @@ def renew_stub(at: int, cont: int) -> bytes:
     b += bytes.fromhex("418b8058010000 c1e808")                        # eax = last run
     b += bytes.fromhex("4589cb 4129c3 4181e3ffffff00")                 # r11d = (now - last run) & 24 bits
     b += bytes.fromhex("410fb68058010000 41c1e108 4409c8 41898058010000")  # last run = now, decision kept
-    b += bytes.fromhex("4181fb") + struct.pack("<I", RENEW_AFTER) + b"\x72"   # jb done
+    b += bytes.fromhex("4181fb") + struct.pack("<I", after) + b"\x72"   # jb done
     j2 = len(b)
     b += b"\0" + bytes.fromhex("41c6805801000000")                    # decision = undecided
     b += bytes.fromhex("41c7805c01000000000000")                       # POINT state = 0
@@ -872,7 +881,8 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     floats.update({o: scale for o in SCALE})
     floats.update({o: particle_scale for o in PARTICLE_SCALE})
     put("spawn", spawn_stub(at["spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats))
-    put("sound", sound_stub(at["sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC, event))
+    # past the mute (point builds), which silences the veil wall's barrier sounds
+    put("sound", sound_stub(at["sound"], WALL_SOUND_CTOR, at["snd_tramp"] if point else WALL_SOUND_EXEC, event))
     # The node runs again each frame while its EnablePhysics / sound is still busy
     # (ctx+18h != 0): decide again, without a record, and spawn no more clouds.
     p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 48837b1800 7402 31d2 e8"))  # edx = 2 (for good) / 0
@@ -934,7 +944,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
     put("gate_phys", gate_stub(at["gate_phys"], at["decide"], 2, at["phys"]))
     put("renew", renew_stub(at["renew"], at["gate_show"]))             # a pooled wall's new life
-    put("renew_phys", renew_stub(at["renew_phys"], at["gate_phys"]))
+    put("renew_phys", renew_stub(at["renew_phys"], at["gate_phys"], RENEW_AFTER_PHYS))
 
     pe.write(va, bytes(blob))
     pe.write(WALL_GLOBAL_LEN_FN, b"\xb8" + struct.pack("<I", GLOBAL_LEN + 8) + b"\xc3")   # + the decision
