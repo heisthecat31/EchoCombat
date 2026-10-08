@@ -15,7 +15,7 @@
 4. Launch the headless instances from the server install, then the VR client
    from the other install.
 
-    python tools/deploy_and_launch.py --gunpatch <gun patch folder>
+    python tools/deploy_and_launch.py                                 # gun patch from GUNPATCH
     python tools/deploy_and_launch.py --gunpatch <dir> --no-launch    # patch only
     python tools/deploy_and_launch.py --launch-only                   # skip patching
 
@@ -39,6 +39,7 @@ EVRTOOL_DIR = os.path.join(ROOT, "evrtool")
 EVRTOOL = os.path.join(EVRTOOL_DIR, "evrtool.exe")
 
 EXTRACT = r"H:\pcvr-extracted"
+GUNPATCH = r"J:\combatGunPatchFiles"
 SERVER_INSTALL = r"H:\ready-at-dawn-echo-arena"
 CLIENT_INSTALL = r"C:\Oculus\Games\Software\Software\ready-at-dawn-echo-arena"
 DATA_DIR = os.path.join("_data", "5932408047", "rad15", "win10")
@@ -141,7 +142,7 @@ def launch(install: str, args: str, label: str):
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--gunpatch", help="extracted combat gun patch folder")
+    ap.add_argument("--gunpatch", default=GUNPATCH, help="extracted combat gun patch folder")
     ap.add_argument("--extract", default=EXTRACT)
     ap.add_argument("--server-install", default=SERVER_INSTALL)
     ap.add_argument("--client-install", default=CLIENT_INSTALL)
@@ -156,8 +157,6 @@ def main(argv) -> int:
     args = ap.parse_args(argv[1:])
 
     if not args.launch_only:
-        if not args.gunpatch:
-            sys.exit("--gunpatch is required (or use --launch-only)")
         if echo_running():
             if not args.kill:
                 sys.exit("echovr.exe is running; close it or pass --kill")
