@@ -8,6 +8,7 @@
 //	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
 //	evrtool find    <dataDir> <fileHex>...          where a file symbol is stored (stock manifest; findlive: live)
 //
+// Set EVR_PKG=<package> to work on a package other than 48037dc70b0ecab2.
 // "Stock" is manifests/<pkg>.bak when present (QuickRepack writes it before its first change),
 // otherwise the live manifest, which is then still unmodified.
 package main
@@ -22,7 +23,14 @@ import (
 	"github.com/EchoTools/cosmetic-editor/EvrFile/manifest"
 )
 
-const pkg = "48037dc70b0ecab2"
+// pkg is the package every command works on: the main one unless EVR_PKG names
+// another (the install also has a small second package, 2b47aab238f60515).
+var pkg = func() string {
+	if p := os.Getenv("EVR_PKG"); p != "" {
+		return p
+	}
+	return "48037dc70b0ecab2"
+}()
 
 func die(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)

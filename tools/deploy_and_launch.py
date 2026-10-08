@@ -51,6 +51,9 @@ CLIENT_INSTALL = r"C:\Oculus\Games\Software\Software\ready-at-dawn-echo-arena"
 DATA_DIR = os.path.join("_data", "5932408047", "rad15", "win10")
 EXE = os.path.join("bin", "win10", "echovr.exe")
 PACKAGE = "48037dc70b0ecab2"
+#: The install's second, small package. It may hold its own copy of a sound bank,
+#: which the game then loads instead of the main package's.
+SIDE_PACKAGE = "2b47aab238f60515"
 
 #: Headless instances started from the server install. Edit to match how you
 #: normally start them (region, ports, config path...).
@@ -255,6 +258,44 @@ def clear_wwise_cache(install: str):
         print("   no _temp/wwise sound bank cache found")
 
 
+def evr(args: list, package: str = PACKAGE, **kw) -> subprocess.CompletedProcess:
+    env = dict(os.environ, EVR_PKG=package)
+    return subprocess.run([evrtool(), *args], env=env, capture_output=True, text=True, **kw)
+
+
+def patch_side_package(install: str):
+    """If the side package carries its own copy of UMBRAL VEIL's sound bank, the
+    game plays that one (the original audio), so it gets the patched bank too."""
+    data = os.path.join(install, DATA_DIR)
+    staged_bank = os.path.join(STAGE, SOUND_BANK_TYPE, VEIL_BANK)
+    if not (os.path.exists(staged_bank) and os.path.exists(os.path.join(data, "manifests", SIDE_PACKAGE))):
+        return
+    listing = evr(["list", data, SOUND_BANK_TYPE], SIDE_PACKAGE).stdout.split()
+    print(f"   side package {SIDE_PACKAGE}: {len(listing)} sound bank(s)")
+    found = evr(["findlive", data, VEIL_BANK], SIDE_PACKAGE).stdout
+    if SOUND_BANK_TYPE not in found:
+        print(f"   side package has no copy of the UMBRAL VEIL bank")
+        return
+    print(f"   side package HAS its own copy of the UMBRAL VEIL bank ({found.strip()}): patching it too")
+    side = os.path.join(ROOT, "build", "stage_side")
+    shutil.rmtree(side, ignore_errors=True)
+    os.makedirs(os.path.join(side, SOUND_BANK_TYPE))
+    shutil.copy2(staged_bank, os.path.join(side, SOUND_BANK_TYPE, VEIL_BANK))
+    r = evr(["repack", data, side], SIDE_PACKAGE)
+    print("   " + r.stdout.strip().replace("\n", "\n   "))
+    if r.returncode:
+        sys.exit(f"repack of {SIDE_PACKAGE} failed: {r.stderr}")
+    check = os.path.join(ROOT, "build", "readback_side")
+    shutil.rmtree(check, ignore_errors=True)
+    os.makedirs(check)
+    lst = os.path.join(check, "list.txt")
+    open(lst, "w").write(f"{SOUND_BANK_TYPE}/{VEIL_BANK}\n")
+    evr(["getlive", data, lst, check], SIDE_PACKAGE)
+    got = os.path.join(check, f"{int(SOUND_BANK_TYPE, 16):016x}", f"{int(VEIL_BANK, 16):016x}")
+    ok = os.path.exists(got) and open(got, "rb").read() == open(staged_bank, "rb").read()
+    print("   side package read back: " + ("the patched bank" if ok else "NOT the patched bank"))
+
+
 def install_script_dlls(install: str):
     """Echo loads script code from bin/win10/scripts/<hash>.dll, not from the package,
     so every staged script (the new DOT trigger script, the sound-patched DOT script)
@@ -338,6 +379,7 @@ def main(argv) -> int:
               not args.veil_stock_sound)
         for install in (args.server_install, args.client_install):
             repack(install)
+            patch_side_package(install)
             install_script_dlls(install)
             clear_wwise_cache(install)
 
