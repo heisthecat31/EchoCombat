@@ -213,6 +213,10 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: 
 def sound_stub(at: int, ctor: int, execute: int, event: int) -> bytes:
     """execute_node replacement: one PLAYSOUNDNODE for `event` on the player ("self").
 
+    `isrefpoint` is set so the player is only the reference point: the sound
+    stays where the veil went off instead of following the player (as with
+    the particle node's isrefpoint + leavebehind).
+
     It takes over a graph node of its own (the custom-param node). Sharing the
     cloud node did not work: two different node classes run on one graph node
     leave its engine state such that only the first one acts."""
@@ -223,6 +227,7 @@ def sound_stub(at: int, ctor: int, execute: int, event: int) -> bytes:
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # node (0x88 bytes) at rsp+20h
     b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
     b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
+    b += bytes.fromhex("c644245801")                                            # node+38 isrefpoint = 1
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
     b[skip] = len(b) - (skip + 1)
     b += bytes.fromhex("4881c4b0000000 5b c3")
