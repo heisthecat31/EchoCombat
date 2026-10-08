@@ -6,7 +6,7 @@ has Repair Matrix's: the heal bubble component every player carries
 through the R15NetHealBubble* nodes. POWER BOOST is that tac mod, same
 behaviour and tuning, recoloured from green to purplish red (the code still says gold):
 
-1. `buff` is registered in gear_table.tacmods as POWER BOOST.
+1. `buff` is registered in gear_table.tacmods as OVERCHARGE (it was POWER BOOST).
 2. Its script, `mp_combat_ability_buff` (CSymbol64 4b65d1b0088d2682), is a
    copy of the heal script whose three colour node classes recolour on the
    way in: a new `.gold` section holds a stub per class, run from each
@@ -64,7 +64,7 @@ from veil_fx import SELF, add_section, transplant
 HEAL_SCRIPT = 0x6A0F689E5B91C666
 BUFF_SCRIPT = 0x4B65D1B0088D2682       # CSymbol64("mp_combat_ability_buff")
 BUFF = 0xC8C33E48386618B6              # CSymbol64("buff")
-BUFF_GEAR = {"name": "buff", "display_name": "POWER BOOST"}
+BUFF_GEAR = {"name": "buff", "display_name": "OVERCHARGE"}   # was POWER BOOST
 
 #: Purplish red (it was dark gold; the names stayed). Material / light colours become
 #: max(rgb) * GOLD; the fullscreen tint becomes min + (max - min) * TINT.
@@ -405,7 +405,11 @@ def main(argv) -> int:
 
     eq_path, equipment = load(args.base, EQUIPMENT)
     tacmods = equipment["gear_table"]["tacmods"]
-    if not any(t["name"] == "buff" for t in tacmods):
+    for t in tacmods:                        # renamed (POWER BOOST -> OVERCHARGE) if already there
+        if t["name"] == "buff":
+            t.update(BUFF_GEAR)
+            break
+    else:
         tacmods.append(dict(BUFF_GEAR))
     print(save(args.out, EQUIPMENT, eq_path, equipment))
     print("tacmods:", [t["name"] for t in tacmods])

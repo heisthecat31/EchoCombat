@@ -43,7 +43,7 @@ GEAR = {
     "ordnances": [("det", "DETONATOR"), ("stun", "STUN FIELD"), ("arc", "ARC MINE"), ("burst", "INSTANT REPAIR"),
                   ("loc", "TRANSLOCATOR"), ("dot", "DOT FIELD"), ("drone", "DRONE")],
     "tacmods": [("heal", "REPAIR MATRIX"), ("sensor", "THREAT SCANNER"), ("shield", "ENERGY BARRIER"),
-                ("wraith", "PHASE SHIFT"), ("smoke", "UMBRAL VEIL"), ("buff", "POWER BOOST")],
+                ("wraith", "PHASE SHIFT"), ("smoke", "UMBRAL VEIL"), ("buff", "OVERCHARGE")],
 }
 MAX_COPIES = 25
 MAX_BYTES = 48 << 20
