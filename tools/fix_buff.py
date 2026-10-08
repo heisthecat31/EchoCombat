@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import math
 import struct
 import sys
 
@@ -199,6 +200,30 @@ def gold_particles(effect: bytes, gold=FX_GOLD) -> tuple[bytes, list]:
             out[o:o + 3] = bytes(min(255, round(v)) for v in span((c0, c1, c2)))
             changed.append((o, (c0 / 255, c1 / 255, c2 / 255)))
     return bytes(out), sorted(changed)
+
+
+def purple_leftovers(effect: bytes, gold=FX_GOLD) -> tuple[bytes, list]:
+    """A second pass over a recoloured effect for the greens gold_particles leaves: pure
+    greens (red and blue 0, e.g. 0 1 0, the beam's core), which its 0.005..4 window
+    skips -- OVERCHARGE's beam and its floating crosses stayed
+    green. Any float triple with green above 0.05 and at least twice red and blue (both
+    >= 0), unless a neighbouring float is negative (a vector or a velocity range: the
+    0 1 0 there is an axis, not a colour). Recoloured as gold_particles does."""
+    out = bytearray(effect)
+    changed = []
+    span = lambda c: [min(c) + (max(c) - min(c)) * k for k in gold]
+    o = 0
+    while o + 12 <= len(out):
+        r, g, b = struct.unpack_from("<3f", out, o)
+        near = [struct.unpack_from("<f", out, o + d)[0] for d in (-8, -4, 12, 16) if 0 <= o + d <= len(out) - 4]
+        if (all(math.isfinite(v) for v in (r, g, b)) and 0.05 < g <= 4 and 0 <= r and 0 <= b
+                and g >= 2 * max(r, b) and not any(v < 0 for v in near if math.isfinite(v))):
+            struct.pack_into("<3f", out, o, *span((r, g, b)))
+            changed.append((o, (r, g, b)))
+            o += 12
+        else:
+            o += 4
+    return bytes(out), changed
 
 
 def gold_particle_refs(script: bytes) -> bytes:
@@ -431,6 +456,8 @@ def main(argv) -> int:
         src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
         effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{src_fx:x}"), "rb").read()
         gold_effect, changed = gold_particles(effect)
+        gold_effect, more = purple_leftovers(gold_effect)
+        changed += more
         for folder, data in ((PARTICLE_TYPE, gold_effect),
                              (PARTICLE_COMPANION, open(os.path.join(args.src, PARTICLE_COMPANION, f"{src_fx:x}"), "rb").read())):
             os.makedirs(os.path.join(args.out, folder), exist_ok=True)
