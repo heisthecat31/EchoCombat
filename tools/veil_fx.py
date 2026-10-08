@@ -556,7 +556,8 @@ POINT_DECIDE = bytes.fromhex(
     "27418b0085c07e208d48fff0410fb10875ef41c782580100004b4f4d53f041ff4010b801000000c385d27413"
     "41c782580100004d524f4ef041ff401431c0c3b802000000c3")
 POINT_MARK = struct.pack("<I", 0x22334455)
-#: the wall's global data gains 8 bytes: +158h the decision, +15Ch POINT's state
+#: the wall's global data gains 16 bytes: +158h the decision, +15Ch POINT's state, +160h
+#: the last spawn (see renew_stub)
 #: (0 not started, 1 gone off, else the charge-up's start, interrupt time low dword | 1)
 POINT_STATE = GLOBAL_LEN + 4
 
@@ -677,6 +678,37 @@ GATE_LIMIT = 2_500_000                        # 0.25 s, in 100 ns (KUSER_SHARED_
 WALL_SHOW_NODE, WALL_SHOW_NODE_OLD = 0x6D30, bytes.fromhex("4053 4883ec50")
 
 
+#: The barrier wall is a pooled actor: a wall the pool hands out again keeps its script's
+#: global data, so without this it kept its last decision ("SMOK" / "POIN" / "NORM",
+#: +158h) and POINT's state (+15Ch). It never took another token and came up as the
+#: pool's default energy barrier. +160h gains the interrupt time of the wall's last
+#: spawn. A fresh, non-aborting run of the ShowModel node (ctx+18h = 0; it runs as the
+#: wall appears) more than RENEW_AFTER after the last spawn starts a new life: the
+#: decision and POINT's state are cleared, so the gate waits for a token again.
+RENEW_AFTER = 10_000_000                      # 1 s, in 100 ns: no wall lives shorter
+SPAWN_TIME = GLOBAL_LEN + 8
+
+
+def renew_stub(at: int, cont: int) -> bytes:
+    """At the ShowModel node's entry (rcx = ctx, kept): a new life clears the wall's
+    decision, then on to `cont` (the gate)."""
+    b = bytearray(bytes.fromhex("48837918 00 75"))                     # cmp qword [rcx+18h], 0; jne done
+    j1 = len(b)
+    b += b"\0" + bytes.fromhex("80b9db000000 00 75")                   # cmp byte [rcx+0DBh], 0; jne done
+    j2 = len(b)
+    b += b"\0" + bytes.fromhex("4c8b01 4d8b4068")                      # r8 = [[ctx]+68h], the global data
+    b += bytes.fromhex("49c7c10800fe7f 4d8b09 4c89c8")                 # r9 = rax = interrupt time
+    b += bytes.fromhex("492b80") + struct.pack("<I", SPAWN_TIME)        # rax -= last spawn
+    b += bytes.fromhex("483d") + struct.pack("<I", RENEW_AFTER) + b"\x72"   # jb done
+    j3 = len(b)
+    b += b"\0" + bytes.fromhex("4d8988") + struct.pack("<I", SPAWN_TIME)    # last spawn = now
+    b += bytes.fromhex("49c780") + struct.pack("<I", GLOBAL_LEN) + bytes(4)  # decision, POINT state = 0
+    for j in (j1, j2, j3):
+        b[j] = len(b) - (j + 1)
+    b += b"\xe9" + rel32(at + len(b) + 5, cont)
+    return bytes(b)
+
+
 def gate_stub(at: int, decide: int, record: int, cont: int, prologue: bytes = b"") -> bytes:
     """GATE at `at`: waits on decide(), writes the wait to record `record` (1/2), then
     runs `prologue` and jumps to `cont` (rcx = ctx)."""
@@ -717,7 +749,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     blob += ring_offsets(count, spread)
     parts = {}
     sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
-             "gate_show": 256, "gate_phys": 256}
+             "gate_show": 256, "gate_phys": 256, "renew": 96}
     if point:
         sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
@@ -818,12 +850,14 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     else:
         put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
     put("gate_phys", gate_stub(at["gate_phys"], at["decide"], 2, at["phys"]))
+    put("renew", renew_stub(at["renew"], at["gate_show"]))             # a pooled wall's new life
 
     pe.write(va, bytes(blob))
-    pe.write(WALL_GLOBAL_LEN_FN, b"\xb8" + struct.pack("<I", GLOBAL_LEN + 8) + b"\xc3")   # + the decision
+    # + the decision, POINT's state and the last spawn
+    pe.write(WALL_GLOBAL_LEN_FN, b"\xb8" + struct.pack("<I", SPAWN_TIME + 8) + b"\xc3")
     pe.write(WALL_BIND_CALL, b"\xe8" + rel32(WALL_BIND_CALL + 5, at["bind"]))
     pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
-    pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["gate_show"]) + b"\x90")
+    pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["renew"]) + b"\x90")
     pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["gate_phys"]) + b"\x90" * 3)
     if point:
         if pe.read(WALL_SOUND_EXEC, 5) != WALL_SOUND_ENTRY:
