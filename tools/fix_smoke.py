@@ -20,9 +20,10 @@ can be equipped, charges, and its use reaches the scripts. This is stage 2:
 1. `smoke` is registered in gear_table.tacmods as UMBRAL VEIL (its tuning is
    already in ability_properties.smoke).
 2. A new script, `mp_combat_ability_smoke` (CSymbol64 94ba7ca09dcf7b0b), is a
-   copy of the barrier script for now (spawns the barrier wall); stage 3 gives
-   it a smoke wall. It gets its `CScriptResourceWin10` entry and is attached to
-   each actor that runs the barrier script, right after it.
+   copy of the barrier script whose wall spawn is replaced by detonator smoke
+   clouds (veil_fx.py): no wall, no collision, both teams see it. It gets its
+   `CScriptResourceWin10` entry and is attached to each actor that runs the
+   barrier script, right after it.
 3. The controller gets a fifth branch, wraith -> new node 5613c5a9 -> end,
    calling the smoke script's enable function with "equipped == smoke":
    * the controller's .text grows into the free address space before .rdata
@@ -64,9 +65,7 @@ PLAYER_ACTORS = (0x91D8DE0806964A11, 0xF1E70ACD0DDE0312)
 SMOKE_GEAR = {"name": "smoke", "display_name": "UMBRAL VEIL"}
 SMOKE = 0xE32DC7C9D4804FB5             # CSymbol64("smoke")
 
-#: Barrier script: the one float every wall-tint colour node uses for r, g, b.
-TINT_RVA = 0xD234
-TINT_OLD = 0.7287859916687012
+DET_SCRIPT = "190ed14fe3da5ed1"          # mp_combat_grenade_det: its smoke particle node
 
 # --- controller layout (checked) -------------------------------------------
 NODE_FN = 0x12670                      # execute_node_5e2732a4 (barrier enable call)
@@ -220,15 +219,11 @@ def add_smoke_branch(pe_bytes: bytes) -> bytes:
     return bytes(pe.d)
 
 
-def smoke_script(barrier_asset: bytes, shade: float) -> bytes:
-    """The barrier script with the wall tint changed."""
-    mz = barrier_asset.find(b"MZ")
-    pe = PE(barrier_asset[mz:])
-    old = struct.unpack("<f", pe.read(TINT_RVA, 4))[0]
-    if abs(old - TINT_OLD) > 1e-6:
-        raise ValueError(f"unexpected wall tint {old}: wrong barrier script build")
-    pe.write(TINT_RVA, struct.pack("<f", shade))
-    return barrier_asset[:mz] + bytes(pe.d)
+def smoke_script(barrier_asset: bytes, det_asset: bytes, **veil) -> bytes:
+    """The barrier script, spawning smoke clouds instead of the wall."""
+    from veil_fx import add_smoke_fx
+    mz, dmz = barrier_asset.find(b"MZ"), det_asset.find(b"MZ")
+    return barrier_asset[:mz] + add_smoke_fx(barrier_asset[mz:], det_asset[dmz:], **veil)
 
 
 def patch_controller(asset: bytes) -> bytes:
@@ -270,8 +265,10 @@ def main(argv) -> int:
     ap.add_argument("--base", required=True, help="dir holding the live 607d858c90268f9a/ JSON")
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--shade", type=float, default=0.15,
-                    help="smoke wall tint, r=g=b (barrier: 0.729; 0 = black)")
+    ap.add_argument("--count", type=int, default=3, help="smoke clouds per use")
+    ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
+    ap.add_argument("--life", type=float, default=6.0, help="how much longer the smoke lasts than the detonator's")
+    ap.add_argument("--spread", type=float, default=1.5, help="metres between the clouds")
     args = ap.parse_args(argv[1:])
 
     eq_path, equipment = load(args.base, EQUIPMENT)
@@ -287,10 +284,13 @@ def main(argv) -> int:
     print(f"{SCRIPTS}/{CONTROLLER}: fifth tac mod branch -> mp_combat_ability_smoke")
 
     barrier = open(os.path.join(args.src, SCRIPTS, f"{BARRIER_SCRIPT:x}"), "rb").read()
-    open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(barrier, args.shade))
+    det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()
+    open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
+        barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread))
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{SMOKE_SCRIPT:x}"), "wb").write(bytes(4))
-    print(f"{SCRIPTS}/{SMOKE_SCRIPT:x}: mp_combat_ability_smoke (barrier copy, wall tint {args.shade})")
+    print(f"{SCRIPTS}/{SMOKE_SCRIPT:x}: mp_combat_ability_smoke: {args.count} smoke clouds, "
+          f"scale {args.scale}, life x{args.life}, {args.spread} m apart (no wall)")
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)

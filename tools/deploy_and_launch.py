@@ -9,7 +9,7 @@
      fix_drone_script.py, fix_drone_bullet.py
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
-     fix_smoke.py                            UMBRAL VEIL tac mod
+     fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -77,6 +77,7 @@ SHARED_SCRIPT = "190ed14fe6c74dd3"
 TACMOD_CONTROLLER = "4b65d1b009973281"
 BARRIER_SCRIPT = "b87ba2039b049d5e"
 SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
+STUN_SCRIPT = "190ed14ff6dc4ad8"
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
@@ -110,6 +111,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, SHARED_SCRIPT),
                                                     (SCRIPTS_TYPE, TACMOD_CONTROLLER),
                                                     (SCRIPTS_TYPE, BARRIER_SCRIPT),
+                                                    (SCRIPTS_TYPE, STUN_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
@@ -126,7 +128,7 @@ def overlay(base: str, extract: str):
 
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
-          smoke_shade: float = 0.15):
+          veil: tuple = (), fx_preview: int = 0):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -141,7 +143,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         tool("fix_drone_bullet.py", *src)
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
-        tool("fix_smoke.py", "--base", STAGE, *src, "--shade", str(smoke_shade))
+        tool("fix_smoke.py", "--base", STAGE, *src, *veil)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
@@ -151,6 +153,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     tool("fix_shared_frisbee.py", *src)
     tool("fix_dot_script.py", *src)
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
+    # Particle effect preview: each stun mine shows the next effect (for UMBRAL VEIL's smoke).
+    if fx_preview:
+        tool("fx_preview.py", *src, "--start", str(fx_preview))
 
 
 def evrtool():
@@ -230,8 +235,12 @@ def main(argv) -> int:
                     help="how fast a thrown DOT slows down (higher = stops sooner); 25 = arc mine")
     ap.add_argument("--no-smoke", action="store_true",
                     help="leave UMBRAL VEIL out (stock tac mod controller), e.g. to A/B a tac mod")
-    ap.add_argument("--smoke-shade", type=float, default=0.15,
-                    help="UMBRAL VEIL wall tint, r=g=b (Energy Barrier uses 0.729; 0 = black)")
+    ap.add_argument("--veil-count", default="3", help="UMBRAL VEIL smoke clouds per use")
+    ap.add_argument("--veil-scale", default="6", help="UMBRAL VEIL cloud size (detonator's is about 2)")
+    ap.add_argument("--veil-life", default="6", help="UMBRAL VEIL smoke lifetime, x the detonator's")
+    ap.add_argument("--veil-spread", default="1.5", help="UMBRAL VEIL metres between clouds")
+    ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
+                    help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -248,7 +257,8 @@ def main(argv) -> int:
             subprocess.run(["taskkill", "/IM", "echovr.exe", "/F"])
             time.sleep(3)
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
-              not args.no_smoke, args.smoke_shade)
+              not args.no_smoke, ("--count", args.veil_count, "--scale", args.veil_scale,
+                                  "--life", args.veil_life, "--spread", args.veil_spread), args.fx_preview)
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dlls(install)
