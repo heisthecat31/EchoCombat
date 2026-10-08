@@ -59,7 +59,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from fix_drone import EQUIPMENT, load, save
+from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
 
 SCRIPTS = "6eace9f64204fd0"            # CSymbol64("StreamingScriptWin10")
 SCRIPT_RESOURCE = "991421b41de58370"   # CSymbol64("CScriptResourceWin10")
@@ -297,6 +297,11 @@ def main(argv) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--with-buff", action="store_true",
                     help="also give the controller POWER BOOST's branch (wraith -> smoke -> buff); fix_buff.py does the rest")
+    ap.add_argument("--with-point", action="store_true",
+                    help="also give the controller POINT's branch (... -> buff -> point) and the wall script "
+                         "POINT's stun field mode (needs --with-buff); fix_point.py does the rest")
+    ap.add_argument("--point-event", type=int, default=None, help="POINT's sound event (default: the stun field's)")
+    ap.add_argument("--point-scale", type=float, default=2.0, help="size of POINT's burst effect")
     ap.add_argument("--count", type=int, default=7, help="smoke clouds per use")
     ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
     ap.add_argument("--life", type=float, default=8.0, help="how much longer the smoke lasts than the detonator's")
@@ -323,13 +328,30 @@ def main(argv) -> int:
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     ctrl = open(os.path.join(args.src, SCRIPTS, CONTROLLER), "rb").read()
     extra = [(0xC8C33E48386618B6, 0x4B65D1B0088D2682)] if args.with_buff else []   # buff, its script
+    if args.with_point:
+        if not args.with_buff:
+            ap.error("--with-point needs --with-buff (POINT's branch comes after POWER BOOST's)")
+        extra.append((0xE32DC7CAD6864AA4, 0x94BA7CA39FC97E1A))                    # point, its script
     open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(patch_controller(ctrl, extra))
     print(f"{SCRIPTS}/{CONTROLLER}: fifth tac mod branch -> mp_combat_ability_smoke"
-          + (", sixth -> mp_combat_ability_buff" if extra else ""))
+          + (", sixth -> mp_combat_ability_buff" if extra else "")
+          + (", seventh -> mp_combat_ability_point" if args.with_point else ""))
+    point, stun = None, None
+    if args.with_point:
+        from veil_fx import POINT_EVENT, STUN_SCRIPT
+        _, settings = load(args.base, WEAPON_SETTINGS)
+        t = settings["ability_properties"]["point"]
+        point = {"charge_up_time": t["charge_up_time"], "stun_duration": t["stun_duration"],
+                 "scale": args.point_scale,
+                 "event": POINT_EVENT if args.point_event is None else args.point_event}
+        stun = open(os.path.join(args.src, SCRIPTS, STUN_SCRIPT), "rb").read()
+        stun = stun[stun.find(b"MZ"):]
 
     barrier = open(os.path.join(args.src, SCRIPTS, f"{BARRIER_SCRIPT:x}"), "rb").read()
     det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()
     networked = not (args.local or args.mailbox)
+    if point and not networked:
+        ap.error("--with-point needs the networked veil (no --local / --mailbox)")
     if networked:
         from veil_fx import mark_param, network_wall
         mz, dmz = barrier.find(b"MZ"), det.find(b"MZ")
@@ -340,9 +362,13 @@ def main(argv) -> int:
         open(os.path.join(args.out, SCRIPTS, WALL_SCRIPT), "wb").write(wall[:wmz] + network_wall(
             wall[wmz:], det[dmz:], count=args.count, scale=args.scale, life=args.life,
             spread=args.spread, emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha,
-            shade=args.shade))
+            shade=args.shade, point=point, stun_pe=stun))
         print(f"{SCRIPTS}/{WALL_SCRIPT}: barrier wall script: a wall that takes a veil token "
               f"(VeilNet.dll) hides, has no collision, and spawns the smoke and sound -- on every machine")
+        if point:
+            print(f"{SCRIPTS}/{WALL_SCRIPT}: ... and one that takes a point token goes off as POINT after "
+                  f"{point['charge_up_time']} s: burst x{point['scale']}, sound {point['event']}, "
+                  f"stun explosion ({point['stun_duration']} s)")
     else:
         open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
             barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,

@@ -1,4 +1,4 @@
-// VeilNet: carries UMBRAL VEIL to every machine.
+// VeilNet: carries UMBRAL VEIL (and POINT) to every machine.
 //
 // The veil (the smoke tac mod) runs its script only on the client that used it. The
 // one networked thing it does is create a barrier wall, which every machine gets.
@@ -29,6 +29,10 @@
 // Clients say hello every 2 s; the server relays only to clients that have (so a
 // player without VeilNet never gets a packet the game would not understand).
 // "-server" on the command line picks the server role. Log: VeilNet.log next to the DLL.
+//
+// POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
+// the u32 at +0x2104f80, every machine gets a "point token" (+0x2104ce0, same layout as
+// the veil's), and a wall that takes one goes off as POINT's stun field instead.
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -44,6 +48,8 @@ namespace {
 
 constexpr uintptr_t TOKEN_RVA = 0x2104cc0;
 constexpr uintptr_t USE_COUNTER_RVA = 0x2104f00;
+constexpr uintptr_t POINT_TOKEN_RVA = 0x2104ce0;
+constexpr uintptr_t POINT_COUNTER_RVA = 0x2104f80;
 constexpr ULONGLONG TOKEN_LIFE = 15000000;      // 1.5 s, in 100 ns
 constexpr uint32_t MAGIC = 0x4c564345;          // "ECVL"
 constexpr uint32_t MAGIC2 = 0x4c494556;         // "VEIL"
@@ -57,7 +63,7 @@ struct Shared {
 
 struct Packet {
     uint32_t magic;
-    uint8_t type;                               // 'H' hello, 'V' veil
+    uint8_t type;                               // 'H' hello, 'V' veil, 'P' point
     uint8_t pad[3];
     uint32_t id;
     uint32_t magic2;
@@ -65,6 +71,7 @@ struct Packet {
 
 uint8_t *g_base;
 Shared *g_shared;
+Shared *g_point;                                // POINT's tokens (+10: walls that went off)
 bool g_server;
 char g_log_path[MAX_PATH];
 volatile LONG g_logged = 0;
@@ -98,12 +105,15 @@ bool Same(const sockaddr_in &a, const sockaddr_in &b) {
     return a.sin_addr.s_addr == b.sin_addr.s_addr && a.sin_port == b.sin_port;
 }
 
-void AddToken() {
+void AddToken(Shared *t) {
     ULONGLONG now = InterruptTime();
-    if (now >= g_shared->expiry) InterlockedExchange(&g_shared->tokens, 0);
-    InterlockedIncrement(&g_shared->tokens);
-    g_shared->expiry = now + TOKEN_LIFE;
+    if (now >= t->expiry) InterlockedExchange(&t->tokens, 0);
+    InterlockedIncrement(&t->tokens);
+    t->expiry = now + TOKEN_LIFE;
 }
+
+Shared *Tokens(uint8_t type) { return type == 'P' ? g_point : g_shared; }
+const char *What(uint8_t type) { return type == 'P' ? "point" : "veil"; }
 
 // The last ids seen, so a veil that arrives twice (the resend) gives one token.
 uint32_t g_seen[32];
@@ -206,7 +216,7 @@ void Remember(SOCKET s, const sockaddr_in &a) {
     if (!known) Log("client %s has VeilNet", Addr(a, buf, sizeof(buf)));
 }
 
-int Relay(const sockaddr_in &from, uint32_t id) {
+int Relay(const sockaddr_in &from, uint8_t type, uint32_t id) {
     Client list[64];
     AcquireSRWLockShared(&g_lock);
     memcpy(list, g_clients, sizeof(list));
@@ -215,8 +225,8 @@ int Relay(const sockaddr_in &from, uint32_t id) {
     int n = 0;
     for (const Client &c : list)
         if (c.last && now - c.last < 30000 && !Same(c.addr, from)) {
-            Send(c.sock, c.addr, 'V', id);
-            Send(c.sock, c.addr, 'V', id);                      // once more, against loss
+            Send(c.sock, c.addr, type, id);
+            Send(c.sock, c.addr, type, id);                     // once more, against loss
             ++n;
         }
     return n;
@@ -226,14 +236,15 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     char buf[48];
     if (g_server) {
         Remember(s, from);
-        if (p.type == 'V' && FirstTime(p.id)) {
-            AddToken();
-            int n = Relay(from, p.id);
-            Log("veil %08x from %s: token here, relayed to %d client(s)", p.id, Addr(from, buf, sizeof(buf)), n);
+        if ((p.type == 'V' || p.type == 'P') && FirstTime(p.id)) {
+            AddToken(Tokens(p.type));
+            int n = Relay(from, p.type, p.id);
+            Log("%s %08x from %s: token here, relayed to %d client(s)", What(p.type), p.id,
+                Addr(from, buf, sizeof(buf)), n);
         }
-    } else if (p.type == 'V' && FirstTime(p.id)) {
-        AddToken();
-        Log("veil %08x from the server: token here", p.id);
+    } else if ((p.type == 'V' || p.type == 'P') && FirstTime(p.id)) {
+        AddToken(Tokens(p.type));
+        Log("%s %08x from the server: token here", What(p.type), p.id);
     }
 }
 
@@ -271,24 +282,30 @@ int WSAAPI Hooked_recvfrom(SOCKET s, char *buf, int len, int flags, sockaddr *fr
 // barrier walls decided (both).
 DWORD WINAPI Tick(LPVOID) {
     volatile LONG *uses = (volatile LONG *)(g_base + USE_COUNTER_RVA);
+    volatile LONG *point_uses = (volatile LONG *)(g_base + POINT_COUNTER_RVA);
     LONG seen_uses = *uses, seen_veils = g_shared->veils, seen_barriers = g_shared->barriers;
+    LONG seen_point_uses = *point_uses, seen_points = g_point->veils;
     sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0, next_pick = 0;
     for (;;) {
         Sleep(5);
         if (!g_server) {
-            LONG u = *uses;
-            if (u != seen_uses) {
-                seen_uses = u;
-                uint32_t id = GetTickCount() * 2654435761u ^ GetCurrentProcessId() << 16 ^ (uint32_t)u;
+            for (int k = 0; k < 2; ++k) {
+                uint8_t type = k ? 'P' : 'V';
+                LONG u = k ? *point_uses : *uses;
+                LONG &seen = k ? seen_point_uses : seen_uses;
+                if (u == seen) continue;
+                seen = u;
+                uint32_t id = GetTickCount() * 2654435761u ^ GetCurrentProcessId() << 16 ^ (uint32_t)u ^ k;
                 FirstTime(id);
-                AddToken();
+                AddToken(Tokens(type));
                 Dest d;
                 bool ok = ServerDest(d);
-                SendToServer('V', id);
-                SendToServer('V', id);                           // once more, against loss
-                Log(ok ? "veil used here: token here, veil %08x sent to the server"
-                       : "veil used here: token here (veil %08x not sent: no game server connection seen yet)", id);
+                SendToServer(type, id);
+                SendToServer(type, id);                          // once more, against loss
+                Log(ok ? "%s used here: token here, %08x sent to the server"
+                       : "%s used here: token here (%08x not sent: no game server connection seen yet)",
+                    What(type), id);
             }
             ULONGLONG now = GetTickCount64();
             if (now >= next_pick) {
@@ -309,12 +326,15 @@ DWORD WINAPI Tick(LPVOID) {
         LONG v = g_shared->veils, b = g_shared->barriers;
         if (v != seen_veils) { seen_veils = v; Log("a barrier wall took a token: UMBRAL VEIL (%ld so far)", v); }
         if (b != seen_barriers) { seen_barriers = b; Log("a barrier wall found no token: energy barrier (%ld so far)", b); }
+        LONG pt = g_point->veils;
+        if (pt != seen_points) { seen_points = pt; Log("a barrier wall took a point token: POINT (%ld so far)", pt); }
     }
 }
 
 DWORD WINAPI Install(LPVOID) {
     g_base = (uint8_t *)GetModuleHandleW(nullptr);
     g_shared = (Shared *)(g_base + TOKEN_RVA);
+    g_point = (Shared *)(g_base + POINT_TOKEN_RVA);
     g_server = strstr(GetCommandLineA(), " -server") != nullptr;
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());

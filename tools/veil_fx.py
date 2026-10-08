@@ -467,14 +467,15 @@ DEBUG_PARAM = bytes.fromhex(
 PARAM_EXEC_CALL, PARAM_EXEC = 0x64F1, 0x22A0           # param node: call R15NETPOOLEDACTORCUSTOMPARAMNODE::Execute
 
 
-def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER) -> bytes:
+def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER, record: int = DEBUG_RVA + 0x200) -> bytes:
     """The smoke script's custom-param node bumps the use counter VeilNet.dll watches
-    (and still sends `marker` as the wall's symbol param, harmless)."""
+    (the u32 at `record`; POINT's script uses POINT_RECORD), and still sends `marker`
+    as the wall's symbol param, harmless."""
     pe = PE(barrier_pe)
     if pe.read(PARAM_SYMBOL, 8) != PARAM_SYMBOL_OLD \
             or pe.read(PARAM_EXEC_CALL, 5) != b"\xe8" + rel32(PARAM_EXEC_CALL + 5, PARAM_EXEC):
         raise ValueError("unexpected barrier param node: wrong barrier script build")
-    stub = DEBUG_PARAM.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA + 0x200))   # record, then Execute
+    stub = DEBUG_PARAM.replace(RVA_MARK, struct.pack("<I", record))   # record, then Execute
     va = add_section(pe, VEIL, len(stub) + 5)
     pe.write(va, stub + b"\xe9" + rel32(va + len(stub) + 5, PARAM_EXEC))
     pe.write(PARAM_EXEC_CALL, b"\xe8" + rel32(PARAM_EXEC_CALL + 5, va))
@@ -501,6 +502,89 @@ TOKEN_DECIDE = bytes.fromhex(
     "4805443322114989c049c7c10800fe7f4d8b094d3b48087327418b0085c07e208d48fff0410fb10875ef41"
     "c782580100004b4f4d53f041ff4010b801000000c385d2741341c782580100004d524f4ef041ff401431c0"
     "c3b802000000c3")
+
+
+# --- POINT: a wall that takes a point token goes off as a stun field ----------------
+#
+# POINT's script is the barrier script too (mark_param with POINT_RECORD): VeilNet.dll
+# sends its uses as 'P' packets and every machine gets a "point token" (POINT_TOKEN_RVA,
+# same layout as the veil's). A wall that takes one hides, has no collision, waits the
+# charge-up, then shows the stun mine's burst, plays the stun field's sound and
+# activates a stun explosion on itself: the stun mine's explosion component, which
+# fix_point.py gives the wall actor in every level (radius and stun length from
+# ability_properties.point). The explosion node class is transplanted from the stun
+# mine's script.
+
+POINT_MARKER = 0x4E494F50                     # "POIN"
+#: POINT's use counter: the point script's custom-param node record (VeilNet watches +00)
+POINT_RECORD = DEBUG_RVA + 0x280
+#: POINT's tokens, after the veil's: +00 count, +08 expiry, +10 walls that went off
+POINT_TOKEN_RVA = 0x2104CE0
+STUN_SCRIPT = "190ed14ff6dc4ad8"              # mp_combat_grenade_stun
+#: R15NETACTIVATEEXPLOSIONNODE, from the stun mine's script. Node: +08 actor (-1 =
+#: self), +10 component name, +18 arg1 (the stun length, s), +1C arg2, +20..28 arg3.
+ACTIVATE_EXPLOSION = {
+    "ctor": (0x4690, 44, "e1e8e4e8c1d796a8aff5e033162ffdba6efc4934dbf6071c1889e9d7880e47a7", []),
+    "exec": (0x46C0, 235, "d3096c389afeeff1ffe57d3919a5f445b2d314e5459f858609fe68f5e2990940",
+             [0x1e, 0x36, 0x47, 0x4d, 0x5e, 0x64, 0x75, 0x7b, 0x8c, 0x92, 0xa3, 0xa9, 0xba, 0xc0, 0xd1,
+              0xe7]),
+    "bind": (0x4550, 308, "d4097526d039161edb33cf874d4d9eb35f1351b8bf8eaa9e5f7bba03dd370b36",
+             [0x22, 0x29, 0x30, 0x37, 0x4e, 0x55, 0x5c, 0x73, 0x7a, 0x81, 0x98, 0x9f, 0xa6, 0xbd, 0xc4,
+              0xcb, 0xe2, 0xe9, 0xf0, 0x107, 0x10e, 0x115]),
+}
+#: the stun mine's explosion component (its name on the stun mine, and on the wall)
+STUN_EXPLOSION = 0x25905B54E61D3F10
+#: the stun mine's burst (execute_node_8ff76ff9) and the stun field going off (event in
+#: bank c823e2c9bc0168ad, played by its execute_node_4cf23d1e)
+POINT_FX = 0x4CE12AE42C1B6269
+POINT_EVENT = 2000808251
+#: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
+#: gives "POIN" / eax 3. 0x22334455 marks POINT_TOKEN_RVA, 0x11223344 TOKEN_RVA.
+POINT_DECIDE = bytes.fromhex(
+    "4c8b114d8b5268418b82580100003d4b4f4d530f848d0000003d504f494e74523d4d524f4e0f849500000065"
+    "48a160000000000000004c8b581049c7c10800fe7f4d8b094d8d83554433224d3b48087327418b0085c07e20"
+    "8d48fff0410fb10875ef41c78258010000504f494ef041ff4010b803000000c34d8d83443322114d3b480873"
+    "27418b0085c07e208d48fff0410fb10875ef41c782580100004b4f4d53f041ff4010b801000000c385d27413"
+    "41c782580100004d524f4ef041ff401431c0c3b802000000c3")
+POINT_MARK = struct.pack("<I", 0x22334455)
+#: the wall's global data gains 8 bytes: +158h the decision, +15Ch POINT's state
+#: (0 not started, 1 gone off, else the charge-up's start, interrupt time low dword | 1)
+POINT_STATE = GLOBAL_LEN + 4
+
+
+def explosion_stub(at: int, ctor: int, execute: int, component: int, stun_length: float) -> bytes:
+    """One R15NETACTIVATEEXPLOSIONNODE on the script's own actor (rcx = ctx)."""
+    b = bytearray(bytes.fromhex("53 4881ec80000000 4889cb 488d4c2420 e8"))
+    b += rel32(at + len(b) + 4, ctor)
+    b += b"\x48\xb8" + struct.pack("<Q", component) + bytes.fromhex("4889442430")     # node+10 component
+    b += bytes.fromhex("c7442438") + struct.pack("<f", stun_length)                  # node+18 stun length
+    b += bytes.fromhex("488d4c2420 4889da e8")
+    b += rel32(at + len(b) + 4, execute)
+    b += bytes.fromhex("4881c480000000 5b c3")
+    return bytes(b)
+
+
+def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> bytes:
+    """The wall's EnablePhysics node for a POINT wall (rbx = ctx; push rbx; sub rsp, 20h
+    done): wait `delay` (100 ns) from the first run, then the burst, the explosion and
+    the sound; later runs carry on with the sound."""
+    b = bytearray(bytes.fromhex("488b03 488b4068 8b885c010000 83f901 0f84"))
+    cont = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("48c7c20800fe7f 8b12 85c9 750b 89d1 83c901 89885c010000")
+    b += bytes.fromhex("29ca 81fa") + struct.pack("<I", delay) + b"\x0f\x82"
+    wait = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("c7805c01000001000000")                       # gone off
+    for stub in (spawn, explode):
+        b += bytes.fromhex("48c7431800000000 4889d9 e8") + rel32(at + len(b) + 16, stub)
+    b += bytes.fromhex("48c7431800000000")
+    b[cont:cont + 4] = struct.pack("<i", len(b) - (cont + 4))
+    b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, sound)
+    b[wait:wait + 4] = struct.pack("<i", len(b) - (wait + 4))
+    # still charging: busy (ctx+18h below the gate's 4000...h, so the gate lets it straight back in)
+    b += bytes.fromhex("48b80000000000000020 48894318 48c7c0ffffffff 4883c420 5b c3")
+    return bytes(b)
 
 
 #: Wait gate at a wall node's entry (rcx = ctx). On remote machines the veil's
@@ -539,9 +623,12 @@ def gate_stub(at: int, decide: int, record: int, cont: int, prologue: bytes = b"
 
 def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
                  life: float = 8.0, spread: float = 1.5, emission: float = 8.0, particle_scale: float = 2.5,
-                 alpha: float = 10.0, shade: float = 0.9, event: int = None) -> bytes:
+                 alpha: float = 10.0, shade: float = 0.9, event: int = None, point: dict = None,
+                 stun_pe: bytes = None) -> bytes:
     """The barrier wall script: a wall that takes a veil token (VeilNet.dll) becomes
-    UMBRAL VEIL, on every machine."""
+    UMBRAL VEIL, on every machine. With `point` (charge_up_time, stun_duration, and
+    optionally fx, scale, event) and the stun mine's script, a wall that takes a point
+    token goes off as POINT's stun field instead."""
     event = VEIL_EVENT if event is None else event
     if not 1 <= count <= 16:
         raise ValueError("count must be 1..16")
@@ -556,12 +643,16 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
 
     blob, fixups = bytearray(), []
     spn = transplant(det, SPAWN_PARTICLE, blob, fixups)
+    exp = transplant(PE(stun_pe), ACTIVATE_EXPLOSION, blob, fixups) if point else {}
     blob += bytes(-len(blob) % 16)
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
     parts = {}
     sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
              "gate_show": 256, "gate_phys": 256}
+    if point:
+        sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
+                      "point_sound": 128})
     for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
@@ -579,12 +670,18 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     # Bind: the wall's own call, then the particle node's Bind. rdi = setup_bindings'
     # table: nodes bind with ([rdi], [rdi+10h]).
     b = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at["bind"] + 9, WALL_BIND_TARGET))
-    b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, va + spn["bind"])
+    for bind in [spn["bind"]] + ([exp["bind"]] if point else []):
+        b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, va + bind)
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
-    put("decide", TOKEN_DECIDE.replace(RVA_MARK, struct.pack("<I", TOKEN_RVA)))
+    if point:
+        put("decide", POINT_DECIDE.replace(RVA_MARK, struct.pack("<I", TOKEN_RVA))
+            .replace(POINT_MARK, struct.pack("<I", POINT_TOKEN_RVA)))
+    else:
+        put("decide", TOKEN_DECIDE.replace(RVA_MARK, struct.pack("<I", TOKEN_RVA)))
     pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = 1: decide for good
-    post = bytes.fromhex("3c01 0f95c0") + SHOW_POST[2:]                # al = (decide != 1): show unless veil
+    # al = show: unless veil (1) or point (3), i.e. unless decide is odd
+    post = bytes.fromhex("a801 0f94c0") + SHOW_POST[2:]
     s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + post
     put("show", s)
     floats = {EMISSION_RATE: emission, LIFE: life, ALPHA: alpha, COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
@@ -596,6 +693,10 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     # (ctx+18h != 0): decide again, without a record, and spawn no more clouds.
     p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 48837b1800 7402 31d2 e8"))  # edx = 2 (for good) / 0
     p += rel32(at["phys"] + len(p) + 4, at["decide"])
+    if point:
+        p += bytes.fromhex("3c03 0f84")                                     # decide == 3: point
+        to_point = len(p)
+        p += bytes(4)
     p += bytes.fromhex("3c01 74")                                           # decide == 1: veil
     jnz = len(p)
     p += b"\0"
@@ -610,6 +711,21 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     p += bytes.fromhex("48c7431800000000")                                  # mov qword [rbx+18h], 0
     p += bytes.fromhex("4889d9 4883c420 5b e9")
     p += rel32(at["phys"] + len(p) + 4, at["sound"])
+    if point:
+        p[to_point:to_point + 4] = rel32(at["phys"] + to_point + 4, at["point"])
+        put("point", point_block(at["point"], int(point["charge_up_time"] * 1e7), at["point_spawn"],
+                                 at["point_boom"], at["point_sound"]))
+        fx_scale = point.get("scale", 2.0)
+        pf = {EMISSION_RATE: 1.0, LIFE: point.get("life", 1.0), ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0,
+              COLOR_B: 1.0}
+        pf.update({o: fx_scale for o in SCALE})
+        pf.update({o: fx_scale for o in PARTICLE_SCALE})
+        put("point_spawn", spawn_stub(at["point_spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, 1,
+                                      pf, asset=point.get("fx", POINT_FX), duration=point.get("time", 2.5)))
+        put("point_boom", explosion_stub(at["point_boom"], va + exp["ctor"], va + exp["exec"], STUN_EXPLOSION,
+                                         point["stun_duration"]))
+        put("point_sound", sound_stub(at["point_sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC,
+                                      point.get("event", POINT_EVENT)))
     put("phys", bytes(p))
 
     # Both spawn nodes first wait a moment for a token (see GATE).

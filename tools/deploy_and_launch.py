@@ -12,6 +12,7 @@
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
      veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
      fix_buff.py                             POWER BOOST tac mod: Repair Matrix in purplish red
+     fix_point.py                            POINT tac mod: a stun field where its wall lands
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
      fix_dot_trigger.py                      stacks onto the drone's script table
@@ -78,6 +79,7 @@ DOT_TRIGGER_SCRIPT = "4e8af51fe7d6af8c"
 FIX_TYPES = [
     "5b723f040a3778ee", "dde8fffc5b4d7ad4", "f2676c58c07bab0c", "2b292830e51c4fd2",
     "92abd3e1432bf5e8", "d99f6bbd8009c92c", "4fd65c8d2b63d470", "21a09c2016d8f3e6",
+    "4af215b19b297c34",                         # explosions: POINT's stun on the barrier wall (fix_point.py)
 ]
 LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",
           "cb9977f7fc2b4526", "df5ca7b7dfa383d4"]
@@ -95,6 +97,7 @@ WALL_SCRIPT = "ac4e9374a146d3a4"
 QUERY_SCRIPT = "c3178dbdb1250dce"
 HEAL_SCRIPT = "6a0f689e5b91c666"
 BUFF_SCRIPT = "4b65d1b0088d2682"
+POINT_SCRIPT = "94ba7ca39fc97e1a"
 PARTICLE_TYPES = ("3ae7c41914252baa", "be45c22fa8c2d3f")   # particle effect + its companion asset
 BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's beam and hand effects
                   "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
@@ -179,7 +182,7 @@ def veil_mailbox(installs) -> str:
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False,
-          buff_rez: bool = True):
+          buff_rez: bool = True, point: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -194,10 +197,14 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         tool("fix_drone_bullet.py", *src)
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
-        tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()))
+        point = point and buff and "--mailbox" not in veil
+        tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()),
+             *(("--with-point",) if point else ()))
         if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
             tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr), "--charge", str(buff_charge),
                  *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
+        if point:                             # POINT: a stun field where its wall lands, seventh tac mod
+            tool("fix_point.py", "--base", STAGE, *src)
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
     # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound
@@ -241,13 +248,13 @@ def repack(install: str):
         sys.exit(f"no manifest under {data}")
     print(f"\n== repacking {install}")
     run([evrtool(), "repack", data, STAGE])
-    for script in (DOT_TRIGGER_SCRIPT,) + tuple(s for s in (SMOKE_SCRIPT, BUFF_SCRIPT) if os.path.exists(
+    for script in (DOT_TRIGGER_SCRIPT,) + tuple(s for s in (SMOKE_SCRIPT, BUFF_SCRIPT, POINT_SCRIPT) if os.path.exists(
             os.path.join(STAGE, "991421b41de58370", s))):
         out = subprocess.run([evrtool(), "findlive", data, script], capture_output=True, text=True).stdout
         for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
             if f"{t}/{script}" not in out:
                 sys.exit(f"script {script} ({t}) missing from {install}'s manifest after repack")
-    print("   new scripts present: DOT trigger, smoke, buff")
+    print("   new scripts present: DOT trigger, smoke, buff, point")
     staged_bank = os.path.join(STAGE, SOUND_BANK_TYPE, VEIL_BANK)
     if os.path.exists(staged_bank):
         want = os.path.getsize(staged_bank)
@@ -470,7 +477,8 @@ def main(argv) -> int:
                          "placed, so the sound came ~20 s late, from the player). Default: on the player")
     ap.add_argument("--veil-stock-sound", action="store_true",
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
-    ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out")
+    ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out (and POINT, whose branch follows it)")
+    ap.add_argument("--no-point", action="store_true", help="leave POINT out")
     ap.add_argument("--buff-dr", type=float, default=0.09,
                     help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
     ap.add_argument("--buff-charge", type=float, default=40, help="POWER BOOST recharge time in seconds")
@@ -508,7 +516,7 @@ def main(argv) -> int:
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
-              not args.no_buff_rez)
+              not args.no_buff_rez, not args.no_point)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem EchoCombat installer: DOT field, DRONE, UMBRAL VEIL, POWER BOOST.
+rem EchoCombat installer: DOT field, DRONE, UMBRAL VEIL, POWER BOOST, POINT.
 rem   install.bat                    asks where Echo VR is
 rem   install.bat "D:\path\to\ready-at-dawn-echo-arena"
 rem Other mods already repacked into the install (packages _3, _4, ... with a
