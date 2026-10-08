@@ -170,6 +170,10 @@ func installPlugins(game string, b bundle) {
 	}
 	writeChecked(dst, loader)
 	fmt.Println("wrote", dst, "(plugin loader)")
+	if checkImports(dst) > 0 {
+		fmt.Println("  WARNING: the plugin loader cannot load on this PC until that is installed; " +
+			"Echo may fail to start (run doctor.bat to check again)")
+	}
 	for _, name := range b.plugins() {
 		copyChecked(b.bin("plugins", name), filepath.Join(plugins, name))
 		fmt.Println("wrote", filepath.Join(plugins, name))

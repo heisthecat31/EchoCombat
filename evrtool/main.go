@@ -8,6 +8,7 @@
 //	evrtool install <dataDir> <stageDir>            player install: drone bullet tables + merge, side package too
 //	evrtool setup   <gameDir> <bundleDir>           install.bat: install + script DLLs, plugins, plugin loader (files.go)
 //	evrtool remove  <gameDir> <bundleDir>           uninstall.bat: unmerge, scripts back, plugins out
+//	evrtool doctor  <gameDir> [bundleDir]           doctor.bat: why Echo will not start on this PC (doctor.go)
 //	evrtool getlive <dataDir> <listFile> <outDir>   read files back through the live manifest
 //	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages (ALL mods)
 //	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
@@ -158,6 +159,13 @@ func main() {
 			die("usage: evrtool dronebullet <dataDir> <outDir>")
 		}
 		droneBulletStage(dataDir, os.Args[3])
+	case "doctor":
+		// doctor <gameDir> [bundleDir]: why Echo will not start on this PC
+		b := ""
+		if len(os.Args) > 3 {
+			b = os.Args[3]
+		}
+		doctor(dataDir, b)
 	case "setup", "remove":
 		// setup <gameDir> <bundleDir>: the whole player install (install.bat)
 		if len(os.Args) < 4 {

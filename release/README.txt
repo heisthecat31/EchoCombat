@@ -30,6 +30,12 @@ What it writes into the game
     A dbgcore.dll that was already there (another mod) is moved into plugins\
     so it still loads. The loader needs the Visual C++ 2015-2022 x64 runtime.
 
+Echo will not start on a PC (e.g. the server)?
+  Run doctor.bat there. It checks that the plugin loader and plugins can load on
+  that PC (the loader needs the Visual C++ 2015-2022 x64 runtime:
+  https://aka.ms/vs/17/release/vc_redist.x64.exe), that echovr.exe is the build
+  they were made for, what is in bin\win10\plugins\, and shows the plugin logs.
+
 Notes
   * The drone's bullet effects are patched at install time from your own game
     files, so they always match your install.
