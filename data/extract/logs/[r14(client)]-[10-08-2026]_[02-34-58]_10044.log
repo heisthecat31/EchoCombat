@@ -1,0 +1,190 @@
+[10-08-2026] [02:34:58]: ======= Build: goldmaster 631547 from //rad/rad15_live('r') =======
+[10-08-2026] [02:34:58]: CL Args: C:\Oculus\Games\Software\Software\ready-at-dawn-echo-arena\bin\win10\echovr.exe
+[10-08-2026] [02:34:58]: 
+[10-08-2026] [02:34:58]: ---> Starting 7 worker threads in the scheduler.
+[10-08-2026] [02:34:58]: 
+[10-08-2026] [02:34:58]: Initializing enumerate thread: 000002C0D36C1770
+[10-08-2026] [02:34:58]: Forking enumerate thread: 00007FF767C7FA20 : 000002C0D36C1770
+[10-08-2026] [02:34:58]: Initializing OVR session...
+[10-08-2026] [02:34:58]: OVRInterface plugin library location: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64
+[10-08-2026] [02:34:58]: OVRInterface plugin libraries:
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_EXT_hand_interaction.dll
+    Class Id: 0xefee4db80b211365, class Name: XrExtHandInteractionExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+      Interface Id: 0xa19932327a9784c3
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_EXT_hand_tracking.dll
+    Class Id: 0x62582d091582647c, class Name: XrExtHandTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x5f77a98bd5853351, class Name: XrFbHandTrackingMeshExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a42427b3cad1d, class Name: XrMetaHandTrackingFrequencyHintExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xb89c0d2d34139a67, class Name: XrMetaSimultaneousHandsAndControllersExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xed07f75800dea55c, class Name: XrFbHandTrackingAimExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x231a449959b76a41, class Name: XrFbHandTrackingCapsulesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x2c6e02496b1bed9f, class Name: XrExtHandTrackingWideMotionMode2ExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d12477a0bed9f, class Name: XrExtHandTrackingDataSourceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d33457b0bed9f, class Name: XrMetaiX1ForceAdmirePathExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaX1HandTrackingSampleTimeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaIHandTrackingManipulationDataExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x1247601424f4072f, class Name: XrExtHandJointsMotionRangeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x407e5a87dd4685dd, class Name: XrMetaHandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xe847da60357d2028, class Name: XrMetaX2HandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81bc8d78e17ee123, class Name: XrExtHandTrackingWideMotionModeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81baddace2cee1c3, class Name: XrExtHandTrackingUnextrapolatedPosesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x384b92753b8f4d67, class Name: XrFbHandTrackingConfidenceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x385c92753b9f4e68, class Name: XrMetaX1HandTrackingJointVisibilityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_EXT_stationary_reference_space.dll
+    Class Id: 0xc74a0bdd3760e227, class Name: XrExtX1StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x510be8946baa0463, class Name: XrExtX2StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_FB_body_tracking.dll
+    Class Id: 0x75e1577e3cf4c1b0, class Name: XrFbBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e1577e3cf4aa09, class Name: XrMetaX1FullBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x39dc3fbaea7d3201, class Name: XrMetaFullBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e153417bbd8709, class Name: XrMetaX1BodyTrackingFidelityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81f5e23cdc754f3a, class Name: XrMetaBodyTrackingFidelityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e153417bbd870a, class Name: XrMetaX1BodyTrackingCalibrationExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xf3d6bac72be14d5c, class Name: XrMetaBodyTrackingCalibrationEx
+[10-08-2026] [02:34:58]: OVR is specifying adapter index 0 (NVIDIA GeForce RTX 5060) to create a D3D device
+[10-08-2026] [02:34:58]: Successfully initialized OVR session.
+[10-08-2026] [02:34:58]: OVRInterface classes and interfaces:
+    Class Id: 0x2a70ed34760b552e, class Name: ServiceTrexManagerImplementation
+      Interface Id: 0xae0b8a9331378a85
+    Class Id: 0xaf0a819a96974952, class Name: ServiceTrexPluginImplementation
+      Interface Id: 0x3ddca8deb48f5aa3
+    Class Id: 0x3f5065e1993f5d7b, class Name: OVRLogWriteImplementation
+      Interface Id: 0xb00b00044683ab0
+    Class Id: 0xb00b000388925a0, class Name: OVRLogServerInterfaceImplementation
+      Interface Id: 0xb00b0007a7b7c70
+    Class Id: 0x2e43f4607afb48e8, class Name: OVRTelemetryInterfaceClientImplementation
+      Interface Id: 0xb00b00088073380
+    Class Id: 0xd6284ae34645b617, class Name: OVRGatekeeperInterfaceImplementation
+      Interface Id: 0x32aa1aa5ef7d2559
+    Class Id: 0x9b8fb0f3ef7a5be2, class Name: OVREnvironmentDepth
+      Interface Id: 0x14f38bcc6f5bfb31
+    Class Id: 0x192ed17193ef5e74, class Name: OpenXRExtensionRuntime
+      Interface Id: 0x223362abe367d30a
+    Class Id: 0x8468c1e24d25362a, class Name: OpenXRExtensionRuntimeCAPI
+      Interface Id: 0x4ca63103efd5f5ed
+    Class Id: 0x71dee913e4ca6a35, class Name: OpenXRRuntimeHandle
+      Interface Id: 0xba2299b1d57a30c7
+    Class Id: 0xefee4db80b211365, class Name: XrExtHandInteractionExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+      Interface Id: 0xa19932327a9784c3
+    Class Id: 0x62582d091582647c, class Name: XrExtHandTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x5f77a98bd5853351, class Name: XrFbHandTrackingMeshExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a42427b3cad1d, class Name: XrMetaHandTrackingFrequencyHintExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xb89c0d2d34139a67, class Name: XrMetaSimultaneousHandsAndControllersExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xed07f75800dea55c, class Name: XrFbHandTrackingAimExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x231a449959b76a41, class Name: XrFbHandTrackingCapsulesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x2c6e02496b1bed9f, class Name: XrExtHandTrackingWideMotionMode2ExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d12477a0bed9f, class Name: XrExtHandTrackingDataSourceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d33457b0bed9f, class Name: XrMetaiX1ForceAdmirePathExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaX1HandTrackingSampleTimeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaIHandTrackingManipulationDataExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x1247601424f4072f, class Name: XrExtHandJointsMotionRangeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x407e5a87dd4685dd, class Name: XrMetaHandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xe847da60357d2028, class Name: XrMetaX2HandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81bc8d78e17ee123, class Name: XrExtHandTrackingWideMotionModeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81baddace2cee1c3, class Name: XrExtHandTrackingUnextrapolatedPosesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x384b92753b8f4d67, class Name: XrFbHandTrackingConfidenceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x385c92753b9f4e68, class Name: XrMetaX1HandTrackingJointVisibilityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xc74a0bdd3760e227, class Name: XrExtX1StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x510be8946baa0463, class Name: XrExtX2StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e1577e3cf4c1b0, class Name: XrFbBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845c
+[10-08-2026] [02:34:58]: LibOVR module is located at C:\Program Files\Oculus\Support\oculus-runtime\LibOVRRTImpl64_1.dll
+[10-08-2026] [02:34:58]: Connected to the server running version (prod = 1).1.208.0(build = 0) feature version = 0. Client runs version (prod = 1).1.208.0(build = 0) feature version = 0
+[10-08-2026] [02:34:58]: Enabling D3D12 Device Removed Extended Data (DRED)
+[10-08-2026] [02:34:58]: Creating D3D12 device on adapter 'NVIDIA GeForce RTX 5060'
+[10-08-2026] [02:34:58]: Successfully created device.
+[10-08-2026] [02:34:59]: Initializing extensions ...
+[10-08-2026] [02:34:59]: Nvidia driver version: r610_85 (61088)
+[10-08-2026] [02:34:59]: Successfully initialized extensions.
+[10-08-2026] [02:34:59]: Loading global archives
+[10-08-2026] [02:34:59]: Loading archive 0xCB3A93530D07FDC5
+[10-08-2026] [02:34:59]: Loading game archives
+[10-08-2026] [02:34:59]: Initializing renderer
+[10-08-2026] [02:34:59]: Initializing OVR D3D components...
+[10-08-2026] [02:34:59]: ovr_Initialize success
+[10-08-2026] [02:34:59]: ovr_Create_Impl called.
+[10-08-2026] [02:34:59]: HMDState::CreateHMDState VsyncToFirstScanline = 0.001676
+[10-08-2026] [02:34:59]: Using default profile default
+[10-08-2026] [02:34:59]: IAD changed to 60.7mm
+[10-08-2026] [02:34:59]: UpdateGeneratedState: IPD = 0.0606554, IAD = 0.0606554, screen_sep = 0.0663254
+[10-08-2026] [02:34:59]: Creating factory
+[10-08-2026] [02:34:59]: ovr_Create_Impl VsyncToFirstScanline = 0.001676
+[10-08-2026] [02:34:59]: CliD3D11CompositorClient::initialize 1
+[10-08-2026] [02:34:59]: Creating KMTHandle 0x2c1276954d0
+[10-08-2026] [02:34:59]: KMTHandle::Create hDevice=0x80003340
+[10-08-2026] [02:34:59]: KMTHandle::Create hContexts[0] = 2147497408
+[10-08-2026] [02:34:59]: KMTHandle::Create hContexts[1] = 2147497664
+[10-08-2026] [02:34:59]: CliD3D11CompositorClient initialized
+[10-08-2026] [02:34:59]: ovr_CreateTextureSwapChainDX_Impl: success.
+[10-08-2026] [02:34:59]: CliD3D11CompositorClient::addD3DRef 2
+[10-08-2026] [02:34:59]: ovr_CreateTextureSwapChainDX_Impl: success.
+[10-08-2026] [02:34:59]: Successfully initialized OVR D3D components.
+[10-08-2026] [02:34:59]: Finished initializing engine
+[10-08-2026] [02:34:59]: ### Applying new graphics settings ###
+[10-08-2026] [02:34:59]:     Graphics quality: Custom
+[10-08-2026] [02:34:59]:     Texture quality: Medium
+[10-08-2026] [02:34:59]:     Cascade shadow resolution: 2048
+[10-08-2026] [02:34:59]:     Spot shadow resolution: 768
+[10-08-2026] [02:34:59]:     Shadow MSAA: 4x
+[10-08-2026] [02:34:59]:     Volumetrics: Disabled
+[10-08-2026] [02:34:59]:     Bloom: Disabled
+[10-08-2026] [02:34:59]:     Light Quality: Low
+[10-08-2026] [02:34:59]:     FX Quality: Low
+[10-08-2026] [02:34:59]:     Mesh Quality: Low
+[10-08-2026] [02:34:59]:     MSAA mode: None
+[10-08-2026] [02:34:59]:     TAA: Enabled
+[10-08-2026] [02:34:59]:     Multi-Res: Enabled
+[10-08-2026] [02:34:59]:     Adaptive Res: Disabled
+[10-08-2026] [02:34:59]:     Resolution Scale: 1.100000
+[10-08-2026] [02:34:59]:     Fullscreen: Enabled
+[10-08-2026] [02:34:59]: Loading archive 0xC6BC8607972268C9
+[10-08-2026] [02:34:59]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [02:34:59]: Creating OVR provider
