@@ -123,6 +123,12 @@ def cells_image(w: int, h: int):
         png = icon_png(name, display)
         if png:
             icon = Image.open(png).convert("RGBA")
+            # cropped to a square round the artwork, as the stock sprites are cut, so it
+            # fills its slot the way they do
+            x0b, y0b, x1b, y1b = icon.getbbox() or (0, 0, icon.width, icon.height)
+            half = max(x1b - x0b, y1b - y0b) * (0.5 + ICON_PAD)
+            mx, my = (x0b + x1b) / 2, (y0b + y1b) / 2
+            icon = icon.crop((round(mx - half), round(my - half), round(mx + half), round(my + half)))
             side = min(ix1 - ix0, iy1 - iy0)
             icon = icon.resize((side, side), Image.LANCZOS)
             a = np.asarray(icon)[:, :, 3]
@@ -136,6 +142,7 @@ def cells_image(w: int, h: int):
             used.append(f"{name} test colour")
     return img, used
 CELL_MARGIN = 0.1                        # of a cell, left transparent around the icon
+ICON_PAD = 0.03                          # of an icon's size, kept round its artwork
 
 # descriptor fields (lone_echo_blender evr_texture_resource / le_lightmap_to_evr)
 D_STREAMINGDISABLED, D_MAXW, D_MAXH, D_MAXMIPS = 0xC0, 0xC4, 0xC8, 0xCC
