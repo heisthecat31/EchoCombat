@@ -33,6 +33,12 @@
 // POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
 // the u32 at +0x2104f80, every machine gets a "point token" (+0x2104ce0, same layout as
 // the veil's), and a wall that takes one goes off as POINT's stun field instead.
+//
+// TRANSLOCATOR goes as 'T' packets: each teleport bumps the u32 at +0x2104d40 (the
+// translocator script, tools/fix_loc_fx.py); the server only relays them, and every
+// other client gets a "translocator token" (+0x2104d20) that the next translocator puck
+// node to run there takes, showing the teleport effect and sound on its puck. The
+// teleporting machine shows its own and holds no token.
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -50,6 +56,8 @@ constexpr uintptr_t TOKEN_RVA = 0x2104cc0;
 constexpr uintptr_t USE_COUNTER_RVA = 0x2104f00;
 constexpr uintptr_t POINT_TOKEN_RVA = 0x2104ce0;
 constexpr uintptr_t POINT_COUNTER_RVA = 0x2104f80;
+constexpr uintptr_t LOC_TOKEN_RVA = 0x2104d20;
+constexpr uintptr_t LOC_COUNTER_RVA = 0x2104d40;
 constexpr ULONGLONG TOKEN_LIFE = 15000000;      // 1.5 s, in 100 ns
 constexpr uint32_t MAGIC = 0x4c564345;          // "ECVL"
 constexpr uint32_t MAGIC2 = 0x4c494556;         // "VEIL"
@@ -63,7 +71,7 @@ struct Shared {
 
 struct Packet {
     uint32_t magic;
-    uint8_t type;                               // 'H' hello, 'V' veil, 'P' point
+    uint8_t type;                               // 'H' hello, 'V' veil, 'P' point, 'T' teleport
     uint8_t pad[3];
     uint32_t id;
     uint32_t magic2;
@@ -72,6 +80,7 @@ struct Packet {
 uint8_t *g_base;
 Shared *g_shared;
 Shared *g_point;                                // POINT's tokens (+10: walls that went off)
+Shared *g_loc;                                  // TRANSLOCATOR's tokens (+10: teleports shown)
 bool g_server;
 char g_log_path[MAX_PATH];
 volatile LONG g_logged = 0;
@@ -112,8 +121,9 @@ void AddToken(Shared *t) {
     t->expiry = now + TOKEN_LIFE;
 }
 
-Shared *Tokens(uint8_t type) { return type == 'P' ? g_point : g_shared; }
-const char *What(uint8_t type) { return type == 'P' ? "point" : "veil"; }
+Shared *Tokens(uint8_t type) { return type == 'P' ? g_point : type == 'T' ? g_loc : g_shared; }
+const char *What(uint8_t type) { return type == 'P' ? "point" : type == 'T' ? "teleport" : "veil"; }
+bool Carried(uint8_t type) { return type == 'V' || type == 'P' || type == 'T'; }
 
 // The last ids seen, so a veil that arrives twice (the resend) gives one token.
 uint32_t g_seen[32];
@@ -236,13 +246,13 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     char buf[48];
     if (g_server) {
         Remember(s, from);
-        if ((p.type == 'V' || p.type == 'P') && FirstTime(p.id)) {
-            AddToken(Tokens(p.type));
+        if (Carried(p.type) && FirstTime(p.id)) {
+            if (p.type != 'T') AddToken(Tokens(p.type));   // a teleport has nothing to show here
             int n = Relay(from, p.type, p.id);
-            Log("%s %08x from %s: token here, relayed to %d client(s)", What(p.type), p.id,
-                Addr(from, buf, sizeof(buf)), n);
+            Log("%s %08x from %s: %srelayed to %d client(s)", What(p.type), p.id,
+                Addr(from, buf, sizeof(buf)), p.type != 'T' ? "token here, " : "", n);
         }
-    } else if ((p.type == 'V' || p.type == 'P') && FirstTime(p.id)) {
+    } else if (Carried(p.type) && FirstTime(p.id)) {
         AddToken(Tokens(p.type));
         Log("%s %08x from the server: token here", What(p.type), p.id);
     }
@@ -283,22 +293,24 @@ int WSAAPI Hooked_recvfrom(SOCKET s, char *buf, int len, int flags, sockaddr *fr
 DWORD WINAPI Tick(LPVOID) {
     volatile LONG *uses = (volatile LONG *)(g_base + USE_COUNTER_RVA);
     volatile LONG *point_uses = (volatile LONG *)(g_base + POINT_COUNTER_RVA);
+    volatile LONG *loc_uses = (volatile LONG *)(g_base + LOC_COUNTER_RVA);
     LONG seen_uses = *uses, seen_veils = g_shared->veils, seen_barriers = g_shared->barriers;
     LONG seen_point_uses = *point_uses, seen_points = g_point->veils;
+    LONG seen_loc_uses = *loc_uses, seen_locs = g_loc->veils;
     sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0, next_pick = 0;
     for (;;) {
         Sleep(5);
         if (!g_server) {
-            for (int k = 0; k < 2; ++k) {
-                uint8_t type = k ? 'P' : 'V';
-                LONG u = k ? *point_uses : *uses;
-                LONG &seen = k ? seen_point_uses : seen_uses;
+            for (int k = 0; k < 3; ++k) {
+                uint8_t type = "VPT"[k];
+                LONG u = k == 2 ? *loc_uses : k ? *point_uses : *uses;
+                LONG &seen = k == 2 ? seen_loc_uses : k ? seen_point_uses : seen_uses;
                 if (u == seen) continue;
                 seen = u;
                 uint32_t id = GetTickCount() * 2654435761u ^ GetCurrentProcessId() << 16 ^ (uint32_t)u ^ k;
                 FirstTime(id);
-                AddToken(Tokens(type));
+                if (type != 'T') AddToken(Tokens(type));     // a teleport is shown here already
                 Dest d;
                 bool ok = ServerDest(d);
                 SendToServer(type, id);
@@ -328,6 +340,8 @@ DWORD WINAPI Tick(LPVOID) {
         if (b != seen_barriers) { seen_barriers = b; Log("a barrier wall found no token: energy barrier (%ld so far)", b); }
         LONG pt = g_point->veils;
         if (pt != seen_points) { seen_points = pt; Log("a barrier wall took a point token: POINT (%ld so far)", pt); }
+        LONG lc = g_loc->veils;
+        if (lc != seen_locs) { seen_locs = lc; Log("a translocator puck took a teleport token: effect and sound shown (%ld so far)", lc); }
     }
 }
 
@@ -335,6 +349,7 @@ DWORD WINAPI Install(LPVOID) {
     g_base = (uint8_t *)GetModuleHandleW(nullptr);
     g_shared = (Shared *)(g_base + TOKEN_RVA);
     g_point = (Shared *)(g_base + POINT_TOKEN_RVA);
+    g_loc = (Shared *)(g_base + LOC_TOKEN_RVA);
     g_server = strstr(GetCommandLineA(), " -server") != nullptr;
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());

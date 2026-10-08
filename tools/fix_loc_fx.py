@@ -49,6 +49,21 @@ TELEPORT_NODE = 0x7040                    # execute_node_3c80a3d4: R15TELEPORTPL
 TELEPORT_OLD = bytes.fromhex("4c8bdc 49895b08 57")   # mov r11,rsp; mov [r11+8],rbx; push rdi
 BIND_CALL, BIND_TARGET = 0x3725, 0x17E0   # setup_bindings: call R15NETACTIVATEEXPLOSIONNODE::Bind
 
+# --- networked, as UMBRAL VEIL (plugin/veilnet.cpp) ------------------------------------
+# The teleport node runs only on the teleporting player's machine (its thread starts
+# from their trigger), so the effect and sound were theirs alone. Now the teleport also
+# bumps LOC_COUNTER; VeilNet.dll sends that as a 'T' packet to the server, which relays
+# it to every other client, and each of them gets a "translocator token" (LOC_TOKEN_RVA,
+# the veil tokens' layout, 1.5 s). Every node any translocator puck runs goes through
+# the script's dispatcher (DISPATCH); on a machine holding a token, the next one to run
+# takes it and shows the effect and plays the sound on its own puck -- where the player
+# lands. The teleporting machine holds no token, the server only relays.
+#: echovr.exe spare bytes (see veil_fx: past .data, unused by the game)
+LOC_TOKEN_RVA = 0x2104D20                 # +00 count, +08 expiry, +10 shown here
+LOC_COUNTER_RVA = 0x2104D40               # u32, bumped by each teleport on this machine
+DISPATCH = 0x5910                         # execute a node by its id (rcx = node ctx)
+DISPATCH_OLD = bytes.fromhex("488b4110 ba35ee39e0")   # mov rax, [rcx+10h]; mov edx, 0e039ee35h
+
 
 def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT, scale: float = LOC_FX_SCALE,
           life: float = LOC_FX_LIFE, time: float = LOC_FX_TIME) -> bytes:
@@ -56,6 +71,7 @@ def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT
     if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
         raise ValueError("translocator script already patched")
     if pe.read(TELEPORT_NODE, len(TELEPORT_OLD)) != TELEPORT_OLD \
+            or pe.read(DISPATCH, len(DISPATCH_OLD)) != DISPATCH_OLD \
             or pe.read(BIND_CALL, 5) != b"\xe8" + rel32(BIND_CALL + 5, BIND_TARGET):
         raise ValueError("unexpected translocator script build")
 
@@ -65,7 +81,7 @@ def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT
     blob += bytes(-len(blob) % 16)
     ring = len(blob)
     blob += ring_offsets(1, 0.0)
-    sizes = {"bind": 64, "spawn": 512, "sound": 128, "hook": 96, "tramp": 32}
+    sizes = {"bind": 64, "spawn": 512, "sound": 128, "hook": 128, "tramp": 32, "dhook": 192, "dtramp": 32}
     parts = {}
     for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
@@ -105,6 +121,7 @@ def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT
     h += bytes.fromhex("4885c0 78")                                 # test rax,rax; js done
     js = len(h)
     h += b"\0"
+    h += bytes.fromhex("6548a16000000000000000 488b4010 f0ff80") + struct.pack("<I", LOC_COUNTER_RVA)  # a teleport
     for stub in ("spawn", "sound"):
         h += bytes.fromhex("48c7431800000000 4889d9 e8")           # state 0; rcx = ctx; call
         h += rel32(at["hook"] + len(h) + 4, at[stub])
@@ -113,7 +130,35 @@ def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT
     h += bytes.fromhex("4883c420 5b c3")
     put("hook", bytes(h))
 
+    # the dispatcher's first two instructions, then on into it
+    put("dtramp", DISPATCH_OLD + b"\xe9" + rel32(at["dtramp"] + len(DISPATCH_OLD) + 5, DISPATCH + len(DISPATCH_OLD)))
+    # dispatcher hook (rcx = node ctx, kept): a translocator token here -> the effect and
+    # the sound on this node's puck, the node's own state (ctx+18h) kept round them
+    d = bytearray(bytes.fromhex("53 56 57 4883ec20 4889cb"))
+    d += bytes.fromhex("6548a16000000000000000 4c8b4010 4d8d98") + struct.pack("<I", LOC_TOKEN_RVA)
+    d += bytes.fromhex("49c7c10800fe7f 4d8b09 4d3b4b08 73")       # now >= expiry: no token
+    j1 = len(d)
+    d += b"\0"
+    loop = len(d)
+    d += bytes.fromhex("418b03 85c0 7e")                           # count <= 0: none left
+    j2 = len(d)
+    d += b"\0" + bytes.fromhex("8d48ff f0410fb10b 75")             # take one
+    d += bytes([(loop - (len(d) + 1)) & 0xFF])
+    d += bytes.fromhex("f041ff4310 488b7b18")                      # shown here; keep the node's state
+    for stub in ("spawn", "sound"):
+        d += bytes.fromhex("48c7431800000000 4889d9 e8")
+        d += rel32(at["dhook"] + len(d) + 4, at[stub])
+    d += bytes.fromhex("48897b18")
+    d[j1] = d[j2] = 0                                              # patched below
+    done = len(d)
+    d[j1] = done - (j1 + 1)
+    d[j2] = done - (j2 + 1)
+    d += bytes.fromhex("4889d9 4883c420 5f 5e 5b e9")
+    d += rel32(at["dhook"] + len(d) + 4, at["dtramp"])
+    put("dhook", bytes(d))
+
     pe.write(va, bytes(blob))
+    pe.write(DISPATCH, b"\xe9" + rel32(DISPATCH + 5, at["dhook"]) + b"\x90" * (len(DISPATCH_OLD) - 5))
     pe.write(BIND_CALL, b"\xe8" + rel32(BIND_CALL + 5, at["bind"]))
     pe.write(TELEPORT_NODE, b"\xe9" + rel32(TELEPORT_NODE + 5, at["hook"]) + b"\x90" * (len(TELEPORT_OLD) - 5))
     return bytes(pe.d)
