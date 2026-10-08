@@ -106,9 +106,11 @@ def bank_media(asset: bytes) -> dict:
 SOUND_PARENT = 21
 
 
-def add_children(hirc: bytes, parent: int, ids: list) -> bytes:
+def add_children(hirc: bytes, parent: int, ids: list, objects: bytes = b"") -> bytes:
     """HIRC with `ids` added to `parent`'s children: the list at the end of its body,
-    u32 count then the ids, ascending."""
+    u32 count then the ids, ascending. `objects` (those children) go in just before
+    the parent: a bank lists every object before its parent, and a parent only takes
+    in children already loaded (POINT's sound, after its parent, never played)."""
     out = bytearray(hirc[:4])
     n, p, found = struct.unpack_from("<I", hirc, 0)[0], 4, False
     for _ in range(n):
@@ -124,6 +126,7 @@ def add_children(hirc: bytes, parent: int, ids: list) -> bytes:
             kids = sorted(set(struct.unpack_from(f"<{cnt}I", body, at + 4)) | set(ids))
             body[at:] = struct.pack(f"<I{len(kids)}I", len(kids), *kids)
             found = True
+            out += objects
         out += hirc_object(kind, oid, bytes(body))
         p += 5 + size
     if not found:
@@ -188,11 +191,11 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
     hirc += hirc_object(4, LOC_EVENT, bytes([len(actions)]) + b"".join(struct.pack("<I", a) for a in actions))
     added += len(actions) + 1
     if point_media:
-        actions = []
+        actions, sounds = [], bytearray()
         for k, m in enumerate(point_media):                      # a sound object per media
             body = bytearray(done)
             struct.pack_into("<IBII", body, 0, PLUGIN_PCM, 0, m, len(point_media[m]))
-            hirc += hirc_object(2, POINT_SND_SOUND + k, bytes(body))
+            sounds += hirc_object(2, POINT_SND_SOUND + k, bytes(body))
             for c in range(POINT_COPIES):
                 actions.append(POINT_SND_ACTION + k * POINT_COPIES + c)
                 hirc += play(actions[-1], POINT_SND_SOUND + k, BANK_ID)
@@ -202,7 +205,7 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
         # The copies' parent (SOUND's actor-mixer) must list them among its children, as it
         # lists SOUND, or they are never attached to the mix and play nothing.
         new_ids = [POINT_SND_SOUND + k for k in range(len(point_media))]
-        hirc[:] = add_children(bytes(hirc), struct.unpack_from("<I", done, SOUND_PARENT)[0], new_ids)
+        hirc[:] = add_children(bytes(hirc), struct.unpack_from("<I", done, SOUND_PARENT)[0], new_ids, bytes(sounds))
     struct.pack_into("<I", hirc, 0, n + added)
 
     bank = b"".join(t + struct.pack("<I", len(c)) + bytes(c) for t, c in parts)

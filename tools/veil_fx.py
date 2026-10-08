@@ -554,6 +554,8 @@ POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
 #: de22b615c9c69cdd, loops until its node kills it, and POINT's node moves on: it never
 #: went away.)
 POINT_CHARGE_FX = POINT_FX
+#: the indicator is shown again this often during the charge-up (100 ns)
+CHARGE_REPEAT = 4_000_000                     # 0.4 s
 #: POINTs that went off (fired the stun) on this machine: VeilNet.dll logs it
 POINT_FIRED_RVA = 0x2104D44
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
@@ -676,7 +678,8 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int, charg
     b[cont:cont + 4] = struct.pack("<i", len(b) - (cont + 4))
     # (a node that was still waiting out the charge-up -- the other node fired -- holds
     # the busy marker, not a sound's state: it just finishes, its state cleared)
-    b += bytes.fromhex("488b4318 4885c0 7417 48ba0000000000000020 4839d0 7510 48c7431800000000"
+    # (the busy marker is 20000000h in the high dword, the last indicator's time below)
+    b += bytes.fromhex("488b4318 4885c0 7417 4889c2 48c1ea20 81fa00000020 7510 48c7431800000000"
                        "31c0 4883c420 5b c3")
     b[fire] = len(b) - (fire + 1)
     b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, sound)
@@ -684,7 +687,23 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int, charg
     if to_wait is not None:
         b[to_wait:to_wait + 4] = struct.pack("<i", len(b) - (to_wait + 4))
     # still charging: busy (ctx+18h below the gate's 4000...h, so the gate lets it straight back in)
-    b += bytes.fromhex("48b80000000000000020 48894318 48c7c0ffffffff 4883c420 5b c3")
+    if charge is None:
+        b += bytes.fromhex("48b80000000000000020 48894318 48c7c0ffffffff 4883c420 5b c3")
+        return bytes(b)
+    # busy = 20000000h:<time of the last indicator>; the indicator (a short burst) is shown
+    # again every CHARGE_REPEAT until POINT goes off, so it lasts the whole charge-up
+    b += bytes.fromhex("488b4318 48c7c20800fe7f 8b12 4889c1 48c1e920 81f900000020 0f85")
+    to_set = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("89d1 29c1 81f9") + struct.pack("<I", CHARGE_REPEAT) + b"\x0f\x82"
+    to_keep = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("48c7431800000000 4889d9 e8") + rel32(at + len(b) + 16, charge)
+    b += bytes.fromhex("48c7c20800fe7f 8b12")
+    b[to_set:to_set + 4] = struct.pack("<i", len(b) - (to_set + 4))
+    b += bytes.fromhex("89d0 48b90000000000000020 4809c8 48894318")
+    b[to_keep:to_keep + 4] = struct.pack("<i", len(b) - (to_keep + 4))
+    b += bytes.fromhex("48c7c0ffffffff 4883c420 5b c3")
     return bytes(b)
 
 
@@ -874,7 +893,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
              "gate_show": 256, "gate_phys": 256, "renew": 128, "renew_phys": 128,
              "phys_flag": 96, "phys_tramp": 16, "phys_off": 48}
     if point:
-        sizes.update({"bind": 96, "phys": 192, "point": 256, "point_spawn": 512, "point_charge": 512, "point_boom": 96,
+        sizes.update({"bind": 96, "phys": 192, "point": 384, "point_spawn": 512, "point_charge": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
                       "events": 4 * len(ARC_EVENTS) + 4})
     for name, size in sizes.items():
