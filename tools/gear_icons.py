@@ -80,6 +80,7 @@ ITEMS = [
 STOCK_ICON = {"heal", "sensor", "shield", "wraith", "det", "stun", "arc", "burst",
               "assault", "blaster", "scout", "rocket"}
 TEST_COLOURS = {"smoke": (170, 60, 255, 255), "buff": (255, 150, 0, 255), "point": (255, 40, 120, 255)}
+ALIASES = {"smoke": ("veil",)}         # other file names an item's icon may have
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_DIRS = [os.path.join(ROOT_DIR, "ICONS", "hd"), os.path.join(ROOT_DIR, "ICONS")]
 #: element clones for items a canvas has no element for: (new, copied from)
@@ -95,7 +96,7 @@ def own_cells() -> dict:
 
 def icon_png(name: str, display: str):
     for d in ICON_DIRS:
-        for stem in (name, display, display.replace(" ", "_"), display.replace(" ", "")):
+        for stem in (name, display, display.replace(" ", "_"), display.replace(" ", ""), *ALIASES.get(name, ())):
             for f in (os.listdir(d) if os.path.isdir(d) else []):
                 if f.lower() == stem.lower() + ".png":
                     return os.path.join(d, f)
