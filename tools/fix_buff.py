@@ -17,7 +17,8 @@ behaviour and tuning, recoloured from green to purplish red (the code still says
        SETMODELLIGHTCOLORNODE (color_x..z, node+20h): rgb = max(rgb) * GOLD
      * SETFULLSCREENTINTNODE (tint r..b, node+08h): rgb = min + (max-min) * TINT
        (keeps the tint as light as the green one was)
-   The particle effects keep their own (baked-in) colour for now.
+   The particle effects have their green baked in; the buff script spawns
+   recoloured copies (gold_particles).
 3. The script gets its `CScriptResourceWin10` entry and is attached to each
    player actor right after its heal-script entry.
 4. The controller's sixth branch (wraith -> smoke -> buff, "equipped == buff")
@@ -37,7 +38,10 @@ behaviour and tuning, recoloured from green to purplish red (the code still says
    fills in the bubble keys from len / init_angle / heal_amt_on_success /
    dr_duration / conn_time. PowerBoost.dll narrows the bubble's radius check to
    the init_angle cone of the owner's aim and gives each linked teammate the dr
-   buff; the bubble's tethers are the (recoloured) link. Next: the revive.
+   buff; the bubble's tethers are the (recoloured) link.
+7. The revive (do_rez_buff) is cheat death: a linked teammate survives the first hit
+   that would kill them at 1 health, with a short grace after it, once per buff. The
+   marker carries it (REZ_FLAG); PowerBoost.dll does the rest on the server.
 
     python tools/fix_buff.py --base <stage> --src <extract root> --out <dir>
 """
@@ -108,6 +112,8 @@ HEAL_BIND_CALL, HEAL_BIND_TARGET = 0x7905, 0x1900
 ACTIVATE_NODE = 0xAC00
 ACTIVATE_OLD = bytes.fromhex("4053 4883ec40")
 MARKER_BASE = 1_000_000
+#: added to the marker when the buff carries cheat death (ability_properties.buff.do_rez_buff)
+REZ_FLAG = 2_000_000
 
 # --- phase 2: the link (the heal bubble's targeting, reshaped into a cone) -------
 #: The heal script reads its bubble tuning as "ability_properties|heal|" + key; the
@@ -146,33 +152,53 @@ def gold_particles(effect: bytes, gold=FX_GOLD) -> tuple[bytes, list]:
     """Recolour the green in a particle effect asset (format not mapped, so heuristic),
     each colour to min + (max - min) * gold:
 
-    * float rgb triples with green clearly on top (> 1.2x red and blue, every channel
-      0.005..4: real colours here carry a little red and blue, unlike the velocities
-      and ranges around them), scanning forward and stepping past each one changed;
-      the (0.01, 1, 0.04) triple both effects carry outside any colour is left alone;
+    * rgb triples of floats (4-byte aligned) and of half floats (2-byte aligned) with
+      green clearly on top (> 1.2x red and blue) and every channel in range (0.005..4,
+      half floats 0.004..8: real colours carry a little red and blue, unlike the
+      velocities and ranges around them; a half triple whose 4-byte words read as
+      ordinary floats is two floats, not a colour). Colours sit back to back, so a window can
+      straddle two of them (0.349 0.577 | 0.01 1 0.04): the greenest triples win and
+      no two chosen triples overlap. The pure green (0.01, 1, 0.04) is the beam's own
+      colour, in every emitter;
     * 8-bit colours: 4-byte aligned words with a zero top byte (as a float that would
       be a denormal, which no real value here is) and green clearly on top, e.g. the
       light green 7f ff 7f."""
     out = bytearray(effect)
-    changed, o = [], 0
+    changed = []
     span = lambda c: [min(c) + (max(c) - min(c)) * k for k in gold]
-    while o + 12 <= len(out):
-        r, g, b = struct.unpack_from("<3f", out, o)
-        vals = (r, g, b)
-        ok = (all(0.005 <= v <= 4 for v in vals) and g >= 0.05 and g > 1.2 * r and g > 1.2 * b
-              and not (abs(r - 0.01) < 1e-4 and g == 1.0 and abs(b - 0.04) < 1e-4))
-        if ok:
-            struct.pack_into("<3f", out, o, *span(vals))
-            changed.append((o, vals))
-            o += 12
-        else:
-            o += 4
+
+    def pick(step, size, fmt, lo, hi):
+        found = []
+        for o in range(0, len(out) - 3 * size + 1, step):
+            vals = struct.unpack_from(fmt, out, o)
+            if all(lo <= v <= hi for v in vals) and vals[1] >= 0.05 \
+                    and vals[1] > 1.2 * vals[0] and vals[1] > 1.2 * vals[2]:
+                found.append((vals[1] - max(vals[0], vals[2]), o, vals))
+        taken = []
+        for _, o, vals in sorted(found, reverse=True):
+            if all(o + 3 * size <= t or t + 3 * size <= o for t, _ in taken):
+                taken.append((o, vals))
+        return taken
+
+    floats = pick(4, 4, "<3f", 0.005, 4)
+    used = [(o, o + 12) for o, _ in floats]
+    def floaty(o):      # the 4-byte words inside the triple read as ordinary floats
+        words = [w for w in range(o + (-o % 4), o + 6 - 3, 4)]
+        return words and all(1e-4 <= abs(struct.unpack_from("<f", out, w)[0]) <= 1e4 for w in words)
+    halves = [(o, v) for o, v in pick(2, 2, "<3e", 0.004, 8)
+              if all(o + 6 <= a or b <= o for a, b in used) and not floaty(o)]
+    for o, vals in floats:
+        struct.pack_into("<3f", out, o, *span(vals))
+        changed.append((o, vals))
+    for o, vals in halves:
+        struct.pack_into("<3e", out, o, *span(vals))
+        changed.append((o, vals))
     for o in range(0, len(out) - 3, 4):
         c0, c1, c2, top = out[o:o + 4]
         if top == 0 and c2 < 0x80 and c1 >= 0x40 and c1 > 1.3 * c0 and c1 > 1.3 * c2:
             out[o:o + 3] = bytes(min(255, round(v)) for v in span((c0, c1, c2)))
             changed.append((o, (c0 / 255, c1 / 255, c2 / 255)))
-    return bytes(out), changed
+    return bytes(out), sorted(changed)
 
 
 def gold_particle_refs(script: bytes) -> bytes:
@@ -198,12 +224,13 @@ def read_buff_tuning(script: bytes) -> bytes:
     return bytes(out)
 
 
-def buff_marker(dr: float, seconds: float) -> float:
-    """The heal amount PowerBoost.dll reads as "dr for seconds" (see plugin/powerboost.cpp)."""
+def buff_marker(dr: float, seconds: float, rez: bool = False) -> float:
+    """The heal amount PowerBoost.dll reads as "dr for seconds", plus REZ_FLAG when linked
+    teammates also cheat death once (see plugin/powerboost.cpp). Exact as a float."""
     permille, secs = round(dr * 1000), round(seconds)
     if not (0 <= permille <= 999 and 1 <= secs <= 999):
         raise ValueError(f"dr {dr} / dr_duration {seconds} out of the marker's range")
-    return float(MARKER_BASE + permille * 1000 + secs)
+    return float(MARKER_BASE + permille * 1000 + secs + (REZ_FLAG if rez else 0))
 
 
 #: what marker_stub snapshots around the heal: the execute context (state at +18h,
@@ -369,6 +396,8 @@ def main(argv) -> int:
                     help="recharge time in seconds (ability_properties.buff.required_charge)")
     ap.add_argument("--dr", type=float, default=0.09,
                     help="damage reduction while boosted (written into ability_properties.buff.dr)")
+    ap.add_argument("--no-rez", action="store_true",
+                    help="linked teammates do not cheat death (sets ability_properties.buff.do_rez_buff to 0)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
     args = ap.parse_args(argv[1:])
     gold = tuple(float(v) for v in args.gold.split(","))
@@ -389,7 +418,10 @@ def main(argv) -> int:
     tuning["required_charge"] = args.charge
     tuning.update(link_tuning(tuning))
     print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
-    marker = buff_marker(tuning["dr"], tuning["dr_duration"])
+    if args.no_rez:
+        tuning["do_rez_buff"] = 0
+    rez = bool(tuning.get("do_rez_buff"))
+    marker = buff_marker(tuning["dr"], tuning["dr_duration"], rez)
     heal = gold_particle_refs(read_buff_tuning(heal))
     for old, new in PARTICLES.items():
         src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
@@ -409,7 +441,7 @@ def main(argv) -> int:
         heal[:mz] + add_buff(gold_script(heal[mz:], gold, tint), wraith[wraith.find(b"MZ"):], marker))
     print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s (marker {marker:.0f}); link "
           f"{tuning['len']} m / {tuning['init_angle']} deg (bubble radius {tuning['heal_radius']}), "
-          f"heal {tuning['heal_amt_on_success']} (needs PowerBoost.dll on server and clients)")
+          f"heal {tuning['heal_amt_on_success']}, cheat death {'on' if rez else 'off'} (needs PowerBoost.dll on server and clients)")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{BUFF_SCRIPT:x}"), "wb").write(bytes(4))
     print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (Repair Matrix recoloured to {gold}, tint {tint})")

@@ -159,7 +159,8 @@ def veil_mailbox(installs) -> str:
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
-          buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False):
+          buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False,
+          buff_rez: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -177,7 +178,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()))
         if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
             tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr), "--charge", str(buff_charge),
-                 *(("--fx-test",) if buff_fx_test else ()))
+                 *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
     tool("fix_dot_stick.py", *src)
@@ -403,6 +404,8 @@ def main(argv) -> int:
     ap.add_argument("--buff-dr", type=float, default=0.09,
                     help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
     ap.add_argument("--buff-charge", type=float, default=40, help="POWER BOOST recharge time in seconds")
+    ap.add_argument("--no-buff-rez", action="store_true",
+                    help="POWER BOOST without cheat death for linked teammates")
     ap.add_argument("--buff-fx-test", action="store_true",
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
@@ -430,7 +433,8 @@ def main(argv) -> int:
                                   "--alpha", args.veil_alpha, "--shade", args.veil_shade)
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
-              not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test)
+              not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
+              not args.no_buff_rez)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)

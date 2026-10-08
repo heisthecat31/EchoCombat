@@ -39,6 +39,16 @@
 // axis= in PowerBoost.ini ([cone], default +z); the log shows the angle to each
 // target along all six axes so the right one can be picked.
 //
+// Cheat death (do_rez_buff): a linked teammate whose buff carries the rez survives
+// the first hit that would kill them, at 1 health, and takes no damage for the
+// next rez grace (PowerBoost.ini [rez] grace_ms, default 1500). Once per buff: a
+// fresh link while the buff runs does not give it back. ProcessDamageServer keeps
+// each damageable in a 0xB8-byte record (cs+100h, slot from the u16 table at
+// cs+D0h): flags at +02h (4 = dead, 2 = shield down), shield at +1Ch, health at +20h.
+// Damage only reaches health once the shield is down or the hit is at least twice
+// the shield, and then only what the shield did not take; WouldKill follows that.
+// A rez marker is the plain one + REZ_FLAG.
+//
 // All prologues are checked first; on a mismatch nothing is hooked. "-server" on the
 // command line picks the server role. Log: PowerBoost.log next to the DLL.
 
@@ -62,6 +72,7 @@ constexpr float MARKER_BASE = 1000000.0f;
 constexpr float MARKER_END = 2000000.0f;
 constexpr float LINK_BASE = 2000000.0f;   // link marker: the client's "I linked this one" (same encoding)
 constexpr float LINK_END = 3000000.0f;
+constexpr float REZ_FLAG = 2000000.0f;    // use / link marker + this: the buff carries a rez
 
 using heal_fn = void(__fastcall *)(void *cs, uint32_t index, float amount, uint64_t a4, uint64_t a5);
 using damage_fn = void(__fastcall *)(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6);
@@ -87,6 +98,8 @@ object_fn OwnerObject = nullptr;
 
 volatile float g_dr = 0.09f;               // from the latest marker
 volatile unsigned g_dr_seconds = 10;
+volatile bool g_rez = false;              // the latest marker's buff carries a rez
+unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms
 volatile ULONGLONG g_used_at = 0;         // when this client last used POWER BOOST
 float g_axis[3] = { 0, 0, 1 };            // owner-local aim axis (PowerBoost.ini [cone] axis=)
 
@@ -95,6 +108,8 @@ struct Buff {
     uint16_t index;
     ULONGLONG until;      // GetTickCount64
     float mult;           // 1 - dr
+    bool rez;             // cheat death still available
+    ULONGLONG grace;      // no damage until then (after a rez)
 };
 constexpr int MAX_BUFFS = 64;
 Buff g_buffs[MAX_BUFFS];
@@ -119,7 +134,7 @@ void Log(const char *fmt, ...) {
 }
 
 // Buffs (cs, index) for `seconds`. Unless `refresh`, a buff still running is left as is.
-void AddBuff(void *cs, uint16_t index, float dr, unsigned seconds, bool refresh = true) {
+void AddBuff(void *cs, uint16_t index, float dr, unsigned seconds, bool rez, bool refresh = true) {
     ULONGLONG now = GetTickCount64(), until = now + seconds * 1000ull;
     AcquireSRWLockExclusive(&g_lock);
     int slot = -1;
@@ -131,53 +146,115 @@ void AddBuff(void *cs, uint16_t index, float dr, unsigned seconds, bool refresh 
         }
         if (slot < 0 && (g_buffs[i].cs == nullptr || g_buffs[i].until <= now)) slot = i;
     }
-    if (slot >= 0) g_buffs[slot] = { cs, index, until, 1.0f - dr };
+    if (slot >= 0) g_buffs[slot] = { cs, index, until, 1.0f - dr, rez, 0 };
     ReleaseSRWLockExclusive(&g_lock);
-    Log("buff: damageable %p/%u takes x%.3f damage for %u s%s", cs, index, 1.0f - dr, seconds,
-        slot < 0 ? " -- NO FREE SLOT, ignored" : "");
+    Log("buff: damageable %p/%u takes x%.3f damage for %u s%s%s", cs, index, 1.0f - dr, seconds,
+        rez ? ", cheats death once" : "", slot < 0 ? " -- NO FREE SLOT, ignored" : "");
 }
 
-float BuffMult(void *cs, uint16_t index) {
-    ULONGLONG now = GetTickCount64();
-    float mult = 1.0f;
-    AcquireSRWLockShared(&g_lock);
-    for (int i = 0; i < MAX_BUFFS; ++i)
-        if (g_buffs[i].cs == cs && g_buffs[i].index == index && g_buffs[i].until > now) { mult = g_buffs[i].mult; break; }
-    ReleaseSRWLockShared(&g_lock);
-    return mult;
+// A marker's kind: 1 = use, 2 = link, 0 = a real heal; rez and the encoded value.
+int Marker(float amount, bool *rez, unsigned *v) {
+    *rez = amount >= MARKER_BASE + REZ_FLAG;
+    if (*rez) amount -= REZ_FLAG;
+    int kind = amount >= MARKER_BASE && amount < MARKER_END ? 1 : amount >= LINK_BASE && amount < LINK_END ? 2 : 0;
+    if (kind) *v = (unsigned)(amount - (kind == 1 ? MARKER_BASE : LINK_BASE) + 0.5f);
+    return kind;
 }
 
 void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4, uint64_t a5) {
-    if (amount >= MARKER_BASE && amount < MARKER_END) {
-        unsigned v = (unsigned)(amount - MARKER_BASE + 0.5f);
+    bool rez;
+    unsigned v;
+    int kind = Marker(amount, &rez, &v);
+    if (kind == 1) {
         g_dr = (v / 1000) / 1000.0f;              // what the link hands out (see ConeFilter)
         g_dr_seconds = v % 1000;
+        g_rez = rez;
         if (!g_server) {                          // used here: hand it to the server
             g_used_at = GetTickCount64();
             Log("marker %.0f for %p/%u -> server", amount, cs, index & 0xffff);
             SendDamageDealt(cs, index, -amount, 0, 0);
             return;
         }
-        Log("POWER BOOST used by %p/%u: links give x%.3f damage for %u s", cs, index & 0xffff,
-            1.0f - g_dr, (unsigned)g_dr_seconds);
+        Log("POWER BOOST used by %p/%u: links give x%.3f damage for %u s%s", cs, index & 0xffff,
+            1.0f - g_dr, (unsigned)g_dr_seconds, rez ? " and cheat death" : "");
         return;                                   // a marker, not a heal
     }
-    if (amount >= LINK_BASE && amount < LINK_END) {
-        if (g_server) {                           // a client linked this damageable
-            unsigned v = (unsigned)(amount - LINK_BASE + 0.5f);
-            AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000, false);
-        }
+    if (kind == 2) {
+        if (g_server)                             // a client linked this damageable
+            AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000, rez, false);
         return;
     }
     Real_Heal(cs, index, amount, a4, a5);
 }
 
+// The damageable's record in ProcessDamageServer's layout (see the top of the file).
+uint8_t *Record(void *cs, uint32_t index) {
+    uint8_t *c = (uint8_t *)cs;
+    uint16_t slot = (*(uint16_t **)(c + 0xd0))[index & 0xffff];
+    return *(uint8_t **)(c + 0x100) + slot * 0xb8ull;
+}
+
+// Would `damage` kill? Mirrors ProcessDamageServer: the shield (+1Ch) takes it first,
+// and health (+20h) only sees the rest once the shield is down or the hit is at
+// least twice the shield.
+bool WouldKill(const uint8_t *rec, float damage) {
+    uint8_t flags = rec[2];
+    float shield = *(const float *)(rec + 0x1c), health = *(const float *)(rec + 0x20);
+    if ((flags & 4) || health <= 0) return false;              // already dead
+    bool big = damage >= shield + shield;
+    float to_health;
+    bool reaches;
+    if (shield > 0) {
+        to_health = big ? damage - shield : 0;
+        reaches = (flags & 2) || big;
+    } else {
+        to_health = damage;
+        reaches = (flags & 2) != 0;
+    }
+    return reaches && health - to_health <= 0;
+}
+
+// The largest damage that leaves at least 1 health.
+float Survivable(const uint8_t *rec, float damage) {
+    float shield = *(const float *)(rec + 0x1c), health = *(const float *)(rec + 0x20);
+    float keep = health - 1.0f > 0 ? health - 1.0f : 0;
+    float most = (shield > 0 ? shield : 0) + keep;
+    return damage < most ? damage : most;
+}
+
 void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6) {
-    float mult = BuffMult(cs, (uint16_t)index);
+    ULONGLONG now = GetTickCount64();
+    float mult = 1.0f;
+    bool rez = false, grace = false;
+    int slot = -1;
+    AcquireSRWLockExclusive(&g_lock);
+    for (int i = 0; i < MAX_BUFFS; ++i)
+        if (g_buffs[i].cs == cs && g_buffs[i].index == (uint16_t)index) {
+            if (g_buffs[i].grace > now) grace = true;
+            if (g_buffs[i].until > now) { mult = g_buffs[i].mult; rez = g_buffs[i].rez; slot = i; }
+            break;
+        }
+    if (grace) {
+        ReleaseSRWLockExclusive(&g_lock);
+        Real_Damage(cs, index, 0.0f, info, a5, a6);
+        return;
+    }
     if (mult != 1.0f) {
         Log("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
         damage *= mult;
     }
+    if (rez && slot >= 0) {
+        uint8_t *rec = Record(cs, index);
+        if (WouldKill(rec, damage)) {
+            float left = Survivable(rec, damage);
+            g_buffs[slot].rez = false;
+            g_buffs[slot].grace = now + g_rez_grace_ms;
+            Log("CHEAT DEATH: %p/%u would die to %.2f (shield %.2f, health %.2f): takes %.2f, %u ms grace",
+                cs, index & 0xffff, damage, *(float *)(rec + 0x1c), *(float *)(rec + 0x20), left, g_rez_grace_ms);
+            damage = left;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_lock);
     Real_Damage(cs, index, damage, info, a5, a6);
 }
 
@@ -204,7 +281,7 @@ float AngleTo(const float *q, const float *axis, const float *d, float dist) {
 // (a buff still running is left as is). Other clients see the same link and stay quiet.
 void LinkMade(void *dcs, uint32_t index) {
     ULONGLONG now = GetTickCount64();
-    if (g_server) { AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, false); return; }
+    if (g_server) { AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false); return; }
     if (g_used_at == 0 || now - g_used_at > 30000) return;
     static struct { void *cs; uint16_t index; ULONGLONG at; } sent[16];
     int slot = 0;
@@ -214,7 +291,8 @@ void LinkMade(void *dcs, uint32_t index) {
     }
     if (sent[slot].cs == dcs && sent[slot].index == (uint16_t)index && now - sent[slot].at < 1000) return;
     sent[slot] = { dcs, (uint16_t)index, now };
-    float marker = LINK_BASE + (float)((unsigned)(g_dr * 1000.0f + 0.5f) * 1000 + g_dr_seconds);
+    float marker = LINK_BASE + (float)((unsigned)(g_dr * 1000.0f + 0.5f) * 1000 + g_dr_seconds)
+        + (g_rez ? REZ_FLAG : 0.0f);
     Log("link to %p/%u -> server (marker %.0f)", dcs, index & 0xffff, marker);
     SendDamageDealt(dcs, index, -marker, 0, 0);
 }
@@ -316,7 +394,8 @@ void ReadIni() {
     int i = axis[1] == 'x' || axis[1] == 'X' ? 0 : axis[1] == 'y' || axis[1] == 'Y' ? 1 : 2;
     g_axis[0] = g_axis[1] = g_axis[2] = 0;
     g_axis[i] = axis[0] == '-' ? -1.0f : 1.0f;
-    Log("cone aim axis %s", axis);
+    g_rez_grace_ms = GetPrivateProfileIntA("rez", "grace_ms", 1500, ini);
+    Log("cone aim axis %s; cheat death grace %u ms", axis, g_rez_grace_ms);
 }
 
 // True when the command line has `flag` as a whole argument (any case).

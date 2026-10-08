@@ -6,9 +6,9 @@ Everything is prebuilt: the patched package files (stage\), the script DLLs
 (bin\win10\scripts\) and the plugins (bin\win10\plugins\).
 
 Install
-  Close Echo VR, then run install.bat. If the game is not in the Oculus
-  folder, either drop this folder into ready-at-dawn-echo-arena\ or run
-    install.bat "D:\path\to\ready-at-dawn-echo-arena"
+  Close Echo VR, then run install.bat. It asks where Echo VR is installed
+  (the ready-at-dawn-echo-arena folder; drag it into the window, or press
+  Enter to take the install it found).
   Install on the game server as well as on clients.
 
 Other mods are kept
