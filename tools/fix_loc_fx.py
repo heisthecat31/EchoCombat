@@ -41,7 +41,7 @@ LOC_SCRIPT = "9398a165c004a9c0"
 DET_SCRIPT = "190ed14fe3da5ed1"
 #: the stun field's burst (stun script, execute_node_8ff76ff9)
 LOC_FX = 0x4CE12AE42C1B6269
-LOC_FX_TIME = 1.5
+LOC_FX_TIME = 2.5
 LOC_FX_SCALE = 2.0
 
 TELEPORT_NODE = 0x7040                    # execute_node_3c80a3d4: R15TELEPORTPLAYERNODE
