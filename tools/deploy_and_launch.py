@@ -142,7 +142,7 @@ def veil_mailbox(installs) -> str:
     from veil_fx import mailbox_rva
     rvas = {install: mailbox_rva(open(os.path.join(install, EXE), "rb").read()) for install in installs}
     if len(set(rvas.values())) != 1:
-        sys.exit(f"the installs' echovr.exe builds differ ({rvas}); pass --veil-follow-sound to skip the smoke wall")
+        sys.exit(f"the installs' echovr.exe builds differ ({rvas}); drop --veil-anchor-sound")
     return hex(next(iter(rvas.values())))
 
 
@@ -367,9 +367,10 @@ def main(argv) -> int:
     ap.add_argument("--veil-shade", default="0.9", help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
-    ap.add_argument("--veil-follow-sound", action="store_true",
-                    help="UMBRAL VEIL's sound plays on the player (follows them) instead of from an invisible "
-                         "smoke wall left where it went off")
+    ap.add_argument("--veil-anchor-sound", action="store_true",
+                    help="EXPERIMENTAL, not working yet: UMBRAL VEIL's sound from an invisible smoke wall left "
+                         "where it went off (walls run their start-up nodes when the pool is made, not when "
+                         "placed, so the sound came ~20 s late, from the player). Default: on the player")
     ap.add_argument("--veil-stock-sound", action="store_true",
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
@@ -392,7 +393,7 @@ def main(argv) -> int:
                                   "--life", args.veil_life, "--spread", args.veil_spread,
                                   "--emission", args.veil_emission, "--particle-scale", args.veil_puff,
                                   "--alpha", args.veil_alpha, "--shade", args.veil_shade)
-              + (() if args.veil_follow_sound else
+              + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound)
         for install in (args.server_install, args.client_install):

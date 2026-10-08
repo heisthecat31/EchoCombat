@@ -3,7 +3,7 @@
 The source is 6.3 s: 0.5 s of silence (cut, `--start`, or the sound lags the
 smoke), the grenade going off (to ~2 s, burst then decay) and a steady hiss
 (2 s onward, about -36 dB RMS). The result keeps the burst,
-then tiles the hiss (2.0-6.2 s) with equal-power crossfades until `--length`,
+then a never-repeating hiss of random overlapping grains of the steady part (2.0-5.6 s) until `--length`,
 and fades the tail down from `--fade-from` so it gets quieter as the smoke
 thins. Output: mono 16-bit 48 kHz PCM WAV (the game's sound slot is mono 48 kHz), committed as assets/umbral_veil.wav, so the
 deploy never needs ffmpeg or numpy (this script does: ffmpeg decodes the mp3).
@@ -32,30 +32,40 @@ def decode(path: str, rate: int) -> np.ndarray:
 
 
 def bake(src: np.ndarray, rate: int, length: float, fade_from: float, start: float = 0.5,
-         head_end=2.0, loop_start=2.0, loop_end=6.2, xfade=0.6) -> np.ndarray:
+         head_end=2.0, hiss_start=2.0, hiss_end=5.6, grain=1.2, xfade=0.6, seed=7) -> np.ndarray:
+    """The burst (start..head_end), then a hiss that never repeats: Hann-windowed
+    grains of `grain` s taken from random points of the steady hiss (2.0-5.6 s;
+    the mp3 fades out after 5.75 s and is silent from 6.0 s, which is what made
+    the old loop audible), overlap-added at 50 % (Hann windows sum to 1 there,
+    so the level is steady and there are no seams)."""
     s = lambda t: int(round(t * rate))
-    out = src[s(start):s(head_end)].copy()
-    loop = src[s(loop_start):s(loop_end)]
+    mono = src[:, 0]
+    head = mono[s(start):s(head_end)]
+    hiss = mono[s(hiss_start):s(hiss_end)]
+    g, hop = s(grain), s(grain) // 2
+    win = np.hanning(g + 1)[:-1]                      # periodic Hann: exact 50 % overlap-add
+    total = s(length) - len(head) + s(xfade) + g
+    tail = np.zeros(total + g)
+    rng = np.random.default_rng(seed)
+    for pos in range(0, total, hop):
+        at = rng.integers(0, len(hiss) - g)
+        tail[pos:pos + g] += hiss[at:at + g] * win
+    tail = tail[hop:]                                 # skip the first half-weighted grain
+    # uncorrelated grains add in power, not amplitude: bring the level back to the hiss's
+    tail *= np.sqrt((hiss ** 2).mean() / (tail[:total - g] ** 2).mean())
+    # equal-power crossfade from the burst's decay into the grain texture
     x = s(xfade)
-    ramp = np.linspace(0.0, np.pi / 2, x)[:, None]
-    fade_in, fade_out = np.sin(ramp), np.cos(ramp)          # equal power
-    first = True
-    while len(out) < s(length):
-        if first:                                            # head flows straight on
-            out = np.concatenate([out, loop])
-            first = False
-        else:
-            out[-x:] = out[-x:] * fade_out + loop[:x] * fade_in
-            out = np.concatenate([out, loop[x:]])
+    ramp = np.linspace(0.0, np.pi / 2, x)
+    out = np.concatenate([head[:-x], head[-x:] * np.cos(ramp) + tail[:x] * np.sin(ramp), tail[x:]])
     out = out[:s(length)]
     # quieter towards the end: smooth fade from fade_from to silence at length
     t = np.arange(len(out)) / rate
     k = np.clip((t - fade_from) / (length - fade_from), 0.0, 1.0)
-    out *= (np.cos(k * np.pi / 2) ** 2)[:, None]
+    out = out * np.cos(k * np.pi / 2) ** 2
     peak = np.abs(out).max()
     if peak > 1.0:
         out /= peak
-    return out
+    return out[:, None]
 
 
 def main(argv) -> int:
