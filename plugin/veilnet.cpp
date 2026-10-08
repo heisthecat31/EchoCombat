@@ -129,10 +129,26 @@ void Send(SOCKET s, const sockaddr_in &to, uint8_t type, uint32_t id) {
 }
 
 // --- client: the game's connection to its server ------------------------------------
-// The destination (socket + address) the game sends the most packets to.
+// The destination (socket + address) the game sent the most packets to in the last
+// second. Every game server on a PC has its own port (6792, 6793, ...): when the
+// game moves to another one (lobby -> match), this follows within a second.
 struct Dest { SOCKET sock; sockaddr_in addr; LONG count; };
 Dest g_dests[16];
 int g_best = -1;
+
+// Once a second (Tick): the busiest destination of the last second becomes the
+// server, and the counts start again.
+void PickServer() {
+    AcquireSRWLockExclusive(&g_lock);
+    int best = -1;
+    for (int i = 0; i < 16; ++i)
+        if (g_dests[i].count && (best < 0 || g_dests[i].count > g_dests[best].count)) best = i;
+    if (best >= 0) g_best = best;
+    for (int i = 0; i < 16; ++i)
+        if (i != g_best) g_dests[i].count = 0;
+        else g_dests[i].count = 1;               // keeps its slot while quiet
+    ReleaseSRWLockExclusive(&g_lock);
+}
 
 void SawSend(SOCKET s, const sockaddr *to) {
     if (!to || to->sa_family != AF_INET) return;
@@ -150,7 +166,7 @@ void SawSend(SOCKET s, const sockaddr *to) {
         g_dests[i] = { s, a, 0 };
     }
     ++g_dests[i].count;
-    if (g_best < 0 || (i != g_best && g_dests[i].count > g_dests[g_best].count + 50)) g_best = i;
+    if (g_best < 0) g_best = i;
     ReleaseSRWLockExclusive(&g_lock);
 }
 
@@ -257,7 +273,7 @@ DWORD WINAPI Tick(LPVOID) {
     volatile LONG *uses = (volatile LONG *)(g_base + USE_COUNTER_RVA);
     LONG seen_uses = *uses, seen_veils = g_shared->veils, seen_barriers = g_shared->barriers;
     sockaddr_in logged_server = {};
-    ULONGLONG next_hello = 0;
+    ULONGLONG next_hello = 0, next_pick = 0;
     for (;;) {
         Sleep(5);
         if (!g_server) {
@@ -275,6 +291,10 @@ DWORD WINAPI Tick(LPVOID) {
                        : "veil used here: token here (veil %08x not sent: no game server connection seen yet)", id);
             }
             ULONGLONG now = GetTickCount64();
+            if (now >= next_pick) {
+                next_pick = now + 1000;
+                PickServer();
+            }
             if (now >= next_hello) {
                 next_hello = now + 2000;
                 SendToServer('H', 0);
