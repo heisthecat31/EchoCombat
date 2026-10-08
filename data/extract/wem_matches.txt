@@ -1,2 +1,12 @@
-6d358eef7bb85a98/3f1464db1fe49b5  1654466  DIDX lists media 19531070 (bank at 0x34)
+6d358eef7bb85a98/3f1464db1fe49b5  1654466  holds event 2092801294; holds sound object 1028260926; DIDX lists media 19531070 (bank at 0x34)
+bank 03f1464db1fe49b5 (veil sound) referenced by 2a41cf1c1d9e5d32/42670f2bed45703c
+bank c823e2c9bc0168ad (combat sounds) referenced by 2a41cf1c1d9e5d32/42670f2bed45703c
+bank 03f1464db1fe49b5 (veil sound) referenced by 2a41cf1c1d9e5d32/43e2da7914642604
+bank c823e2c9bc0168ad (combat sounds) referenced by 2a41cf1c1d9e5d32/43e2da7914642604
+bank 03f1464db1fe49b5 (veil sound) referenced by 2a41cf1c1d9e5d32/43e2da7a0c623a19
+bank c823e2c9bc0168ad (combat sounds) referenced by 2a41cf1c1d9e5d32/43e2da7a0c623a19
+bank 03f1464db1fe49b5 (veil sound) referenced by 2a41cf1c1d9e5d32/cb9977f7fc2b4526
+bank c823e2c9bc0168ad (combat sounds) referenced by 2a41cf1c1d9e5d32/cb9977f7fc2b4526
+bank 03f1464db1fe49b5 (veil sound) referenced by 2a41cf1c1d9e5d32/df5ca7b7dfa383d4
+bank c823e2c9bc0168ad (combat sounds) referenced by 2a41cf1c1d9e5d32/df5ca7b7dfa383d4
 RIFF/WAVE count per type folder: 6d358eef7bb85a98 2721
