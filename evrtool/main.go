@@ -3,6 +3,7 @@
 //	evrtool get     <dataDir> <listFile> <outDir>   dump <type>/<file> resources from the STOCK manifest
 //	evrtool list    <dataDir> <typeHex>             print every <type>/<file> of one type (stock manifest)
 //	evrtool repack  <dataDir> <inputDir>            QuickRepack: stock + inputDir -> one delta package
+//	evrtool getlive <dataDir> <listFile> <outDir>   read files back through the live manifest
 //	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages
 //	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
 //	evrtool find    <dataDir> <fileHex>...          where a file symbol is stored (stock manifest; findlive: live)
@@ -57,11 +58,19 @@ func main() {
 	}
 	mode, dataDir := os.Args[1], os.Args[2]
 	switch mode {
-	case "get":
+	case "get", "getlive":
+		// get: read files through the stock manifest; getlive: through the live
+		// one, exactly as the game does after a repack
 		if len(os.Args) < 5 {
-			die("usage: evrtool get <dataDir> <listFile> <outDir>")
+			die("usage: evrtool get|getlive <dataDir> <listFile> <outDir>")
 		}
 		m, _ := stockManifest(dataDir)
+		if mode == "getlive" {
+			var err error
+			if m, err = manifest.ReadFile(filepath.Join(dataDir, "manifests", pkg)); err != nil {
+				die("read manifest: %v", err)
+			}
+		}
 		pk, err := manifest.OpenPackage(m, filepath.Join(dataDir, "packages", pkg))
 		if err != nil {
 			die("open package: %v", err)

@@ -336,12 +336,16 @@ def wem_scan(extract: str, c: "Collector", dry_run: bool) -> str:
         for asset in os.listdir(folder):
             path = os.path.join(folder, asset)
             try:
-                if os.path.getsize(path) < 64 * 1024:
+                if os.path.getsize(path) < 64 * 1024 and t != "6d358eef7bb85a98":
                     continue
                 blob = open(path, "rb").read()
             except OSError:
                 continue
             hits = []
+            if t == "6d358eef7bb85a98":     # banks: who else defines the veil's event / sound object
+                for label, oid in (("event 2092801294", 2092801294), ("sound object 1028260926", 1028260926)):
+                    if struct.pack("<I", oid) in blob:
+                        hits.append(f"holds {label}")
             o = blob.find(b"RIFF")
             while o >= 0:
                 if blob[o + 8:o + 12] == b"WAVE" and blob[o + 12:o + 16] == b"fmt ":

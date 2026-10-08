@@ -164,7 +164,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
 
 
 def evrtool():
-    if not os.path.exists(EVRTOOL):
+    src = os.path.join(EVRTOOL_DIR, "main.go")
+    if not os.path.exists(EVRTOOL) or os.path.getmtime(src) > os.path.getmtime(EVRTOOL):
         print("building evrtool.exe")
         run(["go", "build", "-o", EVRTOOL, "."], cwd=EVRTOOL_DIR)
     return EVRTOOL
@@ -198,6 +199,26 @@ def repack(install: str):
         if want not in sizes:
             sys.exit(f"sound bank {VEIL_BANK} in {install}'s manifest is {sizes}, not the patched {want} bytes")
         print(f"   UMBRAL VEIL sound bank present ({want} bytes)")
+        # Read it back through the live manifest, as the game does: the size in
+        # the manifest is not proof the package holds the patched bytes.
+        check = os.path.join(ROOT, "build", "readback")
+        shutil.rmtree(check, ignore_errors=True)
+        os.makedirs(check)
+        lst = os.path.join(check, "list.txt")
+        open(lst, "w").write(f"{SOUND_BANK_TYPE}/{VEIL_BANK}\n")
+        subprocess.run([evrtool(), "getlive", data, lst, check], capture_output=True, text=True)
+        got_path = os.path.join(check, f"{int(SOUND_BANK_TYPE, 16):016x}", f"{int(VEIL_BANK, 16):016x}")
+        got = open(got_path, "rb").read() if os.path.exists(got_path) else b""
+        staged = open(staged_bank, "rb").read()
+        stock = open(os.path.join(SOURCE, SOUND_BANK_TYPE, VEIL_BANK), "rb").read()
+        if got == staged:
+            print("   read back from the package: the patched bank")
+        elif got[:len(stock)] == stock:
+            print("   WARNING: the package returns the ORIGINAL bank under the new size: the repack "
+                  "updated the size but not the data")
+        else:
+            print(f"   WARNING: the package returns {len(got)} bytes that match neither the patched "
+                  f"nor the original bank")
 
 
 def wwise_caches(install: str) -> list[str]:
