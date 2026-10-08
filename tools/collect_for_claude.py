@@ -3,9 +3,12 @@
 Copies them into `data/extract/`, keeping the extract's `<type>/<asset>` layout:
 
 * level component tables for every combat level: magazine (`CR15NetMagazineCR`),
-  script table (`CScriptCR`), magazine pouch (`CR15NetMagazinePouchCR`), plus the
-  three DOT tables the fix scripts already touch
+  script table (`CScriptCR`), trigger (`CR15TriggerCR`), explosion
+  (`CR15NetExplosionCR`), plus the three DOT tables the fix scripts already touch
+* the magazine pouch table (`CR15NetMagazinePouchCR`), whole folder
 * the ordnance script DLLs (dot, det, shared magazine script, arc, stun, burst, loc)
+* every other script that mentions one of the external functions the DOT script
+  calls for its remote trigger, listed in `search.txt`
 * `echovr.exe`
 * `le_symbol_names.py`, which `script_pe.py` needs
 * the newest client logs
@@ -25,6 +28,7 @@ import argparse
 import glob
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -46,9 +50,23 @@ LEVEL_TABLES = {
     "dde8fffc5b4d7ad4": "CR15RigidAttachConstraintCRWin10",
     "f2676c58c07bab0c": "CR15ParentedConstraintCRWin10",
     "2b292830e51c4fd2": "CR15DampenerCRWin10",
+    "39284e7992befc92": "CR15TriggerCRWin10",
+    "4af215b19b297c34": "CR15NetExplosionCRWin10",
 }
-#: Type folders whose hash is only known by name; resolved with CSymbol64.
-NAMED_TABLES = ["CR15NetMagazinePouchCRWin10", "CR15NetMagazineCSWin10"]
+#: type folder -> name, copied whole (not stored per level).
+WHOLE_FOLDERS = {
+    "2d90ee7bd8175ec2": "CR15NetMagazinePouchCRWin10",
+}
+#: External functions the DOT script calls when use_remote_trigger is on.  None
+#: of the scripts collected so far defines them; any script that mentions one is
+#: copied in.
+SEARCH = {
+    0xA150B1C25E86AC18: "DOT ext fn (grab, takes the hand)",
+    0x048BCC7D19348703: "DOT ext fn (grab)",
+    0x048BCC7D19398C03: "DOT ext fn (deposited / exploded)",
+    0x4CC1130866B48FC1: "DOT ext fn (release)",
+    0xDD8165E98A3BD99E: "DOT ext fn param name",
+}
 
 SCRIPTS_TYPE = "6eace9f64204fd0"
 SCRIPTS = {
@@ -93,13 +111,16 @@ class Collector:
         self.copied.append(f"{rel}  {size:>10,}  {label}")
 
 
-def symbol64_fn(symbols_dir: str):
-    sys.path.insert(0, symbols_dir)
-    try:
-        from le_symbol_names import symbol64
-        return symbol64
-    except ImportError:
-        return None
+def search_scripts(folder: str) -> list[tuple[str, list[int]]]:
+    """Every script asset in `folder` holding one of the SEARCH hashes."""
+    needles = {h: struct.pack("<Q", h) for h in SEARCH}
+    found = []
+    for asset in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        blob = open(os.path.join(folder, asset), "rb").read()
+        hits = [h for h, n in needles.items() if n in blob]
+        if hits:
+            found.append((asset, hits))
+    return found
 
 
 def newest_logs(game: str, log_dir: str | None) -> list[str]:
@@ -155,25 +176,31 @@ def main(argv) -> int:
 
     extract = find_extract_root(args.extract)
     c = Collector(args.dry_run)
-    symbol64 = symbol64_fn(args.symbols)
 
-    tables = dict(LEVEL_TABLES)
-    for name in NAMED_TABLES:
-        if symbol64:
-            h = symbol64(name)                 # int, or a hex string like "0x..."
-            h = int(h, 16) if isinstance(h, str) else h
-            tables[f"{h & (2**64 - 1):x}"] = name
-        else:
-            c.missing.append(f"{name}  (le_symbol_names.py not found, can't hash the folder name)")
-    for type_hash, name in tables.items():
-        folder = os.path.join(extract, type_hash)
-        if not os.path.isdir(folder):          # folder names may or may not keep leading zeros
-            folder = os.path.join(extract, type_hash.zfill(16))
+    for type_hash, name in LEVEL_TABLES.items():
         for level in LEVELS:
-            c.copy(os.path.join(folder, level), f"{type_hash}/{level}", name)
+            c.copy(os.path.join(extract, type_hash, level), f"{type_hash}/{level}", name)
+    for type_hash, name in WHOLE_FOLDERS.items():
+        folder = os.path.join(extract, type_hash)
+        assets = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+        if not assets:
+            c.missing.append(f"{type_hash}/*  ({name})")
+        for asset in assets:
+            c.copy(os.path.join(folder, asset), f"{type_hash}/{asset}", name)
 
     for asset, name in SCRIPTS.items():
         c.copy(os.path.join(extract, SCRIPTS_TYPE, asset), f"{SCRIPTS_TYPE}/{asset}", name)
+
+    found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
+    report = [f"{asset}  {', '.join(SEARCH[h] for h in hits)}" for asset, hits in found]
+    for asset, _ in found:
+        if asset not in SCRIPTS:
+            c.copy(os.path.join(extract, SCRIPTS_TYPE, asset), f"{SCRIPTS_TYPE}/{asset}", "matches search")
+    if not args.dry_run:
+        os.makedirs(OUT, exist_ok=True)
+        with open(os.path.join(OUT, "search.txt"), "w", newline="\n") as fh:
+            fh.write("\n".join(report or ["no script mentions any searched hash"]) + "\n")
+    c.copied.append(f"search.txt  ({len(found)} script(s) matched)")
 
     c.copy(os.path.join(args.game, "bin", "win10", "echovr.exe"), "bin/echovr.exe", "game executable")
     c.copy(os.path.join(args.symbols, "le_symbol_names.py"), "tools/le_symbol_names.py", "CSymbol64")
