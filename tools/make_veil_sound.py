@@ -1,7 +1,8 @@
 """Bake UMBRAL VEIL's sound: SmokeGrenade.mp3 stretched to 14 s.
 
-The source is 6.3 s: the grenade going off (first ~2 s, burst then decay) and
-a steady hiss (2 s onward, about -36 dB RMS). The result keeps the first 2 s,
+The source is 6.3 s: 0.5 s of silence (cut, `--start`, or the sound lags the
+smoke), the grenade going off (to ~2 s, burst then decay) and a steady hiss
+(2 s onward, about -36 dB RMS). The result keeps the burst,
 then tiles the hiss (2.0-6.2 s) with equal-power crossfades until `--length`,
 and fades the tail down from `--fade-from` so it gets quieter as the smoke
 thins. Output: mono 16-bit 48 kHz PCM WAV (the game's sound slot is mono 48 kHz), committed as assets/umbral_veil.wav, so the
@@ -30,10 +31,10 @@ def decode(path: str, rate: int) -> np.ndarray:
     return np.frombuffer(raw, dtype="<f4").reshape(-1, 1).astype(np.float64)
 
 
-def bake(src: np.ndarray, rate: int, length: float, fade_from: float,
+def bake(src: np.ndarray, rate: int, length: float, fade_from: float, start: float = 0.5,
          head_end=2.0, loop_start=2.0, loop_end=6.2, xfade=0.6) -> np.ndarray:
     s = lambda t: int(round(t * rate))
-    out = src[:s(head_end)].copy()
+    out = src[s(start):s(head_end)].copy()
     loop = src[s(loop_start):s(loop_end)]
     x = s(xfade)
     ramp = np.linspace(0.0, np.pi / 2, x)[:, None]
@@ -64,9 +65,10 @@ def main(argv) -> int:
     ap.add_argument("--length", type=float, default=14.0)
     ap.add_argument("--fade-from", type=float, default=5.0, help="seconds in where the tail starts getting quieter")
     ap.add_argument("--rate", type=int, default=48000)
+    ap.add_argument("--start", type=float, default=0.5, help="seconds of the mp3's leading silence to cut")
     args = ap.parse_args(argv[1:])
 
-    pcm = bake(decode(args.src, args.rate), args.rate, args.length, args.fade_from)
+    pcm = bake(decode(args.src, args.rate), args.rate, args.length, args.fade_from, args.start)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with wave.open(args.out, "wb") as w:
         w.setnchannels(1)
