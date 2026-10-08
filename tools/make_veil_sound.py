@@ -3,7 +3,7 @@
 The source is 6.3 s: 0.5 s of silence (cut, `--start`, or the sound lags the
 smoke), the grenade going off (to ~2 s, burst then decay) and a steady hiss
 (2 s onward, about -36 dB RMS). The result keeps the burst,
-then a never-repeating hiss of random overlapping grains of the steady part (2.0-5.6 s) until `--length`,
+then fresh noise shaped to the steady hiss's spectrum (2.0-5.6 s) until `--length`, so nothing repeats,
 and fades the tail down from `--fade-from` so it gets quieter as the smoke
 thins. Output: mono 16-bit 48 kHz PCM WAV (the game's sound slot is mono 48 kHz), committed as assets/umbral_veil.wav, so the
 deploy never needs ffmpeg or numpy (this script does: ffmpeg decodes the mp3).
@@ -31,29 +31,37 @@ def decode(path: str, rate: int) -> np.ndarray:
     return np.frombuffer(raw, dtype="<f4").reshape(-1, 1).astype(np.float64)
 
 
+def hiss_spectrum(hiss: np.ndarray, n: int = 4096) -> np.ndarray:
+    """Average magnitude spectrum of the steady hiss (Welch: Hann frames, 50 % overlap)."""
+    win = np.hanning(n)
+    frames = [hiss[i:i + n] * win for i in range(0, len(hiss) - n, n // 2)]
+    return np.sqrt(np.mean([np.abs(np.fft.rfft(f)) ** 2 for f in frames], axis=0))
+
+
 def bake(src: np.ndarray, rate: int, length: float, fade_from: float, start: float = 0.5,
-         head_end=2.0, hiss_start=2.0, hiss_end=5.6, grain=1.2, xfade=0.6, seed=7) -> np.ndarray:
-    """The burst (start..head_end), then a hiss that never repeats: Hann-windowed
-    grains of `grain` s taken from random points of the steady hiss (2.0-5.6 s;
-    the mp3 fades out after 5.75 s and is silent from 6.0 s, which is what made
-    the old loop audible), overlap-added at 50 % (Hann windows sum to 1 there,
-    so the level is steady and there are no seams)."""
+         head_end=2.0, hiss_start=2.0, hiss_end=5.6, xfade=0.8, seed=7) -> np.ndarray:
+    """The burst (start..head_end), then a hiss that cannot repeat: fresh random
+    noise shaped to the recorded hiss's spectrum (one long FFT, so no seams),
+    with a slow, irregular swell of about +-1.5 dB so it does not sound static,
+    level-matched to the hiss. (Reusing the 3.6 s of recorded hiss, as a loop or
+    as grains, always left audible repetition.)"""
     s = lambda t: int(round(t * rate))
     mono = src[:, 0]
     head = mono[s(start):s(head_end)]
     hiss = mono[s(hiss_start):s(hiss_end)]
-    g, hop = s(grain), s(grain) // 2
-    win = np.hanning(g + 1)[:-1]                      # periodic Hann: exact 50 % overlap-add
-    total = s(length) - len(head) + s(xfade) + g
-    tail = np.zeros(total + g)
     rng = np.random.default_rng(seed)
-    for pos in range(0, total, hop):
-        at = rng.integers(0, len(hiss) - g)
-        tail[pos:pos + g] += hiss[at:at + g] * win
-    tail = tail[hop:]                                 # skip the first half-weighted grain
-    # uncorrelated grains add in power, not amplitude: bring the level back to the hiss's
-    tail *= np.sqrt((hiss ** 2).mean() / (tail[:total - g] ** 2).mean())
-    # equal-power crossfade from the burst's decay into the grain texture
+    n = s(length) - len(head) + s(xfade)
+    shape = hiss_spectrum(hiss)
+    spec = np.fft.rfft(rng.standard_normal(n))
+    spec *= np.interp(np.linspace(0, 1, len(spec)), np.linspace(0, 1, len(shape)), shape)
+    tail = np.fft.irfft(spec, n)
+    # slow swell: smoothed random walk, ~0.5-1 s features, +-1.5 dB
+    knots = rng.standard_normal(int(length * 1.5) + 4)
+    swell = np.interp(np.linspace(0, len(knots) - 1, n), np.arange(len(knots)), knots)
+    k = np.hanning(s(0.6)); swell = np.convolve(swell, k / k.sum(), mode="same")
+    tail *= 10 ** (1.5 * swell / max(np.abs(swell).max(), 1e-9) / 20)
+    tail *= np.sqrt((hiss ** 2).mean() / (tail ** 2).mean())
+    # equal-power crossfade from the burst's decay into the hiss
     x = s(xfade)
     ramp = np.linspace(0.0, np.pi / 2, x)
     out = np.concatenate([head[:-x], head[-x:] * np.cos(ramp) + tail[:x] * np.sin(ramp), tail[x:]])
