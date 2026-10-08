@@ -265,10 +265,14 @@ def main(argv) -> int:
     ap.add_argument("--base", required=True, help="dir holding the live 607d858c90268f9a/ JSON")
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--count", type=int, default=3, help="smoke clouds per use")
+    ap.add_argument("--count", type=int, default=7, help="smoke clouds per use")
     ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
-    ap.add_argument("--life", type=float, default=6.0, help="how much longer the smoke lasts than the detonator's")
+    ap.add_argument("--life", type=float, default=8.0, help="how much longer the smoke lasts than the detonator's")
     ap.add_argument("--spread", type=float, default=1.5, help="metres between the clouds")
+    ap.add_argument("--emission", type=float, default=4.0, help="particles per cloud, x the detonator's")
+    ap.add_argument("--particle-scale", type=float, default=2.5, help="size of each smoke puff")
+    ap.add_argument("--alpha", type=float, default=4.0, help="opacity multiplier")
+    ap.add_argument("--shade", type=float, default=0.35, help="colour multiplier (lower = darker)")
     args = ap.parse_args(argv[1:])
 
     eq_path, equipment = load(args.base, EQUIPMENT)
@@ -286,11 +290,13 @@ def main(argv) -> int:
     barrier = open(os.path.join(args.src, SCRIPTS, f"{BARRIER_SCRIPT:x}"), "rb").read()
     det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()
     open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
-        barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread))
+        barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,
+        emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha, shade=args.shade))
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{SMOKE_SCRIPT:x}"), "wb").write(bytes(4))
     print(f"{SCRIPTS}/{SMOKE_SCRIPT:x}: mp_combat_ability_smoke: {args.count} smoke clouds, "
-          f"scale {args.scale}, life x{args.life}, {args.spread} m apart (no wall)")
+          f"scale {args.scale}, life x{args.life}, {args.spread} m apart, "
+          f"emission x{args.emission}, puffs x{args.particle_scale}, alpha x{args.alpha}, shade {args.shade} (no wall)")
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)

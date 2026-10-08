@@ -235,10 +235,14 @@ def main(argv) -> int:
                     help="how fast a thrown DOT slows down (higher = stops sooner); 25 = arc mine")
     ap.add_argument("--no-smoke", action="store_true",
                     help="leave UMBRAL VEIL out (stock tac mod controller), e.g. to A/B a tac mod")
-    ap.add_argument("--veil-count", default="3", help="UMBRAL VEIL smoke clouds per use")
+    ap.add_argument("--veil-count", default="7", help="UMBRAL VEIL smoke clouds per use")
     ap.add_argument("--veil-scale", default="6", help="UMBRAL VEIL cloud size (detonator's is about 2)")
-    ap.add_argument("--veil-life", default="6", help="UMBRAL VEIL smoke lifetime, x the detonator's")
+    ap.add_argument("--veil-life", default="8", help="UMBRAL VEIL smoke lifetime, x the detonator's")
     ap.add_argument("--veil-spread", default="1.5", help="UMBRAL VEIL metres between clouds")
+    ap.add_argument("--veil-emission", default="4", help="UMBRAL VEIL particles per cloud, x the detonator's")
+    ap.add_argument("--veil-puff", default="2.5", help="UMBRAL VEIL size of each smoke puff")
+    ap.add_argument("--veil-alpha", default="4", help="UMBRAL VEIL opacity multiplier")
+    ap.add_argument("--veil-shade", default="0.35", help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
@@ -258,7 +262,9 @@ def main(argv) -> int:
             time.sleep(3)
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
               not args.no_smoke, ("--count", args.veil_count, "--scale", args.veil_scale,
-                                  "--life", args.veil_life, "--spread", args.veil_spread), args.fx_preview)
+                                  "--life", args.veil_life, "--spread", args.veil_spread,
+                                  "--emission", args.veil_emission, "--particle-scale", args.veil_puff,
+                                  "--alpha", args.veil_alpha, "--shade", args.veil_shade), args.fx_preview)
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dlls(install)

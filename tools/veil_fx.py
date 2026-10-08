@@ -21,7 +21,10 @@ The barrier script has no particle node, so the detonator script's
 * execute_node_6fb98e2c's entry jumps to the spawn stub: for each cloud it
   builds a node (detonator's settings: actor "self", left behind, kill at end)
   with the asset, an offset on a ring of radius `spread` around the player,
-  `scale` and `life` (particle lifetime multiplier), then runs Execute.
+  then the look: `scale` (cloud size), `life` (particle lifetime multiplier),
+  `emission` (particle count multiplier), `particle_scale` (size of each puff),
+  `alpha` (opacity multiplier) and `shade` (colour multiplier: lower = darker,
+  so it hides more), then runs Execute.
 """
 
 from __future__ import annotations
@@ -111,7 +114,12 @@ def c_string(pe: PE, rva: int) -> bytes:
         out += c
 
 
-def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, scale: float, life: float) -> bytes:
+#: SPAWNPARTICLEEFFECTNODE float fields (offset in the node) the veil sets.
+EMISSION_RATE, LIFE, COLOR_R, COLOR_G, COLOR_B, ALPHA = 0x44, 0x48, 0x4C, 0x50, 0x54, 0x58
+PARTICLE_SCALE, SCALE = (0x78, 0x7C, 0x80), (0xA8, 0xAC, 0xB0)
+
+
+def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict) -> bytes:
     """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs, node at rsp+0x20."""
     f = lambda v: struct.pack("<f", v)
     b = bytearray(bytes.fromhex("53 56 57 4881ec00010000 4889cb 31f6"))  # push rbx/rsi/rdi; sub rsp,100h; rbx=rcx; esi=0
@@ -123,9 +131,8 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, scale: f
     b += b"\x48\xb8" + struct.pack("<Q", DET_FX) + bytes.fromhex("4889442428")       # node+08 asset
     b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442440")         # node+20 actor = self
     b += bytes.fromhex("c644243100 c644243801 66c74424600101")       # enableduration 0, killatend 1, refpoint+leavebehind
-    b += bytes.fromhex("c7442468") + f(life)                         # node+48 particlelifescale
-    for disp in (0xC8, 0xCC, 0xD0):                                  # node+a8..b0 scale
-        b += bytes.fromhex("c78424") + struct.pack("<I", disp) + f(scale)
+    for off, value in sorted(floats.items()):                        # mov dword [rsp+20h+off], value
+        b += bytes.fromhex("c78424") + struct.pack("<I", 0x20 + off) + f(value)
     b += bytes.fromhex("488d05") + rel32(at + len(b) + 7, ring)      # lea rax,[ring]
     b += bytes.fromhex("488d3c76")                                   # lea rdi,[rsi+rsi*2]
     for k, disp in enumerate((0xB0, 0xB4, 0xB8)):                    # node+90..98 offset = ring[i]
@@ -140,16 +147,19 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, scale: f
 
 
 def ring_offsets(count: int, spread: float) -> bytes:
-    """One cloud on the player, the rest evenly on a horizontal ring around them."""
+    """One cloud on the player, the rest evenly on a ring around them, alternately
+    above and below it, so together they fill a ball."""
     pts = [(0.0, 0.0, 0.0)]
     for i in range(count - 1):
         a = 2 * math.pi * i / (count - 1)
-        pts.append((spread * math.sin(a), 0.0, spread * math.cos(a)))
+        y = 0.0 if count <= 3 else spread * 0.6 * (1 if i % 2 else -1)
+        pts.append((spread * math.sin(a), y, spread * math.cos(a)))
     return b"".join(struct.pack("<3f", *p) for p in pts)
 
 
-def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 3, scale: float = 6.0,
-                 life: float = 6.0, spread: float = 1.5) -> bytes:
+def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
+                 life: float = 8.0, spread: float = 1.5, emission: float = 4.0,
+                 particle_scale: float = 2.5, alpha: float = 4.0, shade: float = 0.35) -> bytes:
     if not 1 <= count <= 16:
         raise ValueError("count must be 1..16")
     pe, det = PE(barrier_pe), PE(det_pe)
@@ -191,7 +201,7 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 3, scale: float 
     blob += bytes(32)                        # placeholder, filled below
     blob += bytes(-len(blob) % 16)
     spawn_off = len(blob)
-    blob += bytes(256)                       # placeholder, filled below
+    blob += bytes(512)                       # placeholder, filled below
     va = add_section(pe, VEIL, len(blob))
 
     # Re-aim the copied code at the new slots and names.
@@ -208,8 +218,12 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 3, scale: float 
     stub += bytes.fromhex("4883c428 c3")
     blob[bind_stub_off:bind_stub_off + len(stub)] = stub
 
-    spawn = spawn_stub(va + spawn_off, va + funcs["ctor"], va + funcs["exec"], va + ring_off, count, scale, life)
-    if len(spawn) > 256:
+    floats = {EMISSION_RATE: emission, LIFE: life, ALPHA: alpha,
+              COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
+    floats.update({o: scale for o in SCALE})
+    floats.update({o: particle_scale for o in PARTICLE_SCALE})
+    spawn = spawn_stub(va + spawn_off, va + funcs["ctor"], va + funcs["exec"], va + ring_off, count, floats)
+    if len(spawn) > 512:
         raise ValueError("spawn stub too long")
     blob[spawn_off:spawn_off + len(spawn)] = spawn
 
