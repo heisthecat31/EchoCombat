@@ -451,7 +451,18 @@ def main(argv) -> int:
         tuning["do_rez_buff"] = 0
     rez = bool(tuning.get("do_rez_buff"))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"], rez)
-    heal = gold_particle_refs(read_buff_tuning(heal))
+    # The particle effects a player sees come from the tac mod script that is NOT the one
+    # equipped (both scripts sit on every player and hear the same heal bubble): tested
+    # with --buff-fx-test, Repair Matrix showed the buff copy and OVERCHARGE the green
+    # beam and crosses. So the effects swap: Repair Matrix's script spawns OVERCHARGE's
+    # recoloured copies, OVERCHARGE's script spawns Repair Matrix's own.
+    stock_heal = heal
+    heal = read_buff_tuning(heal)
+    hmz = stock_heal.find(b"MZ")
+    os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
+    open(os.path.join(args.out, SCRIPTS, f"{HEAL_SCRIPT:x}"), "wb").write(
+        stock_heal[:hmz] + gold_particle_refs(stock_heal[hmz:]))
+    print(f"{SCRIPTS}/{HEAL_SCRIPT:x}: Repair Matrix's script spawns the purple copies (shown for OVERCHARGE)")
     for old, new in PARTICLES.items():
         src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
         effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{src_fx:x}"), "rb").read()
