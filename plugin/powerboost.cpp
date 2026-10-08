@@ -328,9 +328,15 @@ DWORD WINAPI VeilMonitor(LPVOID base) {
                 continue;
             }
             const float *v3 = (const float *)(node + 0x74), *v4 = (const float *)(node + 0x64);
-            Log("VEIL %s #%u ctx %p -> %s | int60 %08x int80 %08x component %llx actor %llx sym88 %llx "
-                "vec3 (%.2f %.2f %.2f) vec4 (%.2f %.2f %.2f %.2f) real %.3f flag %u",
-                site[k], n, *(void *const *)(r + 8), *(const uint32_t *)(r + 0x10) ? "SMOKE WALL" : "barrier",
+            // +10: decide() 1 = veil, 0 = params without the marker, 2 = no params at all;
+            // +14: how long the node waited for them (ms + 1; 0 = it did not wait)
+            static const char *what[3] = { "barrier", "SMOKE WALL", "barrier (no params arrived)" };
+            uint32_t d = *(const uint32_t *)(r + 0x10), waited = *(const uint32_t *)(r + 0x14);
+            char w[32] = "did not wait";
+            if (waited) sprintf_s(w, "waited %u ms", waited - 1);
+            Log("VEIL %s #%u ctx %p -> %s, %s | int60 %08x int80 %08x component %llx actor %llx "
+                "sym88 %llx vec3 (%.2f %.2f %.2f) vec4 (%.2f %.2f %.2f %.2f) real %.3f flag %u",
+                site[k], n, *(void *const *)(r + 8), what[d < 3 ? d : 0], w,
                 *(const uint32_t *)(node + 0x60), *(const uint32_t *)(node + 0x80),
                 *(const unsigned long long *)(node + 0x50), *(const unsigned long long *)(node + 0x58),
                 *(const unsigned long long *)(node + 0x88), v3[0], v3[1], v3[2], v4[0], v4[1], v4[2], v4[3],

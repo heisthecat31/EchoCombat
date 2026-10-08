@@ -561,9 +561,46 @@ def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -
     return offs
 
 
+#: Wait gate at a wall node's entry (rcx = ctx). The veil's params reach a wall after
+#: it spawns (on the user's client the param node even runs after the wall's spawn
+#: nodes), so a node asks decide() (edx = 0: no record) every frame, returning -1
+#: (still running; the engine calls it again next frame, as it does a delay node)
+#: with ctx+18h = GATE_MAGIC | the start time, until something has arrived or
+#: GATE_LIMIT has passed. Then it records the wait (ms + 1, record+14h), resets the
+#: state to 0 and goes on into the node as if it had just started. Assembled with
+#: keystone: the call (decide), 0x55667788 (the limit), 0x11223344 (the record field
+#: rva) and the final jmp (where to go on) are filled in by gate_stub().
+GATE = bytes.fromhex(
+    "53564883ec284889cb488b43184885c0741348ba00000000000000404839d00f8cb500000080bbdb00000000"
+    "755b4889d931d2e8c80f000083f802754c48c7c00800fe7f488b00488b53184885d2751348ba000000000000"
+    "00404809d048894318eb1848b9ffffffffffffff3f4821ca4829d0483d88776655730e48c7c0ffffffff4883"
+    "c4285e5bc331f6488b53184885d2742748c7c00800fe7f488b0048b9ffffffffffffff3f4821ca4829d031d2"
+    "b91027000048f7f18d70016548a16000000000000000488b4010480544332211893048c74318000000004889"
+    "d94883c4285e5be9181f0000")
+GATE_LIMIT = 20_000_000                       # 2 s, in 100 ns (KUSER_SHARED_DATA interrupt time)
+#: where the wall waits for its params: execute_node_fac8332c (ShowModel, its entry
+#: push rbx; sub rsp, 50h -- replayed by the gate) and the EnablePhysics node.
+WALL_SHOW_NODE, WALL_SHOW_NODE_OLD = 0x6D30, bytes.fromhex("4053 4883ec50")
+
+
+def gate_stub(at: int, decide: int, record: int, cont: int, prologue: bytes = b"") -> bytes:
+    """GATE at `at`: waits on decide(), writes the wait to record `record` (1/2), then
+    runs `prologue` and jumps to `cont` (rcx = ctx)."""
+    b = bytearray(GATE[:-5])
+    c = GATE.find(bytes.fromhex("31d2e8")) + 2
+    b[c:c + 5] = b"\xe8" + rel32(at + c + 5, decide)
+    b = bytearray(bytes(b).replace(struct.pack("<I", 0x55667788), struct.pack("<I", GATE_LIMIT)))
+    b = bytearray(bytes(b).replace(RVA_MARK, struct.pack("<I", DEBUG_RVA + (record - 1) * 0x100 + 0x14)))
+    b += prologue + b"\xe9" + rel32(at + len(b) + len(prologue) + 5, cont)
+    return bytes(b)
+
+
 def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = True, getters=()) -> bytes:
-    """decide(rcx = node ctx, edx = record 1/2) -> eax 1 when this wall carries the veil's marker."""
+    """decide(rcx = node ctx, edx = record 1/2, 0 for none) -> eax 1 when this wall carries
+    the veil's marker, 0 when its params have arrived without it, 2 when nothing has
+    arrived yet (no position: every barrier and veil sends one)."""
     b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6"))
+    b += bytes.fromhex("c78424c0040000 02000000")                       # [rsp+4C0h] = 2: nothing yet
     yes = []
     for actor in QUERY_ACTORS:                 # one query per candidate actor
         b += bytes.fromhex("488d4c2420 4889da e8")
@@ -577,21 +614,24 @@ def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = Tr
             b += bytes.fromhex("4c8d8424") + struct.pack("<I", 0x20 + node_off)  # lea r8, [rsp+20h+off]
             b += bytes.fromhex("488d8c24c0000000")                         # lea rcx, [rsp+0C0h]
             b += b"\xff\x15" + rel32(at + len(b) + 6, fn_slot)               # call [accessor]
-        if debug and actor == QUERY_ACTORS[0]:   # the record shows the first query
-            b += DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA)) + DEBUG_KEEP
+        b += bytes.fromhex("8b842494000000 0b842498000000 0b84249c000000 01c0 740b")  # vec3 (any bits but sign)
+        b += bytes.fromhex("c78424c0040000 00000000")                   # arrived: [rsp+4C0h] = 0
+        if debug and actor == QUERY_ACTORS[0]:   # the record shows the first query (esi = 0: none)
+            rec = DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA)) + DEBUG_KEEP
+            b += bytes.fromhex("85f6 0f84") + struct.pack("<i", len(rec)) + rec
         for off in QUERY_OUT_Q:
             b += bytes.fromhex("488b8424") + struct.pack("<I", 0x20 + off) + b"\x48\x3d" + struct.pack("<I", marker)
             b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
         for off in QUERY_OUT_D:
             b += bytes.fromhex("8b8424") + struct.pack("<I", 0x20 + off) + b"\x3d" + struct.pack("<I", marker)
             b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
-    b += bytes.fromhex("31c0 eb05")                                       # no: eax = 0
+    b += bytes.fromhex("8b8424c0040000 eb05")                             # no: eax = 0 / 2
     y = len(b)
     b += bytes.fromhex("b801000000")                                      # yes: eax = 1
     for j in yes:
         b[j:j + 4] = struct.pack("<i", y - (j + 4))
     if debug:
-        b += DEBUG_RESULT
+        b += bytes.fromhex("85f6 7403") + DEBUG_RESULT
     b += bytes.fromhex("4881c4c8040000 5e 5b c3")
     return bytes(b)
 
@@ -607,6 +647,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
         raise ValueError("wall script already patched")
     if pe.read(WALL_SHOW, 5) != SHOW_ON or pe.read(WALL_PHYS, 8) != WALL_PHYS_OLD \
+            or pe.read(WALL_SHOW_NODE, 6) != WALL_SHOW_NODE_OLD \
             or pe.read(WALL_BIND_CALL, 5) != b"\xe8" + rel32(WALL_BIND_CALL + 5, WALL_BIND_TARGET):
         raise ValueError("unexpected wall script build")
     q = PE(query_pe)
@@ -620,7 +661,9 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
     parts = {}
-    for name, size in (("bind", 64), ("decide", 1024), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
+    sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
+             "gate_show": 256, "gate_phys": 256}
+    for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
         blob += bytes(size)
@@ -630,7 +673,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     at = {k: va + o for k, o in parts.items()}
 
     def put(name, code):
-        if len(code) > {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
+        if len(code) > sizes[name]:
             raise ValueError(f"{name} stub too long")
         blob[parts[name]:parts[name] + len(code)] = code
 
@@ -646,29 +689,37 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     getters = [(va + qo["slots"][i], va + qo["slots"][f], o) for _, i, f, o in QUERY_GETTERS]
     put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker, getters=getters))
     pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = record 1
-    s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + SHOW_POST
+    post = bytes.fromhex("3c01 0f95c0") + SHOW_POST[2:]                # al = (decide != 1): show unless veil
+    s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + post
     put("show", s)
     floats = {EMISSION_RATE: emission, LIFE: life, ALPHA: alpha, COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
     floats.update({o: scale for o in SCALE})
     floats.update({o: particle_scale for o in PARTICLE_SCALE})
     put("spawn", spawn_stub(at["spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats))
     put("sound", sound_stub(at["sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC, event))
-    p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 e8"))     # edx = record 2
+    # The node runs again each frame while its EnablePhysics / sound is still busy
+    # (ctx+18h != 0): decide again, without a record, and spawn no more clouds.
+    p = bytearray(bytes.fromhex("53 4883ec20 4889cb ba02000000 48837b1800 7402 31d2 e8"))  # edx = record 2 / none
     p += rel32(at["phys"] + len(p) + 4, at["decide"])
-    p += bytes.fromhex("84c0 75")
+    p += bytes.fromhex("3c01 74")                                           # decide == 1: veil
     jnz = len(p)
     p += b"\0"
     p += bytes.fromhex("4889d9 4883c420 5b 4989e3 53 4883ec50 e9")         # not veil: EnablePhysics as before
     p += rel32(at["phys"] + len(p) + 4, WALL_PHYS + 8)
     p[jnz] = len(p) - (jnz + 1)
-    p += bytes.fromhex("4889d9 e8")                                          # veil: clouds, then the sound
+    p += bytes.fromhex("48837b1800 7508 4889d9 e8")                          # veil: clouds (first run), then the sound
     p += rel32(at["phys"] + len(p) + 4, at["spawn"])
     p += bytes.fromhex("4889d9 4883c420 5b e9")
     p += rel32(at["phys"] + len(p) + 4, at["sound"])
     put("phys", bytes(p))
 
+    # Both spawn nodes first wait for the wall's params (see GATE).
+    put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
+    put("gate_phys", gate_stub(at["gate_phys"], at["decide"], 2, at["phys"]))
+
     pe.write(va, bytes(blob))
     pe.write(WALL_BIND_CALL, b"\xe8" + rel32(WALL_BIND_CALL + 5, at["bind"]))
     pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
-    pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["phys"]) + b"\x90" * 3)
+    pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["gate_show"]) + b"\x90")
+    pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["gate_phys"]) + b"\x90" * 3)
     return bytes(pe.d)
