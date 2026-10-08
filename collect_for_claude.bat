@@ -19,5 +19,7 @@ rem UMBRAL VEIL networking: every script that uses a pooled-actor node (the wall
 rem custom params are read back by one of them). Copied into data\extract;
 rem collect_for_claude.py below commits and pushes it with everything else.
 python tools\find_scripts.py --no-commit
+rem The weapon icon atlas (gear table + HUD): candidates into data\extract\weapon_icons.
+python tools\find_weapon_icons.py
 python tools\collect_for_claude.py %*
 pause
