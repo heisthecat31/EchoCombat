@@ -12,6 +12,7 @@
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
      veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
      fix_buff.py                             POWER BOOST tac mod: Repair Matrix in purplish red
+     gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -98,6 +99,11 @@ BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's be
                   "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
 WRAITH_SCRIPT = "e1971566197d460"
 GLOBAL_LEVEL = "3f9915d3001dc28e"
+#: gear icons: the stock icon atlas (descriptor + DDS) and the four canvases that show it
+GEAR_ICON_ATLAS = "d8b84ca5707d3bd2"
+GEAR_ICON_TEXTURE_TYPES = ("4a4c32c49300b8a0", "beac1969cb7b8861")
+GEAR_ICON_CANVAS_TYPE = "59a9bd6e4525ecc4"
+GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1")
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -137,7 +143,9 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
-        (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES]       # POWER BOOST's gold beam / hand
+        (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
+        (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
+        (t, GEAR_ICON_ATLAS) for t in GEAR_ICON_TEXTURE_TYPES]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):
@@ -187,6 +195,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
                  *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
+    # Gear icons: a texture of our own for the new gear (test colours for now), used by
+    # the gear table / HUD canvases.
+    tool("gear_icons.py", "--src", SOURCE, "--out", STAGE)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
