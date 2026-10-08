@@ -63,6 +63,12 @@ LEVEL_TABLES = {
 WHOLE_FOLDERS = {
     "2d90ee7bd8175ec2": "CR15NetMagazinePouchCRWin10",
 }
+#: Level loaded before every map; holds the player actor.
+GLOBAL_LEVEL = "3f9915d3001dc28e"
+#: Tac mod scripts: barrier, sensor, wraith, heal, and the trigger/charge script they call.
+TACMOD_SCRIPTS = ["b87ba2039b049d5e", "0e1975416e8dcf7a", "0e1971566197d460",
+                  "6a0f689e5b91c666", "4b65d1b009973281"]
+
 #: Component names the DOT's scripts look for but cannot find on it (server log).
 COMPONENT_FINDS = ["51b9f7653ecac7cb", "84c65832f0b8b181"]
 
@@ -163,8 +169,9 @@ SCRIPTS = {
     "9398a165c004a9c0": "mp_combat_grenade_translocator",
     "3a678375df604b4f": "script on the only R15Trigger actor (26b939fcac9fbff8)",
     "b87ba2039b049d5e": "mp_combat_ability_barrier",
-    "0e1975416e8dcf7a": "mp_combat_ability_sensor",
-    "0e1971566197d460": "mp_combat_ability_wraith",
+    "e1975416e8dcf7a": "mp_combat_ability_sensor",     # extract names drop leading zeros
+    "e1971566197d460": "mp_combat_ability_wraith",
+    "6a0f689e5b91c666": "heal tac mod (reads ability_properties|heal|*)",
 }
 LOG_COUNT = 3
 
@@ -268,6 +275,8 @@ def main(argv) -> int:
     for type_hash, name in LEVEL_TABLES.items():
         for level in LEVELS:
             c.copy(os.path.join(extract, type_hash, level), f"{type_hash}/{level}", name)
+    c.copy(os.path.join(extract, "d99f6bbd8009c92c", GLOBAL_LEVEL),
+           f"d99f6bbd8009c92c/{GLOBAL_LEVEL}", "CScriptCRWin10 (global level)")
     for type_hash, name in WHOLE_FOLDERS.items():
         folder = os.path.join(extract, type_hash)
         assets = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
@@ -285,10 +294,16 @@ def main(argv) -> int:
     # where the components the DOT scripts cannot find live on other actors.
     if not args.dry_run:
         os.makedirs(OUT, exist_ok=True)
-        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "actor_components.py"),
-                        "--src", extract, "--out", os.path.join(OUT, "components.txt"),
-                        "--find", *COMPONENT_FINDS], stdout=subprocess.DEVNULL)
+        inv = os.path.join(ROOT, "tools", "actor_components.py")
+        subprocess.run([sys.executable, inv, "--src", extract, "--out", os.path.join(OUT, "components.txt"),
+                        "--find", *COMPONENT_FINDS, "--scripts", *TACMOD_SCRIPTS],
+                       stdout=subprocess.DEVNULL)
         c.copied.append("components.txt  (component inventory per ordnance actor)")
+        # The player, and so the tac mod scripts, live in the global level.
+        subprocess.run([sys.executable, inv, "--src", extract, "--level", GLOBAL_LEVEL,
+                        "--out", os.path.join(OUT, "components_global.txt"),
+                        "--scripts", *TACMOD_SCRIPTS], stdout=subprocess.DEVNULL)
+        c.copied.append("components_global.txt  (actors running tac mod scripts, global level)")
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(sorted(set(SEARCH[h] for h in hits)))}" for asset, hits in found]

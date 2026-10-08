@@ -28,6 +28,7 @@ ACTORS = {
     0x90EDEFF8B9B351BC: "burst",
     0x0C00C9AC34B52825: "loc",
     0x10E40287A9BF5A13: "drone",
+    0x3D8B8CA4D5292926: "barrier wall (R15NetDynamicCover)",
 }
 DYSON = "43e2da7914642604"
 HDR = 0x38
@@ -50,9 +51,30 @@ def main(argv) -> int:
     ap.add_argument("--level", default=DYSON)
     ap.add_argument("--find", nargs="*", default=[], help="hashes to look for in any record")
     ap.add_argument("--out", help="also write the report here")
+    ap.add_argument("--scripts", nargs="*", default=[],
+                    help="also list every CScriptCR entry (any actor) running one of these scripts")
     args = ap.parse_args(argv[1:])
 
     finds = {int(h, 16): h for h in args.find}
+    lines = [f"level {args.level}"]
+
+    # Actors running one of the wanted scripts join the inventory below.
+    want = {int(h, 16) for h in args.scripts}
+    script_cr = os.path.join(args.src, "d99f6bbd8009c92c", args.level)
+    if want and os.path.isfile(script_cr):
+        blob = open(script_cr, "rb").read()
+        n = struct.unpack_from("<Q", blob, 0x28)[0]
+        entries = [blob[HDR + 720 * i:HDR + 720 * (i + 1)] for i in range(n)]
+        hits = {struct.unpack_from("<Q", e, 8)[0] for e in entries
+                if struct.unpack_from("<Q", e, 32)[0] in want}
+        for actor in sorted(hits):
+            scripts = [f"{struct.unpack_from('<Q', e, 32)[0]:016x}" for e in entries
+                       if struct.unpack_from("<Q", e, 8)[0] == actor]
+            lines.append(f"script actor {actor:016x}: {' '.join(scripts)}")
+            ACTORS.setdefault(actor, "runs a wanted script")
+        if not hits:
+            lines.append("no actor in this level runs any of the wanted scripts")
+
     owned = {a: [] for a in ACTORS}
     mentions = []
     for t in sorted(os.listdir(args.src)):
@@ -71,7 +93,6 @@ def main(argv) -> int:
                 if struct.pack("<Q", h) in r:
                     mentions.append((name, t, stride, ACTORS.get(actor, f"{actor:016x}"), r))
 
-    lines = [f"level {args.level}"]
     for actor, name in ACTORS.items():
         lines.append(f"\n== {name} ({actor:016x}): {len(owned[actor])} records")
         for t, stride, r in owned[actor]:
