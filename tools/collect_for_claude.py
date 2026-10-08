@@ -294,7 +294,7 @@ def commit_and_push(push: bool) -> int:
 
 def bank_events(blob: bytes) -> list[int]:
     """Event ids (HIRC object type 4) in a Wwise sound bank."""
-    events, o = [], 0
+    events, o = [], max(blob.find(b"BKHD"), 0)
     while o + 8 <= len(blob):
         tag, size = blob[o:o + 4], struct.unpack_from("<I", blob, o + 4)[0]
         if tag == b"HIRC":
@@ -310,7 +310,7 @@ def bank_events(blob: bytes) -> list[int]:
 
 def bank_ids(blob: bytes) -> tuple[int, set[int]]:
     """A sound bank's own id (BKHD) and the media ids it embeds (DIDX)."""
-    bank, media, o = 0, set(), 0
+    bank, media, o = 0, set(), max(blob.find(b"BKHD"), 0)
     while o + 8 <= len(blob):
         tag, size = blob[o:o + 4], struct.unpack_from("<I", blob, o + 4)[0]
         if tag == b"BKHD":
@@ -347,8 +347,13 @@ def wem_scan(extract: str, c: "Collector", dry_run: bool) -> str:
                 if blob[o + 8:o + 12] == b"WAVE" and blob[o + 12:o + 16] == b"fmt ":
                     kinds[t] = kinds.get(t, 0) + 1
                     codec, ch, rate = struct.unpack_from("<HHI", blob, o + 20)
-                    if ch == SOUND_CHANNELS and rate == SOUND_RATE and count_le in blob[o:o + 256]:
-                        hits.append(f"wem at {o:#x} codec {codec:#06x} size {struct.unpack_from('<I', blob, o + 4)[0] + 8}")
+                    fmt_size = struct.unpack_from("<I", blob, o + 16)[0]
+                    # Wwise Vorbis (0xffff) keeps the sample count at fmt+0x18
+                    samples = struct.unpack_from("<I", blob, o + 0x38)[0] if fmt_size >= 0x1C else 0
+                    if ch == SOUND_CHANNELS and rate == SOUND_RATE and (
+                            abs(samples - SOUND_SAMPLES) < 4800 or count_le in blob[o:o + 256]):
+                        hits.append(f"wem at {o:#x} codec {codec:#06x} samples {samples} "
+                                    f"size {struct.unpack_from('<I', blob, o + 4)[0] + 8}")
                 o = blob.find(b"RIFF", o + 4)
             d = blob.find(b"DIDX")
             if d >= 0 and media_le in blob[d:d + 8 + struct.unpack_from("<I", blob, d + 4)[0]]:
@@ -378,7 +383,7 @@ def sound_scan(extract: str, game: str, dry_run: bool, c: "Collector" = None) ->
             path = os.path.join(folder, asset)
             try:
                 with open(path, "rb") as fh:
-                    if fh.read(4) == b"BKHD":
+                    if b"BKHD" in fh.read(20):
                         paths.append(path)
             except OSError:
                 pass
