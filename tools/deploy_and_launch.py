@@ -400,9 +400,9 @@ def main(argv) -> int:
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
-    ap.add_argument("--bots", metavar="FILE",
-                    help="bots file for the game servers (EchoRelay's -bots, e.g. H:\\Tools\\bots.txt); "
-                         "adds -noovr -bots FILE to their command line")
+    ap.add_argument("--bots", type=int, metavar="N",
+                    help="EchoRelay game servers: add N AI bots (any team, up to 16) to each session once it's "
+                         "in game (adds -noovr -bots N to their command line)")
     ap.add_argument("--client-args", default=CLIENT_ARGS)
     ap.add_argument("--kill", action="store_true", help="close running echovr.exe first")
     ap.add_argument("--no-launch", action="store_true")
@@ -436,12 +436,7 @@ def main(argv) -> int:
     print()
     headless_args = args.headless_args
     if args.bots:
-        if not os.path.isfile(args.bots):
-            print(f"warning: bots file {args.bots} not found")
-        if " " in args.bots:
-            sys.exit("--bots: put the bots file in a path without spaces")
-        extra = ("" if "-noovr" in headless_args.split() else " -noovr") + f" -bots {args.bots}"
-        headless_args += extra
+        headless_args += ("" if "-noovr" in headless_args.split() else " -noovr") + f" -bots {args.bots}"
     for i in range(args.headless):
         launch(args.server_install, headless_args, f"headless {i + 1}")
         time.sleep(5)
