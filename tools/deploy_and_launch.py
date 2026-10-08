@@ -131,7 +131,7 @@ def overlay(base: str, extract: str):
 
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
-          veil: tuple = (), fx_preview: int = 0):
+          veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -147,7 +147,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
         tool("fix_smoke.py", "--base", STAGE, *src, *veil)
-        tool("veil_sound.py", *src)           # its smoke sound, in the unused 14 s sound slot
+        if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
+            tool("veil_sound.py", *src)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
@@ -291,6 +292,8 @@ def main(argv) -> int:
     ap.add_argument("--veil-shade", default="0.9", help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
+    ap.add_argument("--veil-stock-sound", action="store_true",
+                    help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -310,7 +313,8 @@ def main(argv) -> int:
               not args.no_smoke, ("--count", args.veil_count, "--scale", args.veil_scale,
                                   "--life", args.veil_life, "--spread", args.veil_spread,
                                   "--emission", args.veil_emission, "--particle-scale", args.veil_puff,
-                                  "--alpha", args.veil_alpha, "--shade", args.veil_shade), args.fx_preview)
+                                  "--alpha", args.veil_alpha, "--shade", args.veil_shade), args.fx_preview,
+              not args.veil_stock_sound)
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dlls(install)

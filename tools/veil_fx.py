@@ -25,7 +25,7 @@ The barrier script has no particle node, so the detonator script's
   `emission` (particle count multiplier), `particle_scale` (size of each puff),
   `alpha` (opacity multiplier) and `shade` (colour multiplier: lower = darker,
   so it hides more), then runs Execute.
-* after the clouds it plays `sound_event` (UMBRAL VEIL's 14 s smoke sound,
+* the custom-param node just before it (d11498f0) now plays `sound_event` (UMBRAL VEIL's 14 s smoke sound,
   see veil_sound.py) on the player with a transplanted PLAYSOUNDNODE (the
   detonator's too, with its constructor's defaults: the sound component every
   player and magazine uses, a temporary emitter, no waiting).
@@ -95,6 +95,9 @@ BIND_CALL = 0x3F00                     # call R15NETPOOLEDACTORCREATENODE::Bind
 CREATE_BIND = 0x2450
 CREATE_NODE = 0x69F0                   # execute_node_6fb98e2c
 CREATE_NODE_OLD = bytes.fromhex("48895c2408")   # mov [rsp+8], rbx
+#: execute_node_d11498f0: the custom param it sets is for the wall, which is no
+#: longer created; it runs just before the create node and now plays the sound.
+PARAM_NODE = 0x63D0
 
 #: The two ShowModel nodes that show the barrier's priming hologram while the
 #: tac mod is primed (models 24fc2eb812572ff7 and 4aa624c591ce1dda, on the
@@ -180,12 +183,8 @@ EMISSION_RATE, LIFE, COLOR_R, COLOR_G, COLOR_B, ALPHA = 0x44, 0x48, 0x4C, 0x50, 
 PARTICLE_SCALE, SCALE = (0x78, 0x7C, 0x80), (0xA8, 0xAC, 0xB0)
 
 
-def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict,
-               sound_ctor: int = 0, sound_exec: int = 0, event: int = 0) -> bytes:
-    """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs, then a
-    PLAYSOUNDNODE for `event` (if any); each node is built at rsp+0x20. The
-    sound goes last, and the clouds' result is what the node returns: run first,
-    the sound node left the node's engine state such that no cloud spawned."""
+def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict) -> bytes:
+    """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs, each built at rsp+0x20."""
     f = lambda v: struct.pack("<f", v)
     b = bytearray(bytes.fromhex("53 56 57 4881ec00010000 4889cb 31f6"))  # push rbx/rsi/rdi; sub rsp,100h; rbx=rcx; esi=0
     b += bytes.fromhex("80bbdb00000000 740c 48c7c0ffffffff e9")      # cmp byte [rbx+0dbh],0; je L; mov rax,-1; jmp done
@@ -205,16 +204,28 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: 
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)  # Execute(node, ctx)
     b += bytes.fromhex("ffc6 83fe") + bytes([count]) + b"\x0f\x82" + rel32(0, 0)
     b[-4:] = struct.pack("<i", loop - len(b))
-    if event:                                                        # the sound, on the player ("self")
-        b += bytes.fromhex("4889c6")                                 # rsi = the clouds' result
-        b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, sound_ctor)
-        b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
-        b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
-        b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, sound_exec)
-        b += bytes.fromhex("4889f0")                                 # rax = the clouds' result
     done = len(b)
     b[jmp_done:jmp_done + 4] = struct.pack("<i", done - (jmp_done + 4))
     b += bytes.fromhex("4881c400010000 5f 5e 5b c3")
+    return bytes(b)
+
+
+def sound_stub(at: int, ctor: int, execute: int, event: int) -> bytes:
+    """execute_node replacement: one PLAYSOUNDNODE for `event` on the player ("self").
+
+    It takes over a graph node of its own (the custom-param node). Sharing the
+    cloud node did not work: two different node classes run on one graph node
+    leave its engine state such that only the first one acts."""
+    b = bytearray(bytes.fromhex("53 4881ecb0000000 4889cb"))       # push rbx; sub rsp,0b0h; rbx=rcx
+    b += bytes.fromhex("80bbdb00000000 7409 48c7c0ffffffff eb")      # cmp byte [rbx+0dbh],0; je L; mov rax,-1; jmp done
+    skip = len(b)
+    b += b"\0"
+    b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # node (0x88 bytes) at rsp+20h
+    b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
+    b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
+    b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
+    b[skip] = len(b) - (skip + 1)
+    b += bytes.fromhex("4881c4b0000000 5b c3")
     return bytes(b)
 
 
@@ -239,7 +250,8 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
         raise ValueError("smoke script already has the veil section")
     call = pe.read(BIND_CALL, 5)
-    if call != b"\xe8" + rel32(BIND_CALL + 5, CREATE_BIND) or pe.read(CREATE_NODE, 5) != CREATE_NODE_OLD:
+    if call != b"\xe8" + rel32(BIND_CALL + 5, CREATE_BIND) or pe.read(CREATE_NODE, 5) != CREATE_NODE_OLD \
+            or pe.read(PARAM_NODE, 5) != CREATE_NODE_OLD:
         raise ValueError("unexpected barrier script build")
     for rva in PRIMING_SHOW:
         if pe.read(rva, 5) != SHOW_ON:
@@ -255,7 +267,10 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     blob += bytes(48)                        # placeholder, filled below
     blob += bytes(-len(blob) % 16)
     spawn_off = len(blob)
-    blob += bytes(640)                       # placeholder, filled below
+    blob += bytes(512)                       # placeholder, filled below
+    blob += bytes(-len(blob) % 16)
+    sound_off = len(blob)
+    blob += bytes(128)                       # placeholder, filled below
     va = add_section(pe, VEIL, len(blob))
     for d, target in fixups:                 # re-aim the copied code at the new slots and strings
         blob[d:d + 4] = rel32(va + d + 4, va + target)
@@ -273,15 +288,19 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
               COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
     floats.update({o: scale for o in SCALE})
     floats.update({o: particle_scale for o in PARTICLE_SCALE})
-    spawn = spawn_stub(va + spawn_off, va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats,
-                       va + snd.get("ctor", 0), va + snd.get("exec", 0), sound_event)
-    if len(spawn) > 640:
+    spawn = spawn_stub(va + spawn_off, va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats)
+    if len(spawn) > 512:
         raise ValueError("spawn stub too long")
     blob[spawn_off:spawn_off + len(spawn)] = spawn
+    if sound_event:
+        sound = sound_stub(va + sound_off, va + snd["ctor"], va + snd["exec"], sound_event)
+        blob[sound_off:sound_off + len(sound)] = sound
 
     pe.write(va, bytes(blob))
     pe.write(BIND_CALL, b"\xe8" + rel32(BIND_CALL + 5, at))
     pe.write(CREATE_NODE, b"\xe9" + rel32(CREATE_NODE + 5, va + spawn_off))
+    if sound_event:
+        pe.write(PARAM_NODE, b"\xe9" + rel32(PARAM_NODE + 5, va + sound_off))
     for rva in PRIMING_SHOW:
         pe.write(rva, SHOW_OFF)
     return bytes(pe.d)
