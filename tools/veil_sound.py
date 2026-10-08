@@ -147,7 +147,9 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
     point_media = point_media or {}
     if any(m in [e[0] for e in entries] for m in point_media):
         raise ValueError("POINT's media already in the bank")
-    entries += [[m, 0, 0] for m in point_media]
+    # DIDX is kept sorted by media id (Wwise looks media up by a binary search): appended
+    # out of order, POINT's media was never found and its sound played nothing
+    entries = sorted(entries + [[m, 0, 0] for m in point_media])
     new = pcm_wem(pcm)
     out = bytearray()
     for e in entries:

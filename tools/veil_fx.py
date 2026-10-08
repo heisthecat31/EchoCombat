@@ -140,6 +140,7 @@ SMOKE_FLAG = GLOBAL_LEN                # the 8 bytes it gains
 WALL_GLOBAL_LEN_FN = 0x5CC0
 WALL_SHOW = 0x6D78                     # execute_node_fac8332c: mov byte [rsp+48h], 1 (show)
 WALL_PHYS = 0x7190                     # execute_node_ddd4137d: EnablePhysics(on), at spawn
+WALL_PHYS_FLAG = 0x71E9                # its mov byte [rsp+48h], 1 (on), as WALL_SHOW's
 WALL_PHYS_OLD = bytes.fromhex("4c8bdc534883ec50")
 WALL_SOUND_CTOR, WALL_SOUND_EXEC = 0x2720, 0x27D0   # the wall's own PLAYSOUNDNODE
 
@@ -549,8 +550,10 @@ from veil_sound import POINT_SND_EVENT as POINT_EVENT          # noqa: E402
 PREVIEW_EVENTS = [0x7741E93B] + ARC_EVENTS
 #: --point-sound-preview's counter (per machine): after POINT's tokens
 POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
-#: the stun mine's lingering field (it loops until killed): POINT's charge-up indicator
-POINT_CHARGE_FX = 0xDE22B615C9C69CDD
+#: POINT's charge-up indicator: the stun mine's burst, small. (Its lingering field,
+#: de22b615c9c69cdd, loops until its node kills it, and POINT's node moves on: it never
+#: went away.)
+POINT_CHARGE_FX = POINT_FX
 #: POINTs that went off (fired the stun) on this machine: VeilNet.dll logs it
 POINT_FIRED_RVA = 0x2104D44
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
@@ -868,7 +871,8 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     blob += ring_offsets(count, spread)
     parts = {}
     sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
-             "gate_show": 256, "gate_phys": 256, "renew": 128, "renew_phys": 128}
+             "gate_show": 256, "gate_phys": 256, "renew": 128, "renew_phys": 128,
+             "phys_flag": 96, "phys_tramp": 16, "phys_off": 48}
     if point:
         sizes.update({"bind": 96, "phys": 192, "point": 256, "point_spawn": 512, "point_charge": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
@@ -900,6 +904,17 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     post = bytes.fromhex("a801 0f94c0") + SHOW_POST[2:]
     s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + post
     put("show", s)
+    # The EnablePhysics node's on flag is decided the same way (WALL_PHYS_FLAG): off for a
+    # veil / POINT wall. Those walls also run the node once (phys_off, on their first
+    # run), so a pooled wall that was a solid barrier in an earlier life does not keep
+    # its collision -- the floating invisible collision.
+    s = pre + b"\xe8" + rel32(at["phys_flag"] + len(pre) + 5, at["decide"]) + post
+    put("phys_flag", s)
+    put("phys_tramp", WALL_PHYS_OLD + b"\xe9" + rel32(at["phys_tramp"] + len(WALL_PHYS_OLD) + 5, WALL_PHYS + 8))
+    o = bytearray(bytes.fromhex("53 4883ec20 4889cb 4889d9 e8"))
+    o += rel32(at["phys_off"] + len(o) + 4, at["phys_tramp"])
+    o += bytes.fromhex("48c7431800000000 4883c420 5b c3")
+    put("phys_off", bytes(o))
     floats = {EMISSION_RATE: emission, LIFE: life, ALPHA: alpha, COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
     floats.update({o: scale for o in SCALE})
     floats.update({o: particle_scale for o in PARTICLE_SCALE})
@@ -923,7 +938,9 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     # veil: clouds (first run), then the sound. The particle node's Execute leaves its
     # engine state in ctx+18h; PlaySound must start from 0 or it takes the particle
     # node's data for its own and crashes, so the state is reset in between.
-    p += bytes.fromhex("48837b1800 7510 4889d9 e8")
+    p += bytes.fromhex("48837b1800 7518 4889d9 e8")
+    p += rel32(at["phys"] + len(p) + 4, at["phys_off"])                     # collision off
+    p += bytes.fromhex("4889d9 e8")
     p += rel32(at["phys"] + len(p) + 4, at["spawn"])
     p += bytes.fromhex("48c7431800000000")                                  # mov qword [rbx+18h], 0
     p += bytes.fromhex("4889d9 4883c420 5b e9")
@@ -935,6 +952,8 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         # (ctx+18h busy) or starts one not started yet (+15Ch = 0), else just finishes.
         # Whichever node sees the charge-up end first fires; the other then finishes.
         skip = len(p)
+        p += bytes.fromhex("48837b1800 7508 4889d9 e8")                     # first run: collision off
+        p += rel32(at["phys"] + len(p) + 4, at["phys_off"])
         p += bytes.fromhex("48837b1800 0f85")
         busy = len(p)
         p += bytes(4)
@@ -959,7 +978,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         pf.update({o: fx_scale for o in PARTICLE_SCALE})
         put("point_spawn", spawn_stub(at["point_spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, 1,
                                       pf, asset=point.get("fx", POINT_FX), duration=point.get("time", 2.5)))
-        # the charge-up indicator: the stun mine's lingering field, for the charge-up exactly
+        # the charge-up indicator (POINT_CHARGE_FX), at the stun mine's own size
         cf = {EMISSION_RATE: 1.0, LIFE: 1.0, ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0, COLOR_B: 1.0}
         cf.update({o: point.get("charge_scale", 1.0) for o in SCALE})
         cf.update({o: 1.0 for o in PARTICLE_SCALE})
@@ -991,6 +1010,9 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
     pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["renew"]) + b"\x90")
     pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["renew_phys"]) + b"\x90" * 3)
+    if pe.read(WALL_PHYS_FLAG, 5) != SHOW_ON:
+        raise ValueError("unexpected EnablePhysics node: wrong wall script build")
+    pe.write(WALL_PHYS_FLAG, b"\xe8" + rel32(WALL_PHYS_FLAG + 5, at["phys_flag"]))
     if point:
         if pe.read(WALL_SOUND_EXEC, 5) != WALL_SOUND_ENTRY:
             raise ValueError("unexpected wall PLAYSOUNDNODE::Execute")
