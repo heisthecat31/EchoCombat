@@ -334,7 +334,7 @@ DWORD WINAPI VeilMonitor(LPVOID base) {
             uint32_t d = *(const uint32_t *)(r + 0x10), waited = *(const uint32_t *)(r + 0x14);
             char w[32] = "did not wait";
             if (waited) sprintf_s(w, "waited %u ms", waited - 1);
-            Log("VEIL %s #%u ctx %p -> %s, %s | int60 %08x int80 %08x component %llx actor %llx "
+            Log("VEIL %s #%u ctx %p -> %s, %s | type %08x int80 %08x component %llx key %llx "
                 "sym88 %llx vec3 (%.2f %.2f %.2f) vec4 (%.2f %.2f %.2f %.2f) real %.3f flag %u",
                 site[k], n, *(void *const *)(r + 8), what[d < 3 ? d : 0], w,
                 *(const uint32_t *)(node + 0x60), *(const uint32_t *)(node + 0x80),

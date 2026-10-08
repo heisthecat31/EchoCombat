@@ -452,15 +452,18 @@ QUERY = {
               0x173, 0x17a, 0x181, 0x198, 0x19f, 0x1ac]),
 }
 QUERY_NODE_SIZE = 0xA0
-#: node+50h / +58h: the component and the actor to query. c3178dbdb1250dce queries
-#: (R15NetPooledActor, its own actor 85a13342fc84507e); the barrier wall's pooled-actor
-#: component is (R15NetPooledActor 105121c3e1a26ce8, actor 3d8b8ca4d5292926) in every
-#: combat level's CR15NetPooledActorCR. If that reads nothing, decide() retries with "self".
+#: The query's inputs (from its Get, 0x2210): actor +38h (24-byte reference, default
+#: -1 = the script's own actor), component +50h, key +58h, type (int) +60h, then the
+#: defaults: vec4 +64h, vec3 +74h, int +80h, symbol +88h, real +90h, flag +94h. It reads
+#: one keyed custom param of the actor. c3178dbdb1250dce asks (R15NetPooledActor, its
+#: keys 85a13342fc84507e / ab13b21e070b88cc / c0a835a1489e60fc, type 1); the barrier's
+#: custom-param node (execute_node_d11498f0) sends its params under key 2fde81964a625286.
 POOLED_ACTOR_COMPONENT = 0x105121C3E1A26CE8
-WALL_ACTOR = 0x3D8B8CA4D5292926
-QUERY_ACTORS = (WALL_ACTOR, SELF)
+BARRIER_PARAM_KEY = 0x2FDE81964A625286
+QUERY_KEYS = (BARRIER_PARAM_KEY,)
+QUERY_TYPE = 1
 #: outputs a marker could land in: symbol outputs (8 bytes) and int outputs (4 bytes)
-QUERY_OUT_Q, QUERY_OUT_D = (0x88,), (0x80, 0x60)
+QUERY_OUT_Q, QUERY_OUT_D = (0x88,), (0x80,)
 #: The query's results land in the result buffer passed to Execute; they are read back
 #: through the accessors its Bind registers per output: (id slot, accessor slot) in
 #: c3178dbdb1250dce's .data (decoded from R15NETPOOLEDACTORQUERYEXPRESSION::Bind),
@@ -577,7 +580,7 @@ GATE = bytes.fromhex(
     "c4285e5bc331f6488b53184885d2742748c7c00800fe7f488b0048b9ffffffffffffff3f4821ca4829d031d2"
     "b91027000048f7f18d70016548a16000000000000000488b4010480544332211893048c74318000000004889"
     "d94883c4285e5be9181f0000")
-GATE_LIMIT = 20_000_000                       # 2 s, in 100 ns (KUSER_SHARED_DATA interrupt time)
+GATE_LIMIT = 10_000_000                       # 1 s, in 100 ns (KUSER_SHARED_DATA interrupt time)
 #: where the wall waits for its params: execute_node_fac8332c (ShowModel, its entry
 #: push rbx; sub rsp, 50h -- replayed by the gate) and the EnablePhysics node.
 WALL_SHOW_NODE, WALL_SHOW_NODE_OLD = 0x6D30, bytes.fromhex("4053 4883ec50")
@@ -602,11 +605,12 @@ def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = Tr
     b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6"))
     b += bytes.fromhex("c78424c0040000 02000000")                       # [rsp+4C0h] = 2: nothing yet
     yes = []
-    for actor in QUERY_ACTORS:                 # one query per candidate actor
+    for key in QUERY_KEYS:                     # one query per candidate key
         b += bytes.fromhex("488d4c2420 4889da e8")
         b += rel32(at + len(b) + 4, q_ctor)                               # ctor(node, ctx)
         b += b"\x48\xb8" + struct.pack("<Q", POOLED_ACTOR_COMPONENT) + bytes.fromhex("4889442470")  # node+50h
-        b += b"\x48\xb8" + struct.pack("<Q", actor) + bytes.fromhex("4889442478")                   # node+58h
+        b += b"\x48\xb8" + struct.pack("<Q", key) + bytes.fromhex("4889442478")                     # node+58h
+        b += bytes.fromhex("c7842480000000") + struct.pack("<I", QUERY_TYPE)                         # node+60h
         b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
         b += rel32(at + len(b) + 4, q_exec)                               # Execute(node, buffer)
         for id_slot, fn_slot, node_off in getters:  # accessor(result, id, &node[off])
@@ -616,7 +620,7 @@ def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = Tr
             b += b"\xff\x15" + rel32(at + len(b) + 6, fn_slot)               # call [accessor]
         b += bytes.fromhex("8b842494000000 0b842498000000 0b84249c000000 01c0 740b")  # vec3 (any bits but sign)
         b += bytes.fromhex("c78424c0040000 00000000")                   # arrived: [rsp+4C0h] = 0
-        if debug and actor == QUERY_ACTORS[0]:   # the record shows the first query (esi = 0: none)
+        if debug and key == QUERY_KEYS[0]:   # the record shows the first query (esi = 0: none)
             rec = DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA)) + DEBUG_KEEP
             b += bytes.fromhex("85f6 0f84") + struct.pack("<i", len(rec)) + rec
         for off in QUERY_OUT_Q:
