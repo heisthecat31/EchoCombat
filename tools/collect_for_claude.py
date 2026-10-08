@@ -58,6 +58,12 @@ LEVEL_TABLES = {
     "4e7c2e6a7ebd80e": "CSoundCRWin10",
     "ea51a0d76eb90142": "CModelCRWin10",
     "21a09c2016d8f3e6": "CParticleEffectCRWin10",
+    # UMBRAL VEIL stage 3: the barrier wall actor's collision, cover, health, pool
+    "f6bab7207d923478": "CPhysicsCRWin10",
+    "71131e0e3b8aa17c": "CR15NetPhysicsCRWin10",
+    "42d101b2307bbc16": "CR15NetDynamicCoverCRWin10",
+    "bd1868f576836696": "CR15NetDamageableCRWin10",
+    "c28a49e8e5639d32": "CR15NetPooledActorCRWin10",
 }
 #: type folder -> name, copied whole (not stored per level).
 WHOLE_FOLDERS = {
@@ -172,6 +178,7 @@ SCRIPTS = {
     "e1975416e8dcf7a": "mp_combat_ability_sensor",     # extract names drop leading zeros
     "e1971566197d460": "mp_combat_ability_wraith",
     "6a0f689e5b91c666": "heal tac mod (reads ability_properties|heal|*)",
+    "a4d346a174934eac": "barrier wall actor script (R15NetDynamicCover)",
 }
 LOG_COUNT = 3
 
