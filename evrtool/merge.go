@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/EchoTools/cosmetic-editor/EvrFile/manifest"
@@ -331,14 +332,50 @@ func clearWwiseCache(roots ...string) {
 	}
 }
 
+// scan reads <type>/<file> (or <frame>/<type>/<file>) under dir. The library's
+// ScanFiles silently drops every symbol above 0x7fffffffffffffff (half of them:
+// level tables, scripts, the recoloured effects), so the hex names are parsed
+// as uint64 and stored two's-complement, as the manifest holds them.
 func scan(dir string) [][]manifest.ScannedFile {
-	files, err := manifest.ScanFiles(dir)
-	if err != nil {
-		die("scan: %v", err)
-	}
+	var files [][]manifest.ScannedFile
 	n := 0
-	for _, g := range files {
-		n += len(g)
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		chunk := 0
+		if len(parts) == 3 {
+			c, err := strconv.Atoi(parts[0])
+			if err != nil {
+				return nil
+			}
+			chunk, parts = c, parts[1:]
+		}
+		if len(parts) != 2 {
+			return nil
+		}
+		t, err1 := strconv.ParseUint(parts[0], 16, 64)
+		f, err2 := strconv.ParseUint(parts[1], 16, 64)
+		if err1 != nil || err2 != nil {
+			fmt.Println("skipping", rel, "(not <type>/<file> hex symbols)")
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		for chunk >= len(files) {
+			files = append(files, nil)
+		}
+		files[chunk] = append(files[chunk], manifest.ScannedFile{
+			TypeSymbol: int64(t), FileSymbol: int64(f), Path: path, Size: uint32(info.Size())})
+		n++
+		return nil
+	})
+	if err != nil {
+		die("scan %s: %v", dir, err)
 	}
 	fmt.Println("staged files", n)
 	return files

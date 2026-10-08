@@ -2,8 +2,8 @@ EchoCombat
 ==========
 
 DOT FIELD, DRONE, UMBRAL VEIL (smoke tac mod) and POWER BOOST (tac mod).
-Everything is prebuilt: the patched package files (stage\), the script DLLs
-(bin\win10\scripts\) and the plugins (bin\win10\plugins\).
+Everything is prebuilt: the patched package files and script code (stage\),
+the plugins (bin\win10\plugins\) and the plugin loader (bin\win10\dbgcore.dll).
 
 Install
   Close Echo VR, then run install.bat. It asks where Echo VR is installed
@@ -21,8 +21,15 @@ Uninstall
   uninstall.bat takes EchoCombat back out and keeps the other mods.
   "evrtool restore <_data\5932408047\rad15\win10>" resets to stock (removes ALL mods).
 
+What it writes into the game
+  * the merged package (see above)
+  * bin\win10\scripts\<hash>.dll: the patched scripts; each original is kept as
+    <hash>.dll.orig
+  * bin\win10\plugins\PowerBoost.dll, DroneFix.dll
+  * bin\win10\dbgcore.dll: the plugin loader, which loads bin\win10\plugins\.
+    A dbgcore.dll that was already there (another mod) is moved into plugins\
+    so it still loads. The loader needs the Visual C++ 2015-2022 x64 runtime.
+
 Notes
-  * The plugins are loaded from bin\win10\plugins\, which needs the plugin
-    loader you already use for that folder.
   * The drone's bullet effects are patched at install time from your own game
     files, so they always match your install.

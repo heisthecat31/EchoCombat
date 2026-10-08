@@ -40,33 +40,15 @@ tasklist /FI "IMAGENAME eq echovr.exe" | find /i "echovr.exe" >nul && (
     pause
     exit /b 1
 )
-set "DATA=%GAME%\_data\5932408047\rad15\win10"
 echo Installing into %GAME%
-
-"%~dp0evrtool.exe" install "%DATA%" "%~dp0stage"
+echo.
+"%~dp0evrtool.exe" setup "%GAME%" "%~dp0."
 if errorlevel 1 (
     echo.
-    echo Package merge FAILED, nothing else was changed.
+    echo Install FAILED, see the message above.
     pause
     exit /b 1
 )
-
-rem Echo loads script code from bin\win10\scripts\<hash>.dll, not the package.
-rem Each original is kept once as <hash>.dll.orig (uninstall.bat puts it back).
-set "SCRIPTS=%GAME%\bin\win10\scripts"
-if not exist "%SCRIPTS%" mkdir "%SCRIPTS%"
-for %%f in ("%~dp0bin\win10\scripts\*.dll") do (
-    if exist "%SCRIPTS%\%%~nxf" if not exist "%SCRIPTS%\%%~nxf.orig" copy /y "%SCRIPTS%\%%~nxf" "%SCRIPTS%\%%~nxf.orig" >nul
-    copy /y "%%f" "%SCRIPTS%\%%~nxf" >nul
-    echo wrote scripts\%%~nxf
-)
-
-rem POWER BOOST's damage reduction and the drone crash guard are plugins.
-set "PLUGINS=%GAME%\bin\win10\plugins"
-if not exist "%PLUGINS%" mkdir "%PLUGINS%"
-copy /y "%~dp0bin\win10\plugins\PowerBoost.dll" "%PLUGINS%\" >nul
-copy /y "%~dp0bin\win10\plugins\DroneFix.dll" "%PLUGINS%\" >nul
-echo wrote plugins\PowerBoost.dll, DroneFix.dll
 
 echo.
 echo EchoCombat installed. Install it on the game server too: POWER BOOST needs PowerBoost.dll there.

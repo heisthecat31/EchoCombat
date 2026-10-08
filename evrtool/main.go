@@ -6,6 +6,8 @@
 //	evrtool merge   <dataDir> <inputDir>            like repack, but keeps other mods' delta packages (merge.go)
 //	evrtool unmerge <dataDir>                       take a merge back out, leaving the other mods
 //	evrtool install <dataDir> <stageDir>            player install: drone bullet tables + merge, side package too
+//	evrtool setup   <gameDir> <bundleDir>           install.bat: install + script DLLs, plugins, plugin loader (files.go)
+//	evrtool remove  <gameDir> <bundleDir>           uninstall.bat: unmerge, scripts back, plugins out
 //	evrtool getlive <dataDir> <listFile> <outDir>   read files back through the live manifest
 //	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages (ALL mods)
 //	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
@@ -135,15 +137,7 @@ func main() {
 		if len(os.Args) < 4 {
 			die("usage: evrtool repack <dataDir> <inputDir>")
 		}
-		files, err := manifest.ScanFiles(os.Args[3])
-		if err != nil {
-			die("scan: %v", err)
-		}
-		n := 0
-		for _, g := range files {
-			n += len(g)
-		}
-		fmt.Println("staged files", n)
+		files := scan(os.Args[3])
 		m, err := manifest.ReadFile(filepath.Join(dataDir, "manifests", pkg))
 		if err != nil {
 			die("read manifest: %v", err)
@@ -164,6 +158,16 @@ func main() {
 			die("usage: evrtool dronebullet <dataDir> <outDir>")
 		}
 		droneBulletStage(dataDir, os.Args[3])
+	case "setup", "remove":
+		// setup <gameDir> <bundleDir>: the whole player install (install.bat)
+		if len(os.Args) < 4 {
+			die("usage: evrtool setup|remove <gameDir> <bundleDir>")
+		}
+		if mode == "setup" {
+			setup(dataDir, os.Args[3])
+		} else {
+			remove(dataDir, os.Args[3])
+		}
 	case "install":
 		if len(os.Args) < 4 {
 			die("usage: evrtool install <dataDir> <stageDir>")

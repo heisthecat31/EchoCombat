@@ -33,24 +33,10 @@ if exist "%GAME%\bin\win10\echovr.exe" goto found
 echo No bin\win10\echovr.exe in "%GAME%".
 goto ask
 :found
-set "DATA=%GAME%\_data\5932408047\rad15\win10"
-"%~dp0evrtool.exe" unmerge "%DATA%"
+"%~dp0evrtool.exe" remove "%GAME%" "%~dp0."
 if errorlevel 1 (
     pause
     exit /b 1
 )
-set "EVR_PKG=2b47aab238f60515"
-"%~dp0evrtool.exe" unmerge "%DATA%"
-set "EVR_PKG="
-
-set "SCRIPTS=%GAME%\bin\win10\scripts"
-for %%f in ("%~dp0bin\win10\scripts\*.dll") do (
-    if exist "%SCRIPTS%\%%~nxf.orig" (
-        move /y "%SCRIPTS%\%%~nxf.orig" "%SCRIPTS%\%%~nxf" >nul
-    ) else (
-        del /q "%SCRIPTS%\%%~nxf" 2>nul
-    )
-)
-del /q "%GAME%\bin\win10\plugins\PowerBoost.dll" "%GAME%\bin\win10\plugins\DroneFix.dll" 2>nul
 echo EchoCombat removed.
 pause
