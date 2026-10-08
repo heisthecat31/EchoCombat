@@ -679,34 +679,116 @@ WALL_SHOW_NODE, WALL_SHOW_NODE_OLD = 0x6D30, bytes.fromhex("4053 4883ec50")
 
 
 #: The barrier wall is a pooled actor: a wall the pool hands out again keeps its script's
-#: global data, so without this it kept its last decision ("SMOK" / "POIN" / "NORM",
-#: +158h) and POINT's state (+15Ch). It never took another token and came up as the
-#: pool's default energy barrier. +160h gains the interrupt time of the wall's last
-#: spawn. A fresh, non-aborting run of the ShowModel node (ctx+18h = 0; it runs as the
-#: wall appears) more than RENEW_AFTER after the last spawn starts a new life: the
-#: decision and POINT's state are cleared, so the gate waits for a token again.
-RENEW_AFTER = 10_000_000                      # 1 s, in 100 ns: no wall lives shorter
-SPAWN_TIME = GLOBAL_LEN + 8
+#: global data, so on its own it kept its last decision ("SMOK" / "POIN" / "NORM", +158h)
+#: and POINT's state (+15Ch), never took another token, and a POINT use could come up as
+#: UMBRAL VEIL (or a plain barrier). +160h gains the interrupt time the wall's nodes last
+#: ran. Both spawn nodes (ShowModel, EnablePhysics) pass through renew_stub on every
+#: entry: after RENEW_AFTER without a run the wall is in a new life, so the decision,
+#: POINT's state and the node's own state (ctx+18h, left over when the pool cut the
+#: last life short) are cleared and the gate waits for a token again. The headless
+#: server does not always give the ShowModel node a fresh run, hence both nodes and
+#: a time rule. A wall lives 15 s (ability_properties.shield.duration) and a tac mod
+#: recharges in 30 s or more, so no live wall ever goes RENEW_AFTER without a run.
+RENEW_AFTER = 80_000_000                      # 8 s, in 100 ns
+SPAWN_TIME = GLOBAL_LEN + 8                   # +160h: when the wall's nodes last ran
 
 
 def renew_stub(at: int, cont: int) -> bytes:
-    """At the ShowModel node's entry (rcx = ctx, kept): a new life clears the wall's
-    decision, then on to `cont` (the gate)."""
-    b = bytearray(bytes.fromhex("48837918 00 75"))                     # cmp qword [rcx+18h], 0; jne done
+    """At a spawn node's entry (rcx = ctx, kept): a new life clears the wall's decision,
+    then on to `cont` (the gate)."""
+    b = bytearray(bytes.fromhex("80b9db000000 00 75"))                 # cmp byte [rcx+0DBh], 0; jne done
     j1 = len(b)
-    b += b"\0" + bytes.fromhex("80b9db000000 00 75")                   # cmp byte [rcx+0DBh], 0; jne done
-    j2 = len(b)
     b += b"\0" + bytes.fromhex("4c8b01 4d8b4068")                      # r8 = [[ctx]+68h], the global data
     b += bytes.fromhex("49c7c10800fe7f 4d8b09 4c89c8")                 # r9 = rax = interrupt time
-    b += bytes.fromhex("492b80") + struct.pack("<I", SPAWN_TIME)        # rax -= last spawn
+    b += bytes.fromhex("492b80") + struct.pack("<I", SPAWN_TIME)        # rax -= last run
+    b += bytes.fromhex("4d8988") + struct.pack("<I", SPAWN_TIME)        # last run = now
     b += bytes.fromhex("483d") + struct.pack("<I", RENEW_AFTER) + b"\x72"   # jb done
-    j3 = len(b)
-    b += b"\0" + bytes.fromhex("4d8988") + struct.pack("<I", SPAWN_TIME)    # last spawn = now
-    b += bytes.fromhex("49c780") + struct.pack("<I", GLOBAL_LEN) + bytes(4)  # decision, POINT state = 0
-    for j in (j1, j2, j3):
+    j2 = len(b)
+    b += b"\0" + bytes.fromhex("49c780") + struct.pack("<I", GLOBAL_LEN) + bytes(4)  # decision, POINT state = 0
+    b += bytes.fromhex("48c7411800000000")                            # node state = 0: a fresh run
+    for j in (j1, j2):
         b[j] = len(b) - (j + 1)
     b += b"\xe9" + rel32(at + len(b) + 5, cont)
     return bytes(b)
+
+
+#: The last token any wall on this machine took: +00 u64 interrupt time, +08 u32 its
+#: decision ("SMOK" / "POIN"). Spare bytes after POINT_RECORD's 0x50.
+LAST_TAKE_RVA = 0x2104FE0
+#: One use can bring two copies of its wall to a machine (VeilNet.log: a wall takes the
+#: token, a second finds none 0.27 s later and stands as a plain barrier; when the copy
+#: that took it is the one never seen, nothing shows at all). A wall that finds no
+#: token within ADOPT_WINDOW of the last take makes the same decision.
+ADOPT_WINDOW = 10_000_000                     # 1 s, in 100 ns
+SMOK, NORM = VEIL_MARKER, 0x4E4F524D
+
+
+def decide_code(point: bool) -> bytes:
+    """decide(rcx = node ctx, edx = 0 just look / else decide for good) -> eax 1 veil,
+    3 point, 0 barrier, 2 undecided (edx = 0 only). Kept per wall at +158h. A point
+    token (point builds) is tried first, then a veil token, then the last take
+    (ADOPT_WINDOW). Taking: unexpired, count > 0, lock cmpxchg count - 1; a take is
+    counted at +10h of its token block (VeilNet logs it), a barrier at +14h of the
+    veil's."""
+    code, labels, fix = bytearray(), {}, []
+
+    def emit(h, *imm):
+        code.extend(bytes.fromhex(h))
+        for i in imm:
+            code.extend(struct.pack("<I", i & 0xFFFFFFFF))
+
+    def jump(op, name):                         # op: "0f8x" (jcc rel32) or "e9"
+        emit(op)
+        fix.append((len(code), name))
+        code.extend(bytes(4))
+
+    def label(name):
+        labels[name] = len(code)
+
+    def set_decision(mark):
+        emit("41c78258010000", mark)                                    # mov dword [r10+158h], mark
+
+    emit("4c8b11 4d8b5268 418b8258010000")                             # r10 = global data; eax = decision
+    emit("3d", SMOK); jump("0f84", "r1")
+    emit("3d", POINT_MARKER); jump("0f84", "r3")
+    emit("3d", NORM); jump("0f84", "r0")
+    emit("6548a16000000000000000 4c8b4010")                            # r8 = image base
+    emit("49c7c10800fe7f 4d8b09")                                       # r9 = now
+    takes = ([(POINT_TOKEN_RVA, POINT_MARKER, 3)] if point else []) + [(TOKEN_RVA, SMOK, 1)]
+    for n, (rva, mark, ret) in enumerate(takes):
+        emit("4d8d98", rva)                                             # r11 = token block
+        emit("4d3b4b08"); jump("0f83", f"fail{n}")                      # now >= expiry: expired
+        label(f"loop{n}")
+        emit("418b03 85c0"); jump("0f8e", f"fail{n}")                   # count <= 0
+        emit("8d48ff f0410fb10b"); jump("0f85", f"loop{n}")             # lock cmpxchg [r11], count - 1
+        emit("f041ff4310")                                              # lock inc dword [r11+10h]
+        set_decision(mark)
+        emit("4d8988", LAST_TAKE_RVA)                                   # last take = now, mark
+        emit("41c780", LAST_TAKE_RVA + 8, mark)
+        emit("b8", ret); emit("c3")
+        label(f"fail{n}")
+    emit("4c89c8 492b80", LAST_TAKE_RVA)                                # rax = now - last take
+    emit("483d", ADOPT_WINDOW); jump("0f83", "none")
+    emit("418b80", LAST_TAKE_RVA + 8)                                   # eax = its decision
+    for rva, mark, ret in takes:
+        emit("3d", mark); jump("0f84", f"adopt{ret}")
+    jump("e9", "none")
+    for rva, mark, ret in takes:
+        label(f"adopt{ret}")
+        set_decision(mark)
+        emit("4d8d98", rva); emit("f041ff4310")                         # counted as a take
+        emit("b8", ret); emit("c3")
+    label("none")
+    emit("85d2"); jump("0f84", "r2")                                    # just looking: undecided
+    set_decision(NORM)
+    emit("4d8d98", TOKEN_RVA); emit("f041ff4314")                       # walls that stayed barriers
+    label("r0"); emit("31c0 c3")
+    label("r1"); emit("b8", 1); emit("c3")
+    label("r2"); emit("b8", 2); emit("c3")
+    label("r3"); emit("b8", 3); emit("c3")
+    for at, name in fix:
+        code[at:at + 4] = struct.pack("<i", labels[name] - (at + 4))
+    return bytes(code)
 
 
 def gate_stub(at: int, decide: int, record: int, cont: int, prologue: bytes = b"") -> bytes:
@@ -749,7 +831,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     blob += ring_offsets(count, spread)
     parts = {}
     sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
-             "gate_show": 256, "gate_phys": 256, "renew": 96}
+             "gate_show": 256, "gate_phys": 256, "renew": 96, "renew_phys": 96}
     if point:
         sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
@@ -775,11 +857,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, va + bind)
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
-    if point:
-        put("decide", POINT_DECIDE.replace(RVA_MARK, struct.pack("<I", TOKEN_RVA))
-            .replace(POINT_MARK, struct.pack("<I", POINT_TOKEN_RVA)))
-    else:
-        put("decide", TOKEN_DECIDE.replace(RVA_MARK, struct.pack("<I", TOKEN_RVA)))
+    put("decide", decide_code(bool(point)))
     pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = 1: decide for good
     # al = show: unless veil (1) or point (3), i.e. unless decide is odd
     post = bytes.fromhex("a801 0f94c0") + SHOW_POST[2:]
@@ -851,6 +929,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
     put("gate_phys", gate_stub(at["gate_phys"], at["decide"], 2, at["phys"]))
     put("renew", renew_stub(at["renew"], at["gate_show"]))             # a pooled wall's new life
+    put("renew_phys", renew_stub(at["renew_phys"], at["gate_phys"]))
 
     pe.write(va, bytes(blob))
     # + the decision, POINT's state and the last spawn
@@ -858,7 +937,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     pe.write(WALL_BIND_CALL, b"\xe8" + rel32(WALL_BIND_CALL + 5, at["bind"]))
     pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
     pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["renew"]) + b"\x90")
-    pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["gate_phys"]) + b"\x90" * 3)
+    pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["renew_phys"]) + b"\x90" * 3)
     if point:
         if pe.read(WALL_SOUND_EXEC, 5) != WALL_SOUND_ENTRY:
             raise ValueError("unexpected wall PLAYSOUNDNODE::Execute")
