@@ -7,7 +7,7 @@
    they edit when it has one, otherwise the extract's.
      fix_drone.py                            drone registry / damage / cooldown, on that JSON
      fix_drone_script.py, fix_drone_bullet.py
-     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_sound.py,
+     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
@@ -137,7 +137,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
     # DOT glides on instead of slowing to a stop like the arc mine. Instead the
     # shared script skips enabling it for the DOT, as it already does for the arc.
     tool("fix_shared_frisbee.py", *src)
-    tool("fix_dot_sound.py", *src)
+    tool("fix_dot_script.py", *src)
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
 
 
