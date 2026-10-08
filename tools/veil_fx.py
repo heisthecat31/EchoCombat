@@ -452,10 +452,15 @@ QUERY = {
               0x173, 0x17a, 0x181, 0x198, 0x19f, 0x1ac]),
 }
 QUERY_NODE_SIZE = 0xA0
-#: node+50h as the script's own query expressions set it (the actor to query: itself)
-QUERY_SELF = bytes.fromhex("e86ca2e1c32151107e5084fc4233a185")
+#: node+50h / +58h: the component and the actor to query. c3178dbdb1250dce queries
+#: (R15NetPooledActor, its own actor 85a13342fc84507e); the barrier wall's pooled-actor
+#: component is (R15NetPooledActor 105121c3e1a26ce8, actor 3d8b8ca4d5292926) in every
+#: combat level's CR15NetPooledActorCR. If that reads nothing, decide() retries with "self".
+POOLED_ACTOR_COMPONENT = 0x105121C3E1A26CE8
+WALL_ACTOR = 0x3D8B8CA4D5292926
+QUERY_ACTORS = (WALL_ACTOR, SELF)
 #: outputs a marker could land in: symbol outputs (8 bytes) and int outputs (4 bytes)
-QUERY_OUT_Q, QUERY_OUT_D = (0x88, 0x50, 0x58), (0x80, 0x60)
+QUERY_OUT_Q, QUERY_OUT_D = (0x88,), (0x80, 0x60)
 WALL_BIND_CALL, WALL_BIND_TARGET = 0x3DE0, 0x17F0   # setup_bindings: call <a node's Bind>
 
 # --- diagnostics: what the veil sends and what each wall reads back ----------------
@@ -471,7 +476,9 @@ DEBUG_REC = bytes.fromhex(
     "6548a16000000000000000488b40104805443322118d4effc1e1084801c84989c341ff034189730449895b08"
     "4c8d4424204d8d4b18b9140000004d8b104d89114983c0084983c108ffc975ee4c8d8424c00000004d8d8bb8"
     "000000b9080000004d8b104d89114983c0084983c108ffc975ee")
-DEBUG_RESULT = bytes.fromhex("41894310")             # mov [r11+10h], eax
+#: the record pointer moves to rsi (callee-saved: a later query call may clobber r11)
+DEBUG_KEEP = bytes.fromhex("4c89de")                  # mov rsi, r11
+DEBUG_RESULT = bytes.fromhex("894610")                # mov [rsi+10h], eax
 #: param node Execute(rcx = node, rdx = ctx): record 3 = count, 3, ctx, node (0x50)
 DEBUG_PARAM = bytes.fromhex(
     "6548a16000000000000000488b4010480544332211ff00c7400403000000488950084531c04e8b0c014e894c"
@@ -544,22 +551,23 @@ def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -
 
 def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = True) -> bytes:
     """decide(rcx = node ctx, edx = record 1/2) -> eax 1 when this wall carries the veil's marker."""
-    b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6 488d4c2420 4889da e8"))
-    b += rel32(at + len(b) + 4, q_ctor)                                   # ctor(node, ctx)
-    c0, c1 = struct.unpack("<QQ", QUERY_SELF)
-    b += b"\x48\xb8" + struct.pack("<Q", c0) + bytes.fromhex("4889442470")   # node+50h
-    b += b"\x48\xb8" + struct.pack("<Q", c1) + bytes.fromhex("4889442478")   # node+58h
-    b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
-    b += rel32(at + len(b) + 4, q_exec)                                   # Execute(node, buffer)
-    if debug:
-        b += DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA))
+    b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6"))
     yes = []
-    for off in QUERY_OUT_Q:
-        b += bytes.fromhex("488b8424") + struct.pack("<I", 0x20 + off) + b"\x48\x3d" + struct.pack("<I", marker)
-        b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
-    for off in QUERY_OUT_D:
-        b += bytes.fromhex("8b8424") + struct.pack("<I", 0x20 + off) + b"\x3d" + struct.pack("<I", marker)
-        b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
+    for actor in QUERY_ACTORS:                 # one query per candidate actor
+        b += bytes.fromhex("488d4c2420 4889da e8")
+        b += rel32(at + len(b) + 4, q_ctor)                               # ctor(node, ctx)
+        b += b"\x48\xb8" + struct.pack("<Q", POOLED_ACTOR_COMPONENT) + bytes.fromhex("4889442470")  # node+50h
+        b += b"\x48\xb8" + struct.pack("<Q", actor) + bytes.fromhex("4889442478")                   # node+58h
+        b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
+        b += rel32(at + len(b) + 4, q_exec)                               # Execute(node, buffer)
+        if debug and actor == QUERY_ACTORS[0]:   # the record shows the first query
+            b += DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA)) + DEBUG_KEEP
+        for off in QUERY_OUT_Q:
+            b += bytes.fromhex("488b8424") + struct.pack("<I", 0x20 + off) + b"\x48\x3d" + struct.pack("<I", marker)
+            b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
+        for off in QUERY_OUT_D:
+            b += bytes.fromhex("8b8424") + struct.pack("<I", 0x20 + off) + b"\x3d" + struct.pack("<I", marker)
+            b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
     b += bytes.fromhex("31c0 eb05")                                       # no: eax = 0
     y = len(b)
     b += bytes.fromhex("b801000000")                                      # yes: eax = 1
@@ -595,7 +603,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
     parts = {}
-    for name, size in (("bind", 64), ("decide", 384), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
+    for name, size in (("bind", 64), ("decide", 640), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
         blob += bytes(size)
@@ -605,7 +613,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     at = {k: va + o for k, o in parts.items()}
 
     def put(name, code):
-        if len(code) > {"bind": 64, "decide": 384, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
+        if len(code) > {"bind": 64, "decide": 640, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
             raise ValueError(f"{name} stub too long")
         blob[parts[name]:parts[name] + len(code)] = code
 

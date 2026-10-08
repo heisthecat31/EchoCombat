@@ -328,7 +328,7 @@ DWORD WINAPI VeilMonitor(LPVOID base) {
                 continue;
             }
             const float *v3 = (const float *)(node + 0x74), *v4 = (const float *)(node + 0x64);
-            Log("VEIL %s #%u ctx %p -> %s | int60 %08x int80 %08x sym50 %llx sym58 %llx sym88 %llx "
+            Log("VEIL %s #%u ctx %p -> %s | int60 %08x int80 %08x component %llx actor %llx sym88 %llx "
                 "vec3 (%.2f %.2f %.2f) vec4 (%.2f %.2f %.2f %.2f) real %.3f flag %u",
                 site[k], n, *(void *const *)(r + 8), *(const uint32_t *)(r + 0x10) ? "SMOKE WALL" : "barrier",
                 *(const uint32_t *)(node + 0x60), *(const uint32_t *)(node + 0x80),
