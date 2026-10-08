@@ -461,6 +461,17 @@ WALL_ACTOR = 0x3D8B8CA4D5292926
 QUERY_ACTORS = (WALL_ACTOR, SELF)
 #: outputs a marker could land in: symbol outputs (8 bytes) and int outputs (4 bytes)
 QUERY_OUT_Q, QUERY_OUT_D = (0x88,), (0x80, 0x60)
+#: The query's results land in the result buffer passed to Execute; they are read back
+#: through the accessors its Bind registers per output: (id slot, accessor slot) in
+#: c3178dbdb1250dce's .data (decoded from R15NETPOOLEDACTORQUERYEXPRESSION::Bind),
+#: and where decide() keeps each one (node offset, in the node's own output layout).
+QUERY_GETTERS = [
+    ("symboloutput", 0xB1C8, 0xB1A8, 0x88),
+    ("intoutput", 0xB0E4, 0xB0B0, 0x80),
+    ("vec3output.x", 0xB0F0, 0xB128, 0x74),
+    ("vec3output.y", 0xB08C, 0xB1F0, 0x78),
+    ("vec3output.z", 0xB248, 0xB108, 0x7C),
+]
 WALL_BIND_CALL, WALL_BIND_TARGET = 0x3DE0, 0x17F0   # setup_bindings: call <a node's Bind>
 
 # --- diagnostics: what the veil sends and what each wall reads back ----------------
@@ -546,10 +557,11 @@ def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -
         for d in disps[k]:
             t = target(k, d)
             fixups.append((offs[k] + d, offs[starts[t]] if t in starts else slots[t]))
+    offs["slots"] = slots                      # source rva -> blob offset, for .data slots too
     return offs
 
 
-def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = True) -> bytes:
+def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = True, getters=()) -> bytes:
     """decide(rcx = node ctx, edx = record 1/2) -> eax 1 when this wall carries the veil's marker."""
     b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 89d6"))
     yes = []
@@ -560,6 +572,11 @@ def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int, debug: bool = Tr
         b += b"\x48\xb8" + struct.pack("<Q", actor) + bytes.fromhex("4889442478")                   # node+58h
         b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
         b += rel32(at + len(b) + 4, q_exec)                               # Execute(node, buffer)
+        for id_slot, fn_slot, node_off in getters:  # accessor(result, id, &node[off])
+            b += b"\x8b\x15" + rel32(at + len(b) + 6, id_slot)               # mov edx, [id]
+            b += bytes.fromhex("4c8d8424") + struct.pack("<I", 0x20 + node_off)  # lea r8, [rsp+20h+off]
+            b += bytes.fromhex("488d8c24c0000000")                         # lea rcx, [rsp+0C0h]
+            b += b"\xff\x15" + rel32(at + len(b) + 6, fn_slot)               # call [accessor]
         if debug and actor == QUERY_ACTORS[0]:   # the record shows the first query
             b += DEBUG_REC.replace(RVA_MARK, struct.pack("<I", DEBUG_RVA)) + DEBUG_KEEP
         for off in QUERY_OUT_Q:
@@ -603,7 +620,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
     parts = {}
-    for name, size in (("bind", 64), ("decide", 640), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
+    for name, size in (("bind", 64), ("decide", 1024), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
         blob += bytes(size)
@@ -613,7 +630,7 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
     at = {k: va + o for k, o in parts.items()}
 
     def put(name, code):
-        if len(code) > {"bind": 64, "decide": 640, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
+        if len(code) > {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
             raise ValueError(f"{name} stub too long")
         blob[parts[name]:parts[name] + len(code)] = code
 
@@ -626,7 +643,8 @@ def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7,
         b += bytes.fromhex(regs + "e8") + rel32(at["bind"] + len(b) + len(bytes.fromhex(regs)) + 5, bind)
     b += bytes.fromhex("4883c428 c3")
     put("bind", bytes(b))
-    put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker))
+    getters = [(va + qo["slots"][i], va + qo["slots"][f], o) for _, i, f, o in QUERY_GETTERS]
+    put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker, getters=getters))
     pre = SHOW_PRE + bytes.fromhex("ba01000000")                       # edx = record 1
     s = pre + b"\xe8" + rel32(at["show"] + len(pre) + 5, at["decide"]) + SHOW_POST
     put("show", s)
