@@ -85,6 +85,8 @@ SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
 STUN_SCRIPT = "190ed14ff6dc4ad8"
 SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
 WALL_SCRIPT = "ac4e9374a146d3a4"
+#: R15NETPOOLEDACTORQUERYEXPRESSION is transplanted from it into the wall script (networked UMBRAL VEIL)
+QUERY_SCRIPT = "c3178dbdb1250dce"
 HEAL_SCRIPT = "6a0f689e5b91c666"
 BUFF_SCRIPT = "4b65d1b0088d2682"
 PARTICLE_TYPES = ("3ae7c41914252baa", "be45c22fa8c2d3f")   # particle effect + its companion asset
@@ -128,6 +130,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, STUN_SCRIPT),
                                                     (SOUND_BANK_TYPE, VEIL_BANK),
                                                     (SCRIPTS_TYPE, WALL_SCRIPT),
+                                                    (SCRIPTS_TYPE, QUERY_SCRIPT),
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [

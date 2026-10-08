@@ -36,6 +36,11 @@ can be equipped, charges, and its use reaches the scripts. This is stage 2:
    * execute_node's entry jumps to a stub that runs the copy for node 5613c5a9;
      next_node's default case jumps to a stub that sends wraith's `out` to it.
    The barrier's own flag stays "== shield".
+4. Networked (default): the tac mod graph runs on the user's client only, so
+   the smoke script no longer spawns anything itself. It creates the barrier
+   wall as the barrier does, with a marker in the wall's symbol param; the wall
+   script, on every machine, reads it back and turns that wall into the veil
+   (veil_fx.network_wall). --local keeps the old client-only veil.
 
     python tools/fix_smoke.py --base <dir with 607d858c90268f9a/> --src <extract root> --out <dir>
 """
@@ -298,6 +303,9 @@ def main(argv) -> int:
     ap.add_argument("--particle-scale", type=float, default=2.5, help="size of each smoke puff")
     ap.add_argument("--alpha", type=float, default=10.0, help="opacity multiplier")
     ap.add_argument("--shade", type=float, default=0.9, help="colour multiplier (lower = darker)")
+    ap.add_argument("--local", action="store_true",
+                    help="the old, client-only veil: clouds and sound spawned by the smoke script itself, so only "
+                         "the user sees and hears them. Default: networked through the barrier wall (veil_fx.network_wall)")
     ap.add_argument("--mailbox", type=lambda v: int(v, 0), default=0,
                     help="rva of the spare bytes in echovr.exe (veil_fx.mailbox_rva): the sound then plays "
                          "from an invisible smoke wall, so it stays where the veil went off; 0 = it follows the player")
@@ -319,11 +327,27 @@ def main(argv) -> int:
 
     barrier = open(os.path.join(args.src, SCRIPTS, f"{BARRIER_SCRIPT:x}"), "rb").read()
     det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()
-    open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
-        barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,
-        emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha, shade=args.shade,
-        mailbox=args.mailbox))
-    if args.mailbox:
+    networked = not (args.local or args.mailbox)
+    if networked:
+        from veil_fx import QUERY_SCRIPT, mark_param, network_wall
+        mz, dmz = barrier.find(b"MZ"), det.find(b"MZ")
+        open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(
+            barrier[:mz] + mark_param(barrier[mz:]))
+        wall = open(os.path.join(args.src, SCRIPTS, WALL_SCRIPT), "rb").read()
+        query = open(os.path.join(args.src, SCRIPTS, QUERY_SCRIPT), "rb").read()
+        wmz = wall.find(b"MZ")
+        open(os.path.join(args.out, SCRIPTS, WALL_SCRIPT), "wb").write(wall[:wmz] + network_wall(
+            wall[wmz:], query[query.find(b"MZ"):], det[dmz:], count=args.count, scale=args.scale, life=args.life,
+            spread=args.spread, emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha,
+            shade=args.shade))
+        print(f"{SCRIPTS}/{WALL_SCRIPT}: barrier wall script: a wall carrying the veil marker hides, has no "
+              f"collision, and spawns the smoke and sound -- on every machine")
+    else:
+        open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
+            barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,
+            emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha, shade=args.shade,
+            mailbox=args.mailbox))
+    if args.mailbox and not networked:
         from veil_fx import anchor_wall
         wall = open(os.path.join(args.src, SCRIPTS, WALL_SCRIPT), "rb").read()
         mz = wall.find(b"MZ")
@@ -334,7 +358,8 @@ def main(argv) -> int:
     print(f"{SCRIPTS}/{SMOKE_SCRIPT:x}: mp_combat_ability_smoke: {args.count} smoke clouds, "
           f"scale {args.scale}, life x{args.life}, {args.spread} m apart, "
           f"emission x{args.emission}, puffs x{args.particle_scale}, alpha x{args.alpha}, shade {args.shade}, "
-          + ("sound from an invisible smoke wall" if args.mailbox else "no wall, sound on the player"))
+          + ("networked: the wall it creates carries the smoke and sound to every machine" if networked else
+             "sound from an invisible smoke wall" if args.mailbox else "LOCAL ONLY: no wall, sound on the player"))
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)

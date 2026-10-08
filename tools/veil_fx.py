@@ -414,3 +414,195 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     for rva in PRIMING_SHOW:
         pe.write(rva, SHOW_OFF)
     return bytes(pe.d)
+
+
+# --- networked veil: the barrier wall carries it to every machine ---------------
+#
+# The tac mod graph runs only on the user's client, so clouds and sound spawned
+# by the smoke script are seen and heard there alone. The one networked thing it
+# does is create the barrier wall (R15NetPooledActorCreate): every machine gets
+# the wall, and the wall script runs on every machine. So:
+#
+# * the smoke script creates the wall as the barrier does, but its custom-param
+#   node (d11498f0) sends a marker in the symbol param (node+40h, -1 for the
+#   energy barrier), which travels with the wall;
+# * the wall script reads its own custom params back with a
+#   R15NETPOOLEDACTORQUERYEXPRESSION transplanted from c3178dbdb1250dce (a
+#   pooled actor script that reads its own params the same way). A wall that
+#   carries the marker hides its model, skips EnablePhysics (no collision), and
+#   instead spawns the smoke clouds (detonator SPAWNPARTICLEEFFECTNODE) and plays
+#   UMBRAL VEIL's sound (the wall's own PLAYSOUNDNODE). Every other wall -- the
+#   energy barrier -- is untouched.
+
+VEIL_MARKER = 0x534D4F4B                      # "SMOK": fits the param node's imm32
+PARAM_SYMBOL = 0x63FD                         # barrier param node: mov qword [rbp-29h], -1 (node+40h)
+PARAM_SYMBOL_OLD = bytes.fromhex("48c745d7ffffffff")
+
+QUERY_SCRIPT = "c3178dbdb1250dce"
+#: R15NETPOOLEDACTORQUERYEXPRESSION in c3178dbdb1250dce (named by its CodeView records)
+QUERY = {"ctor": (0x2190, 115), "get": (0x2210, 343), "exec": (0x2370, 20), "bind": (0x1FC0, 453)}
+QUERY_NODE_SIZE = 0xA0
+#: node+50h as the script's own query expressions set it (the actor to query: itself)
+QUERY_SELF = bytes.fromhex("e86ca2e1c32151107e5084fc4233a185")
+#: outputs a marker could land in: symbol outputs (8 bytes) and int outputs (4 bytes)
+QUERY_OUT_Q, QUERY_OUT_D = (0x88, 0x50, 0x58), (0x80, 0x60)
+WALL_BIND_CALL, WALL_BIND_TARGET = 0x3DE0, 0x17F0   # setup_bindings: call <a node's Bind>
+
+
+def mark_param(barrier_pe: bytes, marker: int = VEIL_MARKER) -> bytes:
+    """The smoke script's custom-param node sends `marker` as the wall's symbol param."""
+    pe = PE(barrier_pe)
+    if pe.read(PARAM_SYMBOL, 8) != PARAM_SYMBOL_OLD:
+        raise ValueError("unexpected barrier param node: wrong barrier script build")
+    pe.write(PARAM_SYMBOL, PARAM_SYMBOL_OLD[:4] + struct.pack("<I", marker))
+    for rva in PRIMING_SHOW:                  # no priming hologram, as before
+        if pe.read(rva, 5) != SHOW_ON:
+            raise ValueError("unexpected priming ShowModel node: wrong barrier script build")
+        pe.write(rva, SHOW_OFF)
+    return bytes(pe.d)
+
+
+def transplant_auto(src_pe: bytes, funcs: dict, blob: bytearray, fixups: list) -> dict:
+    """transplant() with the rip-relative operands found by disassembly (pe_reloc).
+    A reference to another of `funcs` is re-aimed at its copy; .data slots get
+    fresh zeroed copies, anything else is copied as a C string."""
+    import os
+    import tempfile
+    from pe_reloc import rip_disps
+    src = PE(src_pe)
+    _, _, dvs, dva, _, _ = src.section(b".data")
+    with tempfile.NamedTemporaryFile(suffix=".dll", delete=False) as f:
+        f.write(src_pe)
+        path = f.name
+    try:
+        disps = {k: rip_disps(path, rva, size) for k, (rva, size) in funcs.items()}
+    finally:
+        os.unlink(path)
+    codes = {k: src.read(rva, size) for k, (rva, size) in funcs.items()}
+    starts = {rva: k for k, (rva, _) in funcs.items()}
+    target = lambda k, d: funcs[k][0] + d + 4 + struct.unpack_from("<i", codes[k], d)[0]
+    slots = {}
+    for k in funcs:
+        for d in disps[k]:
+            t = target(k, d)
+            if t in starts or t in slots:
+                continue
+            if dva <= t < dva + dvs:
+                blob += bytes(-len(blob) % 8)
+                slots[t] = len(blob)
+                blob += bytes(8)
+    for k in funcs:
+        for d in disps[k]:
+            t = target(k, d)
+            if t not in starts and t not in slots:
+                blob += bytes(-len(blob) % 8)
+                slots[t] = len(blob)
+                blob += c_string(src, t)
+    offs = {}
+    for k in funcs:
+        blob += bytes(-len(blob) % 16)
+        offs[k] = len(blob)
+        blob += codes[k]
+    for k in funcs:
+        for d in disps[k]:
+            t = target(k, d)
+            fixups.append((offs[k] + d, offs[starts[t]] if t in starts else slots[t]))
+    return offs
+
+
+def decide_stub(at: int, q_ctor: int, q_exec: int, marker: int) -> bytes:
+    """decide(rcx = node ctx) -> eax 1 when this wall carries the veil's marker."""
+    b = bytearray(bytes.fromhex("53 56 4881ecc8040000 4889cb 488d4c2420 4889da e8"))
+    b += rel32(at + len(b) + 4, q_ctor)                                   # ctor(node, ctx)
+    c0, c1 = struct.unpack("<QQ", QUERY_SELF)
+    b += b"\x48\xb8" + struct.pack("<Q", c0) + bytes.fromhex("4889442470")   # node+50h
+    b += b"\x48\xb8" + struct.pack("<Q", c1) + bytes.fromhex("4889442478")   # node+58h
+    b += bytes.fromhex("488d4c2420 488d9424c0000000 e8")
+    b += rel32(at + len(b) + 4, q_exec)                                   # Execute(node, buffer)
+    yes = []
+    for off in QUERY_OUT_Q:
+        b += bytes.fromhex("488b8424") + struct.pack("<I", 0x20 + off) + b"\x48\x3d" + struct.pack("<I", marker)
+        b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
+    for off in QUERY_OUT_D:
+        b += bytes.fromhex("8b8424") + struct.pack("<I", 0x20 + off) + b"\x3d" + struct.pack("<I", marker)
+        b += b"\x0f\x84"; yes.append(len(b)); b += bytes(4)
+    b += bytes.fromhex("31c0 eb05")                                       # no: eax = 0
+    y = len(b)
+    b += bytes.fromhex("b801000000")                                      # yes: eax = 1
+    for j in yes:
+        b[j:j + 4] = struct.pack("<i", y - (j + 4))
+    b += bytes.fromhex("4881c4c8040000 5e 5b c3")
+    return bytes(b)
+
+
+def network_wall(wall_pe: bytes, query_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
+                 life: float = 8.0, spread: float = 1.5, emission: float = 8.0, particle_scale: float = 2.5,
+                 alpha: float = 10.0, shade: float = 0.9, event: int = None, marker: int = VEIL_MARKER) -> bytes:
+    """The barrier wall script: a wall carrying `marker` becomes UMBRAL VEIL on every machine."""
+    event = VEIL_EVENT if event is None else event
+    if not 1 <= count <= 16:
+        raise ValueError("count must be 1..16")
+    pe, det = PE(wall_pe), PE(det_pe)
+    if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
+        raise ValueError("wall script already patched")
+    if pe.read(WALL_SHOW, 5) != SHOW_ON or pe.read(WALL_PHYS, 8) != WALL_PHYS_OLD \
+            or pe.read(WALL_BIND_CALL, 5) != b"\xe8" + rel32(WALL_BIND_CALL + 5, WALL_BIND_TARGET):
+        raise ValueError("unexpected wall script build")
+    q = PE(query_pe)
+    if q.read(QUERY["exec"][0], 3) != bytes.fromhex("4c8bc1"):
+        raise ValueError("unexpected query script build")
+
+    blob, fixups = bytearray(), []
+    qo = transplant_auto(query_pe, QUERY, blob, fixups)
+    spn = transplant(det, SPAWN_PARTICLE, blob, fixups)
+    blob += bytes(-len(blob) % 16)
+    ring_off = len(blob)
+    blob += ring_offsets(count, spread)
+    parts = {}
+    for name, size in (("bind", 64), ("decide", 256), ("show", 64), ("spawn", 512), ("sound", 128), ("phys", 96)):
+        blob += bytes(-len(blob) % 16)
+        parts[name] = len(blob)
+        blob += bytes(size)
+    va = add_section(pe, VEIL, len(blob))
+    for d, t in fixups:
+        blob[d:d + 4] = rel32(va + d + 4, va + t)
+    at = {k: va + o for k, o in parts.items()}
+
+    def put(name, code):
+        if len(code) > {"bind": 64, "decide": 256, "show": 64, "spawn": 512, "sound": 128, "phys": 96}[name]:
+            raise ValueError(f"{name} stub too long")
+        blob[parts[name]:parts[name] + len(code)] = code
+
+    # Bind: the wall's own call, then the query's and the particle node's Binds.
+    b = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at["bind"] + 9, WALL_BIND_TARGET))
+    for bind in (va + qo["bind"], va + spn["bind"]):
+        b += bytes.fromhex("488b5710 488b0f e8") + rel32(at["bind"] + len(b) + 12, bind)
+    b += bytes.fromhex("4883c428 c3")
+    put("bind", bytes(b))
+    put("decide", decide_stub(at["decide"], va + qo["ctor"], va + qo["exec"], marker))
+    s = SHOW_PRE + b"\xe8" + rel32(at["show"] + len(SHOW_PRE) + 5, at["decide"]) + SHOW_POST
+    put("show", s)
+    floats = {EMISSION_RATE: emission, LIFE: life, ALPHA: alpha, COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
+    floats.update({o: scale for o in SCALE})
+    floats.update({o: particle_scale for o in PARTICLE_SCALE})
+    put("spawn", spawn_stub(at["spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats))
+    put("sound", sound_stub(at["sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC, event))
+    p = bytearray(bytes.fromhex("53 4883ec20 4889cb e8"))
+    p += rel32(at["phys"] + len(p) + 4, at["decide"])
+    p += bytes.fromhex("84c0 75")
+    jnz = len(p)
+    p += b"\0"
+    p += bytes.fromhex("4889d9 4883c420 5b 4989e3 53 4883ec50 e9")         # not veil: EnablePhysics as before
+    p += rel32(at["phys"] + len(p) + 4, WALL_PHYS + 8)
+    p[jnz] = len(p) - (jnz + 1)
+    p += bytes.fromhex("4889d9 e8")                                          # veil: clouds, then the sound
+    p += rel32(at["phys"] + len(p) + 4, at["spawn"])
+    p += bytes.fromhex("4889d9 4883c420 5b e9")
+    p += rel32(at["phys"] + len(p) + 4, at["sound"])
+    put("phys", bytes(p))
+
+    pe.write(va, bytes(blob))
+    pe.write(WALL_BIND_CALL, b"\xe8" + rel32(WALL_BIND_CALL + 5, at["bind"]))
+    pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
+    pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["phys"]) + b"\x90" * 3)
+    return bytes(pe.d)
