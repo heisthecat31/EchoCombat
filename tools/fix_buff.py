@@ -22,6 +22,13 @@ behaviour and tuning, recoloured from green to dark gold:
    player actor right after its heal-script entry.
 4. The controller's sixth branch (wraith -> smoke -> buff, "equipped == buff")
    comes from fix_smoke.py --with-buff.
+5. The buff (phase 1 of the config's design): using POWER BOOST heals yourself
+   with a "marker" amount, 1,000,000 + dr_permille * 1000 + dr_duration s, read
+   from ability_properties.buff at deploy, through a R15NetDamageableHeal node
+   transplanted from the wraith script into the R15NetHealBubbleActivate node's
+   place. PowerBoost.dll (plugin/powerboost.cpp) catches it on the server and
+   reduces your damage taken by dr for dr_duration. Next: the 12 m / 37 deg
+   link to a teammate, the 60 heal, and the revive.
 
     python tools/fix_buff.py --base <stage> --src <extract root> --out <dir>
 """
@@ -37,9 +44,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from fix_drone import EQUIPMENT, load, save
+from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
 from fix_smoke import PE, rel32, u64, SCRIPTS, SCRIPT_RESOURCE, SCRIPT_CR, GLOBAL_LEVEL, PLAYER_ACTORS
-from veil_fx import add_section
+from veil_fx import SELF, add_section, transplant
 
 HEAL_SCRIPT = 0x6A0F689E5B91C666
 BUFF_SCRIPT = 0x4B65D1B0088D2682       # CSymbol64("mp_combat_ability_buff")
@@ -59,6 +66,78 @@ CLASSES = [
     (0x50E0, 0x08, "span"),            # SETFULLSCREENTINTNODE::Execute: tintr..b
 ]
 GOLD_SECTION = b".gold\0\0\0"
+
+# --- the buff itself (phase 1: on use, buff yourself) ---------------------------
+#: The wraith script (mp_combat_ability_wraith) is the one script with a
+#: R15NetDamageableHeal node; it is transplanted into the buff script.
+WRAITH_SCRIPT = "e1971566197d460"
+HEAL_NODE = {
+    "ctor": (0x5240, 51, "37739209daec313fdfb447322c9bb1ad393c8b8dd29b75efd3876ca5da56b1cc", []),
+    "exec": (0x5280, 166, "ae03fcc1cceaafa693bd29c42825efa7d3a6c1edc61e3248f79fa56edc704274",
+             [0x1e, 0x36, 0x47, 0x4d, 0x5e, 0x64, 0x75, 0x7b, 0x8c, 0xa2]),
+    "bind": (0x5170, 194, "0460d9e9d721fe6b1d09629eb89ce02abba86870e63dee4ee69233776142e731",
+             [0x22, 0x29, 0x30, 0x37, 0x4e, 0x55, 0x5c, 0x73, 0x7a, 0x81, 0x98, 0x9f, 0xa6]),
+}
+#: heal script: setup_bindings' call to R15NETHEALBUBBLESETHEALDURATIONNODE::Bind (rdi = binding table)
+HEAL_BIND_CALL, HEAL_BIND_TARGET = 0x7905, 0x1900
+#: heal script: the R15NetHealBubbleActivate node (execute_node_fb9e3f50), run on use
+ACTIVATE_NODE = 0xAC00
+ACTIVATE_OLD = bytes.fromhex("4053 4883ec40")
+MARKER_BASE = 1_000_000
+
+
+def buff_marker(dr: float, seconds: float) -> float:
+    """The heal amount PowerBoost.dll reads as "dr for seconds" (see plugin/powerboost.cpp)."""
+    permille, secs = round(dr * 1000), round(seconds)
+    if not (0 <= permille <= 999 and 1 <= secs <= 999):
+        raise ValueError(f"dr {dr} / dr_duration {seconds} out of the marker's range")
+    return float(MARKER_BASE + permille * 1000 + secs)
+
+
+def marker_stub(at: int, ctor: int, execute: int, amount: float) -> bytes:
+    """execute_node replacement: one R15NetDamageableHeal on "self" of `amount`."""
+    b = bytearray(bytes.fromhex("53 4883ec50 4889cb"))              # push rbx; sub rsp,50h; rbx=rcx
+    b += bytes.fromhex("80bbdb00000000 7409 48c7c0ffffffff eb")      # aborting: return -1
+    skip = len(b)
+    b += b"\0"
+    b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # node (30h bytes) at rsp+20h
+    b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
+    b += bytes.fromhex("c7442448") + struct.pack("<f", amount)                  # node+28 heal amount
+    b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
+    b[skip] = len(b) - (skip + 1)
+    b += bytes.fromhex("4883c450 5b c3")
+    return bytes(b)
+
+
+def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
+    """Phase 1: using POWER BOOST heals yourself with the marker (PowerBoost.dll then
+    buffs you); the heal bubble is no longer activated."""
+    pe, wraith = PE(gold_pe), PE(wraith_pe)
+    if pe.read(HEAL_BIND_CALL, 5) != b"\xe8" + rel32(HEAL_BIND_CALL + 5, HEAL_BIND_TARGET) \
+            or pe.read(ACTIVATE_NODE, 6) != ACTIVATE_OLD:
+        raise ValueError("unexpected heal script build")
+    blob, fixups = bytearray(), []
+    node = transplant(wraith, HEAL_NODE, blob, fixups)
+    blob += bytes(-len(blob) % 16)
+    bind_off = len(blob)
+    blob += bytes(48)
+    blob += bytes(-len(blob) % 16)
+    stub_off = len(blob)
+    blob += bytes(96)
+    va = add_section(pe, b".buff\0\0\0", len(blob))
+    for d, target in fixups:
+        blob[d:d + 4] = rel32(va + d + 4, va + target)
+    at = va + bind_off
+    stub = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at + 9, HEAL_BIND_TARGET))
+    stub += bytes.fromhex("488b5710 488b0f e8") + rel32(at + len(stub) + 12, va + node["bind"])
+    stub += bytes.fromhex("4883c428 c3")
+    blob[bind_off:bind_off + len(stub)] = stub
+    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker)
+    blob[stub_off:stub_off + len(s_)] = s_
+    pe.write(va, bytes(blob))
+    pe.write(HEAL_BIND_CALL, b"\xe8" + rel32(HEAL_BIND_CALL + 5, at))
+    pe.write(ACTIVATE_NODE, b"\xe9" + rel32(ACTIVATE_NODE + 5, va + stub_off) + b"\x90")
+    return bytes(pe.d)
 
 
 def d32(v): return struct.pack("<i", v)
@@ -163,10 +242,16 @@ def main(argv) -> int:
     print("tacmods:", [t["name"] for t in tacmods])
 
     heal = open(os.path.join(args.src, SCRIPTS, f"{HEAL_SCRIPT:x}"), "rb").read()
+    wraith = open(os.path.join(args.src, SCRIPTS, WRAITH_SCRIPT), "rb").read()
+    _, settings = load(args.base, WEAPON_SETTINGS)
+    tuning = settings["ability_properties"]["buff"]
+    marker = buff_marker(tuning["dr"], tuning["dr_duration"])
     mz = heal.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
-        heal[:mz] + gold_script(heal[mz:], gold, tint))
+        heal[:mz] + add_buff(gold_script(heal[mz:], gold, tint), wraith[wraith.find(b"MZ"):], marker))
+    print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s -> marker heal {marker:.0f} on yourself "
+          f"(needs PowerBoost.dll on the server)")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{BUFF_SCRIPT:x}"), "wb").write(bytes(4))
     print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (Repair Matrix in gold {gold}, tint {tint})")

@@ -87,6 +87,8 @@ SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
 WALL_SCRIPT = "ac4e9374a146d3a4"
 HEAL_SCRIPT = "6a0f689e5b91c666"
 BUFF_SCRIPT = "4b65d1b0088d2682"
+WRAITH_SCRIPT = "e1971566197d460"
+POWERBOOST_DLL = os.path.join(ROOT, "out", "PowerBoost.dll")
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
@@ -124,6 +126,7 @@ def overlay(base: str, extract: str):
                                                     (SOUND_BANK_TYPE, VEIL_BANK),
                                                     (SCRIPTS_TYPE, WALL_SCRIPT),
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
+                                                    (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
@@ -314,6 +317,18 @@ def patch_side_package(install: str):
     print("   side package read back: " + ("the patched bank" if ok else "NOT the patched bank"))
 
 
+def install_powerboost(install: str):
+    """POWER BOOST's damage reduction lives in PowerBoost.dll (build_powerboost.bat),
+    loaded from bin/win10/plugins/ by every instance, the headless servers included."""
+    folder = os.path.join(install, "bin", "win10", "plugins")
+    if not os.path.exists(POWERBOOST_DLL):
+        print(f"   warning: {POWERBOOST_DLL} not built (run build_powerboost.bat): POWER BOOST will not reduce damage")
+        return
+    os.makedirs(folder, exist_ok=True)
+    shutil.copy2(POWERBOOST_DLL, os.path.join(folder, "PowerBoost.dll"))
+    print(f"   wrote {os.path.join(folder, 'PowerBoost.dll')}")
+
+
 def install_script_dlls(install: str):
     """Echo loads script code from bin/win10/scripts/<hash>.dll, not from the package,
     so every staged script (the new DOT trigger script, the sound-patched DOT script)
@@ -407,6 +422,8 @@ def main(argv) -> int:
             patch_side_package(install)
             install_script_dlls(install)
             clear_wwise_cache(install)
+            if not args.no_buff:
+                install_powerboost(install)
 
     if args.no_launch:
         return 0
