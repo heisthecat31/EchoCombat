@@ -200,7 +200,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
                  *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
-    # TRANSLOCATOR: the stun field's effect and a sound when the player teleports.
+    # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound
+    # event is added to the sound bank by veil_sound.py above).
     tool("fix_loc_fx.py", "--src", SOURCE, "--out", STAGE)
     # Gear icons: a texture of our own for the new gear (test colours for now), used by
     # the gear table / HUD canvases.

@@ -17,6 +17,11 @@ Vorbis encoder is needed:
   size the new one
 * the 16-byte resource header (u64 bank size) and 8-byte trailer are kept
 
+It also adds TRANSLOCATOR's teleport sound (fix_loc_fx.py), event LOC_EVENT -> a Play
+action on sound LOC_SOUND, media 279761503 alone (in bank b2afe679127b4904, loaded in
+matches). The game's own event for that media, 3590143152, goes through a switch
+whose default branch is the stun-bouncing-off-a-barrier sound.
+
     python tools/veil_sound.py --src <extract root> --out <dir> [--wav assets/umbral_veil.wav]
 """
 
@@ -36,6 +41,11 @@ MEDIA = 19531070
 SOUND = 1028260926
 PLUGIN_VORBIS, PLUGIN_PCM = 0x00040001, 0x00010001
 RATE = 48000
+#: TRANSLOCATOR's teleport sound: a new event and Play action (Wwise FNV-1 ids of
+#: "play_echocombat_translocate" / "echocombat_translocate_play_action") on sound
+#: LOC_SOUND (media 279761503) in bank LOC_SOUND_BANK.
+LOC_EVENT, LOC_ACTION = 2819690668, 1031878165
+LOC_SOUND, LOC_SOUND_BANK = 159312186, 3901061564
 #: RIFF header of the game's mono 48 kHz PCM wems, up to the data chunk's size.
 FMT = bytes.fromhex("666d742018000000feff010080bb0000007701000200100006000000014100004a554e4b0400000000000000")
 
@@ -50,6 +60,10 @@ def chunks(bank: bytes) -> list:
     if o != len(bank):
         raise ValueError("bank does not parse into chunks")
     return out
+
+
+def hirc_object(kind: int, oid: int, body: bytes) -> bytes:
+    return struct.pack("<BII", kind, 4 + len(body), oid) + body
 
 
 def pcm_wem(pcm: bytes) -> bytes:
@@ -102,6 +116,10 @@ def replace_sound(asset: bytes, pcm: bytes) -> bytes:
         p += 5 + size
     if not done:
         raise ValueError(f"sound object {SOUND} not found")
+    hirc += hirc_object(3, LOC_ACTION, struct.pack("<HIB", 0x0403, LOC_SOUND, 0) + bytes([0, 0, 4])
+                        + struct.pack("<I", LOC_SOUND_BANK))   # Play; no props; fade curve 4; its bank
+    hirc += hirc_object(4, LOC_EVENT, bytes([1]) + struct.pack("<I", LOC_ACTION))
+    struct.pack_into("<I", hirc, 0, n + 2)
 
     bank = b"".join(t + struct.pack("<I", len(c)) + bytes(c) for t, c in parts)
     return struct.pack("<QQ", len(bank), 0) + bank + asset[-8:]
@@ -119,7 +137,7 @@ def main(argv) -> int:
     os.makedirs(os.path.join(args.out, BANK_TYPE), exist_ok=True)
     open(os.path.join(args.out, BANK_TYPE, BANK), "wb").write(fixed)
     print(f"{BANK_TYPE}/{BANK}: sound {MEDIA} -> {os.path.basename(args.wav)} "
-          f"({len(pcm) / 2 / RATE:.2f} s PCM), bank {len(asset)} -> {len(fixed)} bytes")
+          f"({len(pcm) / 2 / RATE:.2f} s PCM), event {LOC_EVENT} -> sound {LOC_SOUND}, bank {len(asset)} -> {len(fixed)} bytes")
     return 0
 
 
