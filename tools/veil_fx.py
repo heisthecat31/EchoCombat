@@ -549,6 +549,8 @@ from veil_sound import POINT_SND_EVENT as POINT_EVENT          # noqa: E402
 PREVIEW_EVENTS = [0x7741E93B] + ARC_EVENTS
 #: --point-sound-preview's counter (per machine): after POINT's tokens
 POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
+#: the stun mine's lingering field (it loops until killed): POINT's charge-up indicator
+POINT_CHARGE_FX = 0xDE22B615C9C69CDD
 #: POINTs that went off (fired the stun) on this machine: VeilNet.dll logs it
 POINT_FIRED_RVA = 0x2104D44
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
@@ -637,14 +639,23 @@ def show_dispatch(at: int, decide: int, show_tramp: int, point: int) -> bytes:
     return bytes(b)
 
 
-def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> bytes:
+def point_block(at: int, delay: int, spawn: int, explode: int, sound: int, charge: int = None) -> bytes:
     """The wall's EnablePhysics node for a POINT wall (rbx = ctx; push rbx; sub rsp, 20h
-    done): wait `delay` (100 ns) from the first run, then the burst, the explosion and
-    the sound; later runs carry on with the sound."""
+    done): wait `delay` (100 ns) from the first run (showing `charge`, the charge-up
+    indicator, on it), then the burst, the explosion and the sound; later runs carry on
+    with the sound."""
     b = bytearray(bytes.fromhex("488b03 488b4068 8b885c010000 83f901 0f84"))
     cont = len(b)
     b += bytes(4)
-    b += bytes.fromhex("48c7c20800fe7f 8b12 85c9 750b 89d1 83c901 89885c010000")
+    to_wait = None
+    if charge is None:
+        b += bytes.fromhex("48c7c20800fe7f 8b12 85c9 750b 89d1 83c901 89885c010000")
+    else:                                   # first run: the start, the indicator, then wait
+        b += bytes.fromhex("48c7c20800fe7f 8b12 85c9 7520 89d1 83c901 89885c010000")
+        b += bytes.fromhex("48c7431800000000 4889d9 e8") + rel32(at + len(b) + 16, charge)
+        b += b"\xe9"
+        to_wait = len(b)
+        b += bytes(4)
     # elapsed = (now | 1) - start: the start is kept as now | 1 (never 0), and without
     # the | 1 an even now gave -1, a huge unsigned wait -- POINT went off at once
     b += bytes.fromhex("83ca01 29ca 81fa") + struct.pack("<I", delay) + b"\x0f\x82"
@@ -667,6 +678,8 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> by
     b[fire] = len(b) - (fire + 1)
     b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, sound)
     b[wait:wait + 4] = struct.pack("<i", len(b) - (wait + 4))
+    if to_wait is not None:
+        b[to_wait:to_wait + 4] = struct.pack("<i", len(b) - (to_wait + 4))
     # still charging: busy (ctx+18h below the gate's 4000...h, so the gate lets it straight back in)
     b += bytes.fromhex("48b80000000000000020 48894318 48c7c0ffffffff 4883c420 5b c3")
     return bytes(b)
@@ -857,7 +870,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     sizes = {"bind": 64, "decide": 1024, "show": 64, "spawn": 512, "sound": 128, "phys": 96,
              "gate_show": 256, "gate_phys": 256, "renew": 128, "renew_phys": 128}
     if point:
-        sizes.update({"bind": 96, "phys": 192, "point": 256, "point_spawn": 512, "point_boom": 96,
+        sizes.update({"bind": 96, "phys": 192, "point": 256, "point_spawn": 512, "point_charge": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
                       "events": 4 * len(ARC_EVENTS) + 4})
     for name, size in sizes.items():
@@ -933,7 +946,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
             p[j:j + 4] = rel32(at["phys"] + j + 4, at["point"])
         p[to_point:to_point + 4] = struct.pack("<i", skip - (to_point + 4))
         put("point", point_block(at["point"], int(point["charge_up_time"] * 1e7), at["point_spawn"],
-                                 at["point_boom"], at["point_sound"]))
+                                 at["point_boom"], at["point_sound"], at["point_charge"]))
         put("show_tramp", WALL_SHOW_NODE_OLD + b"\xe9" + rel32(at["show_tramp"] + 11, WALL_SHOW_NODE + 6))
         put("show_disp", show_dispatch(at["show_disp"], at["decide"], at["show_tramp"], at["point"]))
         put("mute", mute_stub(at["mute"]))
@@ -946,6 +959,12 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         pf.update({o: fx_scale for o in PARTICLE_SCALE})
         put("point_spawn", spawn_stub(at["point_spawn"], va + spn["ctor"], va + spn["exec"], va + ring_off, 1,
                                       pf, asset=point.get("fx", POINT_FX), duration=point.get("time", 2.5)))
+        # the charge-up indicator: the stun mine's lingering field, for the charge-up exactly
+        cf = {EMISSION_RATE: 1.0, LIFE: 1.0, ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0, COLOR_B: 1.0}
+        cf.update({o: point.get("charge_scale", 1.0) for o in SCALE})
+        cf.update({o: 1.0 for o in PARTICLE_SCALE})
+        put("point_charge", spawn_stub(at["point_charge"], va + spn["ctor"], va + spn["exec"], va + ring_off, 1,
+                                       cf, asset=POINT_CHARGE_FX, duration=point["charge_up_time"]))
         put("point_boom", explosion_stub(at["point_boom"], va + exp["ctor"], va + exp["exec"], STUN_EXPLOSION,
                                          point["stun_duration"]))
         if point.get("preview"):
