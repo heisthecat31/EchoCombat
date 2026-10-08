@@ -25,7 +25,7 @@ The barrier script has no particle node, so the detonator script's
   `emission` (particle count multiplier), `particle_scale` (size of each puff),
   `alpha` (opacity multiplier) and `shade` (colour multiplier: lower = darker,
   so it hides more), then runs Execute.
-* before the clouds it plays `sound_event` (UMBRAL VEIL's 14 s smoke sound,
+* after the clouds it plays `sound_event` (UMBRAL VEIL's 14 s smoke sound,
   see veil_sound.py) on the player with a transplanted PLAYSOUNDNODE (the
   detonator's too, with its constructor's defaults: the sound component every
   player and magazine uses, a temporary emitter, no waiting).
@@ -182,18 +182,15 @@ PARTICLE_SCALE, SCALE = (0x78, 0x7C, 0x80), (0xA8, 0xAC, 0xB0)
 
 def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict,
                sound_ctor: int = 0, sound_exec: int = 0, event: int = 0) -> bytes:
-    """execute_node replacement: a PLAYSOUNDNODE for `event` (if any), then
-    `count` SPAWNPARTICLEEFFECTNODEs; each node is built at rsp+0x20."""
+    """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs, then a
+    PLAYSOUNDNODE for `event` (if any); each node is built at rsp+0x20. The
+    sound goes last, and the clouds' result is what the node returns: run first,
+    the sound node left the node's engine state such that no cloud spawned."""
     f = lambda v: struct.pack("<f", v)
     b = bytearray(bytes.fromhex("53 56 57 4881ec00010000 4889cb 31f6"))  # push rbx/rsi/rdi; sub rsp,100h; rbx=rcx; esi=0
     b += bytes.fromhex("80bbdb00000000 740c 48c7c0ffffffff e9")      # cmp byte [rbx+0dbh],0; je L; mov rax,-1; jmp done
     jmp_done = len(b)
     b += bytes(4)
-    if event:                                                        # the sound, on the player ("self")
-        b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, sound_ctor)
-        b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
-        b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
-        b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, sound_exec)
     loop = len(b)
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # L: lea rcx,[rsp+20h]; call ctor
     b += b"\x48\xb8" + struct.pack("<Q", DET_FX) + bytes.fromhex("4889442428")       # node+08 asset
@@ -208,6 +205,13 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: 
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)  # Execute(node, ctx)
     b += bytes.fromhex("ffc6 83fe") + bytes([count]) + b"\x0f\x82" + rel32(0, 0)
     b[-4:] = struct.pack("<i", loop - len(b))
+    if event:                                                        # the sound, on the player ("self")
+        b += bytes.fromhex("4889c6")                                 # rsi = the clouds' result
+        b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, sound_ctor)
+        b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
+        b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
+        b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, sound_exec)
+        b += bytes.fromhex("4889f0")                                 # rax = the clouds' result
     done = len(b)
     b[jmp_done:jmp_done + 4] = struct.pack("<i", done - (jmp_done + 4))
     b += bytes.fromhex("4881c400010000 5f 5e 5b c3")

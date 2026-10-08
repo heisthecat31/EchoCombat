@@ -189,6 +189,48 @@ def repack(install: str):
             if f"{t}/{script}" not in out:
                 sys.exit(f"script {script} ({t}) missing from {install}'s manifest after repack")
     print("   new scripts present: DOT trigger, smoke")
+    staged_bank = os.path.join(STAGE, SOUND_BANK_TYPE, VEIL_BANK)
+    if os.path.exists(staged_bank):
+        want = os.path.getsize(staged_bank)
+        out = subprocess.run([evrtool(), "findlive", data, VEIL_BANK], capture_output=True, text=True).stdout
+        sizes = [int(line.split()[1]) for line in out.splitlines() if SOUND_BANK_TYPE in line]
+        if want not in sizes:
+            sys.exit(f"sound bank {VEIL_BANK} in {install}'s manifest is {sizes}, not the patched {want} bytes")
+        print(f"   UMBRAL VEIL sound bank present ({want} bytes)")
+
+
+def wwise_caches(install: str) -> list[str]:
+    """Folders the game writes sound banks out to (`%s/_temp/wwise/`): under the
+    install, and under any rad/echo folder in %LOCALAPPDATA% or %TEMP%."""
+    roots = [install]
+    for env in ("LOCALAPPDATA", "TEMP", "APPDATA"):
+        base = os.environ.get(env)
+        if base and os.path.isdir(base):
+            roots += [os.path.join(base, d) for d in os.listdir(base)
+                      if any(k in d.lower() for k in ("rad", "echo", "r14"))]
+    found = []
+    for root in roots:
+        top = root.rstrip(os.sep).count(os.sep)
+        for path, dirs, _ in os.walk(root):
+            if path.count(os.sep) - top >= 6:
+                dirs[:] = []
+            if os.path.basename(path).lower() == "wwise" and \
+                    os.path.basename(os.path.dirname(path)).lower() == "_temp":
+                found.append(path)
+                dirs[:] = []
+    return found
+
+
+def clear_wwise_cache(install: str):
+    """A sound bank cached on disk from before the repack would be played instead
+    of the patched one (UMBRAL VEIL's sound), so the cache is emptied; the game
+    writes it again."""
+    caches = wwise_caches(install)
+    for cache in caches:
+        shutil.rmtree(cache, ignore_errors=True)
+        print(f"   cleared sound bank cache {cache}")
+    if not caches:
+        print("   no _temp/wwise sound bank cache found")
 
 
 def install_script_dlls(install: str):
@@ -272,6 +314,7 @@ def main(argv) -> int:
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dlls(install)
+            clear_wwise_cache(install)
 
     if args.no_launch:
         return 0
