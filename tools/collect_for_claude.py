@@ -76,6 +76,10 @@ ACTOR_SCAN = [0x3D8B8CA4D5292926]
 #: whichever folder holds them is the particle effect asset type.
 PARTICLES = ["de22b615c9c69cdd", "4ce12ae42c1b6269", "413d710284c73629",
              "6089d3e04ce94bb3", "bff34ce49d120472"]
+#: UMBRAL VEIL's sound: the unused 14 s sound 2092801294_19531070 (bank id, media id).
+#: Banks with either id, and any streamed .wem with the media id, are copied.
+SOUND_BANKS = {2092801294}
+SOUND_MEDIA = {19531070}
 SMOKE_WORDS = ("smoke", "fog", "cloud", "steam", "dust", "mist", "haze", "vapor", "puff")
 
 #: Level loaded before every map; holds the player actor.
@@ -297,7 +301,20 @@ def bank_events(blob: bytes) -> list[int]:
     return events
 
 
-def sound_scan(extract: str, game: str, dry_run: bool) -> str:
+def bank_ids(blob: bytes) -> tuple[int, set[int]]:
+    """A sound bank's own id (BKHD) and the media ids it embeds (DIDX)."""
+    bank, media, o = 0, set(), 0
+    while o + 8 <= len(blob):
+        tag, size = blob[o:o + 4], struct.unpack_from("<I", blob, o + 4)[0]
+        if tag == b"BKHD":
+            bank = struct.unpack_from("<I", blob, o + 12)[0]
+        elif tag == b"DIDX":
+            media |= {struct.unpack_from("<I", blob, o + 8 + i)[0] for i in range(0, size, 12)}
+        o += 8 + size
+    return bank, media
+
+
+def sound_scan(extract: str, game: str, dry_run: bool, c: "Collector" = None) -> str:
     """Every Wwise sound bank (files starting BKHD, in the extract or the install)
     and the event ids it defines, so sound names can be checked offline."""
     paths = []
@@ -317,11 +334,23 @@ def sound_scan(extract: str, game: str, dry_run: bool) -> str:
     lines = []
     for path in paths:
         try:
-            events = bank_events(open(path, "rb").read())
+            blob = open(path, "rb").read()
+            events = bank_events(blob)
+            bank, media = bank_ids(blob)
         except (OSError, struct.error):
             continue
-        rel = os.path.relpath(path, extract if path.startswith(extract) else game)
-        lines += [f"{rel.replace(os.sep, '/')}  {e:08x}" for e in events]
+        rel = os.path.relpath(path, extract if path.startswith(extract) else game).replace(os.sep, "/")
+        lines.append(f"{rel}  bank {bank}  {len(media)} embedded media")
+        lines += [f"{rel}  {e:08x}" for e in events]
+        hit = bank in SOUND_BANKS or (media & SOUND_MEDIA) or any(
+            struct.pack("<I", m) in blob for m in SOUND_MEDIA)
+        if c and hit and len(blob) < 90 * 1024 * 1024:
+            c.copy(path, "sound/" + rel.replace("/", "_"), "sound bank with the veil sound")
+    for m in SOUND_MEDIA:
+        for path in glob.glob(os.path.join(game, "**", f"{m}.wem"), recursive=True) + \
+                glob.glob(os.path.join(extract, "**", f"*{m}*"), recursive=True):
+            if c and os.path.isfile(path) and os.path.getsize(path) < 90 * 1024 * 1024:
+                c.copy(path, "sound/" + os.path.basename(path), "veil sound media")
     if not dry_run:
         os.makedirs(OUT, exist_ok=True)
         with open(os.path.join(OUT, "sound_events.txt"), "w", newline="\n") as fh:
@@ -427,7 +456,7 @@ def main(argv) -> int:
     c.copied.append(f"actor_scan.txt  ({len(scan)} tables mention the scanned actors)")
 
     particle_scan(extract, c, args.dry_run)
-    c.copied.append(sound_scan(extract, args.game, args.dry_run))
+    c.copied.append(sound_scan(extract, args.game, args.dry_run, c))
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(sorted(set(SEARCH[h] for h in hits)))}" for asset, hits in found]
