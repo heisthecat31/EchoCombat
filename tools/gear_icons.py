@@ -235,6 +235,7 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
         added.append(name)
     recs.sort(key=lambda r: struct.unpack_from("<q", r)[0])
     d[start:start + count * RECORD] = b"".join(recs)
+    report += point_duplicates(d, new_tex, recs)
     cap = struct.unpack_from("<I", d, T_CAPACITY)[0]
     while cap < len(recs):
         cap *= 2
@@ -243,6 +244,41 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
     struct.pack_into("<I", d, T_BYTES, cap * RECORD)
     report.append(f"added {', '.join(added) or 'nothing'} ({mine} record(s) each); sprites {count} -> {len(recs)}")
     return bytes(d), report
+
+
+#: The UI shows an item's icon by showing one element of a stack (elements at the same
+#: rect, one per item type), each with its own fixed UV -- not by sprite name. The cut
+#: items' elements are there, holding their parent's icon: in a stack, the second
+#: element on `parent`'s sprite is the `item`'s. (The translocator's element holds the
+#: detonator's icon in the stock game the same way.)
+DUPLICATE_OF = [("buff", "heal"), ("smoke", "shield"), ("dot", "stun")]
+E_RECT = 0x6C
+
+
+def point_duplicates(d: bytearray, new_tex: int, recs: list) -> list:
+    """Points each cut item's element (see DUPLICATE_OF) at the item's cell."""
+    sprite = {struct.unpack_from("<Q", r)[0]: struct.unpack_from("<4f", r, 8) for r in recs}
+    cells = {name: cell for name, cell, _ in NEW_ICONS}
+    stacks = {}
+    for k, t in enumerate(element_textures(d)):
+        if t == new_tex:
+            o = ELEMENTS + k * ELEMENT_SIZE
+            stacks.setdefault(bytes(d[o + E_RECT:o + E_RECT + 16]), []).append(k)
+    done = []
+    for rect, ks in stacks.items():
+        if len(ks) < 2:
+            continue
+        for item, parent in DUPLICATE_OF:
+            uv = sprite.get(symbol64(parent))
+            if uv is None or item not in cells:
+                continue
+            same = [k for k in ks if all(abs(a - b) < 1e-4 for a, b in
+                                        zip(struct.unpack_from("<4f", d, ELEMENTS + k * ELEMENT_SIZE + 8), uv))]
+            if len(same) >= 2:
+                k = same[-1]
+                struct.pack_into("<4f", d, ELEMENTS + k * ELEMENT_SIZE + 8, *cell_uv(cells[item]))
+                done.append(f"e{k} {item}")
+    return [f"cut items' elements -> our cells: {', '.join(done)}" if done else "no cut-item elements found"]
 
 
 def read(src: str, t: str, asset: str, fallback: str = "") -> bytes:
