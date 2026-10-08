@@ -184,7 +184,8 @@ def veil_mailbox(installs) -> str:
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False,
-          buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False):
+          buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
+          point_event: str = None):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -202,7 +203,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         point = point and buff and "--mailbox" not in veil
         tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()),
              *(("--with-point",) if point else ()),
-             *(("--point-sound-preview",) if point and point_sound_preview else ()))
+             *(("--point-sound-preview",) if point and point_sound_preview else ()),
+             *(("--point-event", point_event) if point and point_event else ()))
         if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
             tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr), "--charge", str(buff_charge),
                  *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
@@ -484,6 +486,7 @@ def main(argv) -> int:
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out (and POINT, whose branch follows it)")
     ap.add_argument("--no-point", action="store_true", help="leave POINT out")
+    ap.add_argument("--point-event", help="POINT plays this sound event instead (a number), e.g. the translocator's 2819690668 to test POINT's sound path")
     ap.add_argument("--point-sound-preview", action="store_true",
                     help="each POINT use plays the next sound: 1st the stun field's (a check), then the arc mine's 9, to pick POINT's")
     ap.add_argument("--buff-dr", type=float, default=0.09,
@@ -523,7 +526,7 @@ def main(argv) -> int:
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
-              not args.no_buff_rez, not args.no_point, args.point_sound_preview)
+              not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)
