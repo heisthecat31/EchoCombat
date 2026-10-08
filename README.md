@@ -156,8 +156,8 @@ The asset hash is `CSymbol64(<script name>)`, which is how these were recovered
 | sensor | `mp_combat_ability_sensor` | `0e1975416e8dcf7a` |
 | wraith | `mp_combat_ability_wraith` | `0e1971566197d460` |
 
-`det` has no script -- consistent with `grenade_properties.det` carrying nothing
-but `cooldown`. The detonator is native.
+`det` runs `190ed14fe3da5ed1` (named `det` here; it was missed at first).
+It reads only `cooldown` from the JSON and holds the remote-trigger wiring.
 
 ### These scripts read the balance JSON themselves
 
@@ -215,26 +215,54 @@ Comparing symbol references across all six ordnance DLLs shows the design:
 | `delegate_OnImpact` | . | yes | yes | . | . | . |
 | magazine state (`Get`/`SetStateNode`, `Stable`/`Unstable`/`Exploding`) | yes | yes | yes | yes | yes | yes |
 
-Hand-fired trigger wiring exists only in `burst` (INSTANT REPAIR) and
-`translocator` -- the two you hold and fire. DOT never having it is **normal**,
-because activation and cooldown are native, in `CR15NetMagazinePouchCS`:
+> **Corrected (later analysis, see "The remote trigger" below).** The two
+> `[MAGAZINE POUCH] / [MAGAZINE]` strings quoted here earlier do not exist in
+> this `echovr.exe`. There is no native remote activation, and the detonator
+> *does* have its own script (`190ed14fe3da5ed1`), which carries the
+> `OnTriggered` / `R15SetTriggerHandNode` wiring missing from the table above.
 
-```
-grenade_properties|%s|cooldown
-[MAGAZINE POUCH] Activating magazine %llx remotely from user
-[MAGAZINE] Setting magazine %llx to state %s
-```
+## The remote trigger
 
-The pouch activates the magazine and drives its state; the script only reacts
-via `delegate_OnStateChanged`. That is why `use_remote_trigger` works without
-the script binding a trigger delegate.
+The scripts embed their full PDB, so every node, expression and engine binding
+has its real name. Graph edges come from emulating each script's `next_node`.
+The magazine states are `Stable`, `Unstable`, `e32dc7dfd49f50a9` (cracks to
+"Empty"; the state a remote activation sets), `Exploding` and `Exploded`.
+`56ccd1bd99a59d3b` / `54dc9983c968aa39` are the true / false ports of every
+condition node.
 
-**So the bug is exactly the flag conflict.** With `activate_on_collision: true`
-the script self-activates on the first `delegate_OnImpact`, and a magazine held
-in the hand collides immediately -- it activates and welds itself the instant it
-is grabbed, and remote activation never gets a chance. Clearing the flag leaves
-the native remote trigger as the only way in, which is the intended
-grab -> carry -> latch -> wait -> trigger flow.
+**Detonator** (`190ed14fe3da5ed1`): on spawn, enable its `R15Trigger`
+component. On grab (`attachhand`), on the owner's client, bind that trigger to
+the holding hand (`R15SetTriggerHand`). On `OnTriggered` (from `R15Trigger`),
+on the owner's client, if its flags are clear and it is **not held**, set the
+state to `e32dc`. The server side sees `e32dc`, fires the explosion and sets
+`Exploded`.
+
+**DOT** (`97d0806e6ea89130`): reads its eight keys into globals at `+0xa8..`.
+On the server, when the state becomes `e32dc`, it starts the tick explosion and
+the `lifetime` delay to `Exploded`. Two ways in:
+
+* **Impact.** If it is Unstable, not held and `activate_on_collision` is set, it
+  sets `e32dc` itself. Either way, with `stick_to_geo` it zeroes its velocity
+  where it hit.
+* **Remote.** Its one exported function (`2fc48a8b48754599`) checks
+  `use_remote_trigger`, that it runs on the owner's client and that it is
+  Unstable, then stops the field and sets `e32dc`. **Nothing calls it.** On
+  grab, release and deposit, the DOT also calls four external functions
+  (`a150b1c25e86ac18`, `048bcc7d19348703`, `048bcc7d19398c03`,
+  `4cc1130866b48fc1`). Not one of the 567 scripts in the extract defines them,
+  and none calls the DOT export. The companion trigger script was never
+  shipped.
+
+So with `activate_on_collision: false` nothing can ever activate the field.
+That is the "no trigger" bug.
+
+**Fix**: `tools/fix_dot_trigger.py` attaches a trimmed copy of the detonator
+script to the DOT magazine as `mp_combat_grenade_dot_trigger`
+(`4e8af51fe7d6af8c`). Only its spawn (enable trigger), `attachhand` (bind hand)
+and `OnTriggered` (set `e32dc`) handlers stay reachable. Its state-change,
+deposit, type-change and remote-spawn handlers, and its spawn sound, are
+patched out, so the DOT's own server logic is the only reaction. Use it with
+the `trigger` preset.
 
 ### Field test log
 
@@ -299,6 +327,7 @@ component data. Recorded so it is not re-walked:
 | `tools/json_resource.py` | read / rebuild `CJsonResourceWin10` blobs. `verify` round-trips all 21 shipped JSON resources. |
 | `tools/audit_gear.py` | diff the gear registry against the tuning tables. Exits non-zero while items are unregistered. |
 | `tools/fix_dot.py` | apply the fix; `--base` to rebase onto a gear patch, `--preset` to switch activation mode, `--deploy` to stage. |
+| `tools/fix_dot_trigger.py` | give DOT a remote trigger: trimmed detonator script attached to the DOT magazine. |
 | `tools/crack_scripts.py` | name the `StreamingScriptWin10` DLLs (34 of 567 so far). |
 | `tools/script_pe.py` | extract a script's PE, locate a CSymbol64 constant in it, disassemble around its references. |
 
