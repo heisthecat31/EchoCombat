@@ -21,5 +21,7 @@ rem collect_for_claude.py below commits and pushes it with everything else.
 python tools\find_scripts.py --no-commit
 rem The weapon icon atlas (gear table + HUD): candidates into data\extract\weapon_icons.
 python tools\find_weapon_icons.py
+rem The equipment station grid: the scripts that show the LOCK slot.
+python tools\find_scripts.py --no-commit --symbol LOCK --symbol GRENADE_DOT --symbol ABILITY_HEAL
 python tools\collect_for_claude.py %*
 pause

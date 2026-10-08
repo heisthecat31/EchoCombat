@@ -15,6 +15,7 @@ tell a smoke wall from an energy barrier).
     python tools/find_scripts.py --list-only            # just print
     python tools/find_scripts.py --no-commit            # copy only (collect_for_claude.bat runs it so)
     python tools/find_scripts.py --pattern QUERYEXPRESSION
+    python tools/find_scripts.py --symbol LOCK          # scripts holding CSymbol64("LOCK") or "LOCK"
 """
 
 from __future__ import annotations
@@ -48,11 +49,20 @@ def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--extract", default=EXTRACT)
     ap.add_argument("--pattern", action="append", help="RTTI name fragment (repeatable)")
+    ap.add_argument("--symbol", action="append",
+                    help="a name the script uses: its CSymbol64 (or the string itself) (repeatable)")
     ap.add_argument("--list-only", action="store_true")
     ap.add_argument("--no-push", action="store_true")
     ap.add_argument("--no-commit", action="store_true", help="copy only (collect_for_claude.py commits)")
     args = ap.parse_args(argv[1:])
-    patterns = [p.upper() for p in (args.pattern or DEFAULT)]
+    patterns = [p.upper() for p in (args.pattern or ([] if args.symbol else DEFAULT))]
+    symbols = {}
+    if args.symbol:
+        for d in (os.path.join(OUT, "tools"), os.path.join(os.path.dirname(ROOT), "lone_echo_blender", "scripts")):
+            sys.path.insert(0, d)
+        from le_symbol_names import symbol64
+        for n in args.symbol:
+            symbols[n] = (int(symbol64(n), 16).to_bytes(8, "little"), n.encode() + b"\0")
 
     folder = os.path.join(args.extract, SCRIPTS)
     if not os.path.isdir(folder):
@@ -60,10 +70,13 @@ def main(argv) -> int:
     hits = {}
     names = sorted(os.listdir(folder))
     for name in names:
-        found = classes(open(os.path.join(folder, name), "rb").read(), patterns)
+        blob = open(os.path.join(folder, name), "rb").read()
+        found = classes(blob, patterns) if patterns else set()
+        found |= {f"symbol {n}" for n, (h, txt) in symbols.items() if h in blob or txt in blob}
         if found:
             hits[name] = found
-    print(f"{len(hits)} of {len(names)} scripts use {', '.join(patterns)}:")
+    what = ", ".join(patterns + [f"symbol {n}" for n in symbols])
+    print(f"{len(hits)} of {len(names)} scripts use {what}:")
     for name, found in sorted(hits.items()):
         print(f"  {name}: {', '.join(sorted(found))}")
     if args.list_only or not hits:
@@ -79,7 +92,7 @@ def main(argv) -> int:
                 if not (os.path.exists(dst) and os.path.samefile(src, dst)):
                     shutil.copy2(src, dst)
                 copied.append(os.path.join("data", "extract", t, name))
-    listing = os.path.join(OUT, "pooled_actor_scripts.txt")
+    listing = os.path.join(OUT, "symbol_scripts.txt" if symbols and not args.pattern else "pooled_actor_scripts.txt")
     with open(listing, "w") as f:
         for name, found in sorted(hits.items()):
             f.write(f"{name}: {', '.join(sorted(found))}\n")
@@ -89,7 +102,7 @@ def main(argv) -> int:
     if args.no_commit:
         return 0
     subprocess.run(["git", "add", *copied], cwd=ROOT, check=True)
-    subprocess.run(["git", "commit", "-m", f"Scripts using {', '.join(patterns)} (find_scripts.py)"], cwd=ROOT)
+    subprocess.run(["git", "commit", "-m", f"Scripts using {what} (find_scripts.py)"], cwd=ROOT)
     if not args.no_push:
         subprocess.run(["git", "push"], cwd=ROOT)
     return 0
