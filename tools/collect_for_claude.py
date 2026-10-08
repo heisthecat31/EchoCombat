@@ -183,6 +183,17 @@ SEARCH = {
     0x9D10FF0A22272176: "point key charge_required",
     0xCD3C2BE1F5B2600B: "point key charge_up_time",
     0x608FA57E4B219FE2: "point key stun_duration",
+    # Gear table icons: the station shows an item's icon by element name. Every script
+    # that names one of these elements, or lists the ability types, is copied in (the
+    # station leaves POINT's slot empty while the HUD shows it).
+    0x72DA98F345D6F585: "element ABILITY_SMOKE",
+    0xB000FF1E108D9D16: "element ABILITY_BUFF",
+    0x84D58074D7B733DC: "element ABILITY_WRAITH",
+    0x84D5846EDFBB2BD0: "element ABILITY_SHIELD",
+    0xB51673C60D1B4CD7: "element GRENADE_LOC",
+    0x2FD68D96527D4393: "symbol ABILITY",
+    b"R15ABILITYTYPESEXPRESSION": "lists the ability types",
+    b"SETCANVASELEMENTATTRIBUTESNODE": "sets canvas elements",
 }
 
 SCRIPTS_TYPE = "6eace9f64204fd0"         # StreamingScriptWin10: the compiled DLL
