@@ -8,13 +8,13 @@ name as a signed 64-bit number -- that the game looks an item's icon up in by na
 Its header keeps the table's capacity at +0xe8, its count at +0xf0 and capacity * 24
 at +0xc8.
 
-The stock atlas is left alone. Instead:
+The stock atlases are left alone. Instead:
 
-* a NEW texture, ICON_TEXTURE (CSymbol64 "echocombat_gear_icons"), twice as wide:
+* per stock icon atlas (ATLASES), a NEW texture twice as wide:
   the left half is the stock atlas (its BC7 blocks copied as they are, every mip),
   the right half a 4x4 grid of cells for EchoCombat's own gear -- for now solid
   test colours (NEW_ICONS), painted as BC7 mode 6 blocks;
-* in each of the four canvases, every element that used the stock atlas uses the new
+* in each canvas that shows it, every element that used the stock atlas uses the new
   texture instead, its UVs (and the stock sprites' table UVs) halved in u so they
   still land on the same icons, and a sprite record per new item is inserted (as many
   copies as the canvas keeps of a stock sprite) pointing at its cell.
@@ -41,8 +41,16 @@ import sys
 TEXTURE_DESC = "4a4c32c49300b8a0"       # cgtextureresourceWin10
 TEXTURE_GPU = "beac1969cb7b8861"        # CGTextureResourceWin10GPU: the DDS
 CANVAS = "59a9bd6e4525ecc4"             # CUICanvasResourceWin10
-STOCK_ATLAS = 0xD8B84CA5707D3BD2
-CANVASES = ["1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1"]
+#: stock icon atlas -> (our extended copy's name, the canvases that show it).
+#: d8b84ca5707d3bd2 (1024x996) is the gear icon sheet the HUD canvases use;
+#: 9ec57c5df16fef80 (1800x1800) is the shared UI sheet holding the same icons, which
+#: the equipment station (13361c4773e07b3e) and its siblings use.
+ATLASES = {
+    0xD8B84CA5707D3BD2: ("echocombat_gear_icons",
+                         ["1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1"]),
+    0x9EC57C5DF16FEF80: ("echocombat_gear_icons_ui",
+                         ["13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b"]),
+}
 
 #: our gear: (sprite name, cell 0..15 in the right half, RGBA test colour)
 NEW_ICONS = [
@@ -59,8 +67,9 @@ D_W, D_H, D_MIPS, D_RESMEM, D_PITCH = 0xE8, 0xEC, 0xF0, 0xF4, 0xF8
 DDS_HEADER = 148                         # "DDS " + 124 + DX10 20
 BC7 = (98, 99)
 
-# canvas
-C_ELEMENT_COUNT = 0x28
+# canvas: elements (0xe0 bytes each, the texture at +0 and its UV rect at +8) from 0x238,
+# their count in the header's first array at +0x80
+ELEMENTS, ELEMENT_SIZE, ELEMENT_COUNT = 0x238, 0xE0, 0x80
 T_BYTES, T_CAPACITY, T_COUNT = 0xC8, 0xE8, 0xF0
 RECORD = 24
 
@@ -70,7 +79,6 @@ def symbol64(name: str) -> int:
     return int(s(name), 16)
 
 
-ICON_TEXTURE_NAME = "echocombat_gear_icons"
 
 
 # --- texture --------------------------------------------------------------------------
@@ -159,8 +167,8 @@ def descriptor(stock_desc: bytes, dds: bytes, w: int, h: int, mips: int) -> byte
 def sprite_table(d: bytes):
     """(start, count): the sorted sprite records, `count` from the header."""
     count = struct.unpack_from("<I", d, T_COUNT)[0]
-    n = struct.unpack_from("<I", d, C_ELEMENT_COUNT)[0]
-    lo = 0x238 + 8                                                   # past the header, at least
+    n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
+    lo = ELEMENTS + 8                                                # past the header, at least
     for start in range(lo, len(d) - count * RECORD + 1, 8):
         prev = None
         ok = True
@@ -177,69 +185,63 @@ def sprite_table(d: bytes):
     raise ValueError(f"no sorted sprite table of {count} records found ({n} elements)")
 
 
-def stock_sprites(d: bytes) -> dict:
-    """name -> uv of every sprite in the canvas's table whose rect is a stock-atlas
-    element's rect (so it is a stock-atlas sprite)."""
-    start, count = sprite_table(d)
-    out = {}
-    for i in range(count):
-        o = start + i * RECORD
-        out[struct.unpack_from("<Q", d, o)[0]] = struct.unpack_from("<4f", d, o + 8)
-    return out
+def element_textures(d: bytes) -> list:
+    n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
+    return [struct.unpack_from("<Q", d, ELEMENTS + k * ELEMENT_SIZE)[0] for k in range(n)]
 
 
-def patch_canvas(d: bytes, new_tex: int, stock_names: set) -> tuple:
-    """The canvas on the new texture, with NEW_ICONS added. Returns (bytes, report)."""
+def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
+    """The canvas's elements on `atlas` moved to `new_tex`, with NEW_ICONS added.
+    Returns (bytes, report).
+
+    The sprite table keeps one copy of each sprite per element of the atlas it is cut
+    from, so a sprite whose copy count is the number of `atlas` elements belongs to
+    `atlas` (when no other texture has as many elements)."""
     d = bytearray(d)
     report = []
-    old = struct.pack("<Q", STOCK_ATLAS)
-    # elements on the stock atlas: texture -> ours, u halved
-    i, moved = d.find(old), 0
-    while i != -1:
-        f = struct.unpack_from("<4f", d, i + 8)
-        if all(-0.01 <= x <= 1.01 for x in f):
-            struct.pack_into("<Q", d, i, new_tex)
-            struct.pack_into("<4f", d, i + 8, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
-            moved += 1
-        else:
-            report.append(f"left a stock-atlas reference at {i:#x} (not an element)")
-        i = d.find(old, i + 8)
-    report.append(f"{moved} element(s) moved to the new texture")
-    # the stock sprites' table UVs, halved the same way
-    start, count = sprite_table(d)
-    copies = 0
-    for k in range(count):
-        o = start + k * RECORD
-        name = struct.unpack_from("<Q", d, o)[0]
-        if name in stock_names:
+    texs = element_textures(d)
+    mine = texs.count(atlas)
+    if not mine:
+        return bytes(d), [f"no element uses {atlas:016x}; left as is"]
+    others = {t for t in texs if t not in (atlas, 0) and texs.count(t) == mine}
+    if others:
+        raise ValueError(f"{', '.join(f'{t:016x}' for t in others)} has as many elements as the atlas: "
+                         f"cannot tell their sprites apart")
+    for k, t in enumerate(texs):
+        if t == atlas:
+            o = ELEMENTS + k * ELEMENT_SIZE
             f = struct.unpack_from("<4f", d, o + 8)
-            struct.pack_into("<4f", d, o + 8, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
-            if name == symbol64("heal"):
-                copies += 1
-    copies = copies or 1
-    # new sprites, sorted in
+            struct.pack_into("<Q4f", d, o, new_tex, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
+    report.append(f"{mine} element(s) moved to the new texture")
+    start, count = sprite_table(d)
+    names = [struct.unpack_from("<Q", d, start + k * RECORD)[0] for k in range(count)]
+    copies = {h: names.count(h) for h in set(names)}
+    halved = 0
+    for k, h in enumerate(names):
+        if copies[h] == mine:
+            o = start + k * RECORD + 8
+            f = struct.unpack_from("<4f", d, o)
+            struct.pack_into("<4f", d, o, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
+            halved += 1
+    report.append(f"{halved // mine} of its sprites rescaled")
     recs = [bytes(d[start + k * RECORD:start + (k + 1) * RECORD]) for k in range(count)]
-    have = {struct.unpack_from("<Q", r)[0] for r in recs}
     added = []
     for name, cell, _ in NEW_ICONS:
         h = symbol64(name)
-        if h in have:
+        if h in copies:
             report.append(f"'{name}' already has a sprite here; left as is")
             continue
-        rec = struct.pack("<Q4f", h, *cell_uv(cell))
-        recs += [rec] * copies
+        recs += [struct.pack("<Q4f", h, *cell_uv(cell))] * mine
         added.append(name)
     recs.sort(key=lambda r: struct.unpack_from("<q", r)[0])
-    table = b"".join(recs)
-    d[start:start + count * RECORD] = table
-    new_count = len(recs)
+    d[start:start + count * RECORD] = b"".join(recs)
     cap = struct.unpack_from("<I", d, T_CAPACITY)[0]
-    while cap < new_count:
+    while cap < len(recs):
         cap *= 2
-    struct.pack_into("<I", d, T_COUNT, new_count)
+    struct.pack_into("<I", d, T_COUNT, len(recs))
     struct.pack_into("<I", d, T_CAPACITY, cap)
     struct.pack_into("<I", d, T_BYTES, cap * RECORD)
-    report.append(f"added {', '.join(added) or 'nothing'} ({copies} record(s) each); sprites {count} -> {new_count}")
+    report.append(f"added {', '.join(added) or 'nothing'} ({mine} record(s) each); sprites {count} -> {len(recs)}")
     return bytes(d), report
 
 
@@ -260,29 +262,29 @@ def main(argv) -> int:
                     help="collected copies (find_weapon_icons.py) used when --src lacks them")
     args = ap.parse_args(argv[1:])
     fb = args.fallback
-    try:
-        stock_dds = read(args.src, TEXTURE_GPU, f"{STOCK_ATLAS:016x}")
-    except FileNotFoundError:                            # the .dds find_weapon_icons.py collected
-        stock_dds = read(fb, "", f"{STOCK_ATLAS:016x}.dds")
-    if not stock_dds.startswith(b"DDS "):
-        raise SystemExit("the stock atlas's GPU sidecar is not a DDS")
-    stock_desc = read(args.src, TEXTURE_DESC, f"{STOCK_ATLAS:016x}")
-    dds, w, h, mips = build_dds(stock_dds)
-    new_tex = symbol64(ICON_TEXTURE_NAME)
-    name = f"{new_tex:016x}"
-    for t, blob in ((TEXTURE_GPU, dds), (TEXTURE_DESC, descriptor(stock_desc, dds, w, h, mips))):
-        os.makedirs(os.path.join(args.out, t), exist_ok=True)
-        open(os.path.join(args.out, t, name), "wb").write(blob)
-    print(f"gear icons: texture {name} ({ICON_TEXTURE_NAME}) {w}x{h}, {mips} mips, {len(dds) >> 10} KB; "
-          f"cells: " + ", ".join(f"{n} #{c}" for n, c, _ in NEW_ICONS))
-    # stock sprite names: the sprites of the canvas that holds only stock-atlas ones
-    stock_names = set(stock_sprites(read(args.src, CANVAS, "2262b1c4c25c734e", os.path.join(fb, "canvases"))))
-    for c in CANVASES:
-        d = read(args.src, CANVAS, c, os.path.join(fb, "canvases"))
-        out, report = patch_canvas(d, new_tex, stock_names)
-        os.makedirs(os.path.join(args.out, CANVAS), exist_ok=True)
-        open(os.path.join(args.out, CANVAS, c), "wb").write(out)
-        print(f"   canvas {c}: " + "; ".join(report))
+    for atlas, (tex_name, canvases) in ATLASES.items():
+        a = f"{atlas:016x}"
+        try:
+            stock_dds = read(args.src, TEXTURE_GPU, a)
+        except FileNotFoundError:                        # the .dds find_weapon_icons.py collected
+            stock_dds = read(fb, "", f"{a}.dds")
+        if not stock_dds.startswith(b"DDS "):
+            raise SystemExit(f"the GPU sidecar of {a} is not a DDS")
+        stock_desc = read(args.src, TEXTURE_DESC, a)
+        dds, w, h, mips = build_dds(stock_dds)
+        new_tex = symbol64(tex_name)
+        name = f"{new_tex:016x}"
+        for t, blob in ((TEXTURE_GPU, dds), (TEXTURE_DESC, descriptor(stock_desc, dds, w, h, mips))):
+            os.makedirs(os.path.join(args.out, t), exist_ok=True)
+            open(os.path.join(args.out, t, name), "wb").write(blob)
+        print(f"gear icons: {a} -> texture {name} ({tex_name}) {w}x{h}, {len(dds) >> 10} KB; "
+              f"cells: " + ", ".join(f"{n} #{c}" for n, c, _ in NEW_ICONS))
+        for c in canvases:
+            d = read(args.src, CANVAS, c, os.path.join(fb, "canvases"))
+            out, report = patch_canvas(d, atlas, new_tex)
+            os.makedirs(os.path.join(args.out, CANVAS), exist_ok=True)
+            open(os.path.join(args.out, CANVAS, c), "wb").write(out)
+            print(f"   canvas {c}: " + "; ".join(report))
     return 0
 
 

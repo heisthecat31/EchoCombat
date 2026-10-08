@@ -99,11 +99,13 @@ BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's be
                   "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
 WRAITH_SCRIPT = "e1971566197d460"
 GLOBAL_LEVEL = "3f9915d3001dc28e"
-#: gear icons: the stock icon atlas (descriptor + DDS) and the four canvases that show it
-GEAR_ICON_ATLAS = "d8b84ca5707d3bd2"
+#: gear icons (gear_icons.py): the stock icon atlases (descriptor + DDS) -- the HUD's
+#: gear sheet and the shared UI sheet the equipment station uses -- and their canvases
+GEAR_ICON_ATLASES = ("d8b84ca5707d3bd2", "9ec57c5df16fef80")
 GEAR_ICON_TEXTURE_TYPES = ("4a4c32c49300b8a0", "beac1969cb7b8861")
 GEAR_ICON_CANVAS_TYPE = "59a9bd6e4525ecc4"
-GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1")
+GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1",
+                      "13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b")
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -145,7 +147,7 @@ def overlay(base: str, extract: str):
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
-        (t, GEAR_ICON_ATLAS) for t in GEAR_ICON_TEXTURE_TYPES]
+        (t, atlas) for t in GEAR_ICON_TEXTURE_TYPES for atlas in GEAR_ICON_ATLASES]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):
