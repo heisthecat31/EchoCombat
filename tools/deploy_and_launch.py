@@ -470,10 +470,10 @@ def main(argv) -> int:
     ap.add_argument("--veil-scale", default="6", help="UMBRAL VEIL cloud size (detonator's is about 2)")
     ap.add_argument("--veil-life", default="5", help="UMBRAL VEIL smoke lifetime, x the detonator's")
     ap.add_argument("--veil-spread", default="1.5", help="UMBRAL VEIL metres between clouds")
-    ap.add_argument("--veil-emission", default="3", help="UMBRAL VEIL particles per cloud, x the detonator's")
+    ap.add_argument("--veil-emission", default="4", help="UMBRAL VEIL particles per cloud, x the detonator's")
     ap.add_argument("--veil-puff", default="3.5", help="UMBRAL VEIL size of each smoke puff")
-    ap.add_argument("--veil-alpha", default="14", help="UMBRAL VEIL opacity multiplier")
-    ap.add_argument("--veil-shade", default="0.9", help="UMBRAL VEIL colour multiplier (lower = darker)")
+    ap.add_argument("--veil-alpha", default="35", help="UMBRAL VEIL opacity multiplier")
+    ap.add_argument("--veil-shade", default="0.6", help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
     ap.add_argument("--veil-anchor-sound", action="store_true",
