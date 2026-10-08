@@ -25,6 +25,10 @@ The barrier script has no particle node, so the detonator script's
   `emission` (particle count multiplier), `particle_scale` (size of each puff),
   `alpha` (opacity multiplier) and `shade` (colour multiplier: lower = darker,
   so it hides more), then runs Execute.
+* before the clouds it plays `sound_event` (UMBRAL VEIL's 14 s smoke sound,
+  see veil_sound.py) on the player with a transplanted PLAYSOUNDNODE (the
+  detonator's too, with its constructor's defaults: the sound component every
+  player and magazine uses, a temporary emitter, no waiting).
 """
 
 from __future__ import annotations
@@ -38,13 +42,15 @@ from fix_smoke import PE, rel32, u16, u32
 DET_FX = 0xC9EB32D35038EB4C            # the detonator's explosion smoke
 SELF = 0xC8C33E48297612B6              # CSymbol64("self")
 
+#: UMBRAL VEIL's sound: event 2092801294 -> action 752655010 -> sound 1028260926
+#: -> media 19531070, in bank 03f1464db1fe49b5 (its audio replaced by veil_sound.py).
+VEIL_EVENT = 2092801294
+
 # --- detonator script (190ed14fe3da5ed1), checked by SHA-256 ------------------
-DET_CTOR = (0x2710, 274, "95f2690cac553ad4eda87a2de734a912fc1567c33456d91d72d763ae93809298")
-DET_EXEC = (0x2830, 1082, "6b8138e8b0d699133111cdaae35452b8c5e8484bb184496e5f0c75875b016ce7")
-DET_BIND = (0x20D0, 1600, "c2335899e5939e6f9abfd2cc1785e3a7f535019c0fc3aaf57d02f51c9d06b091")
-#: Offsets, in each function, of every rip-relative disp32 (always the last 4
-#: bytes of its instruction). Targets are .data slots or .rdata name strings.
-EXEC_DISPS = [
+#: Per node class: (rva, size, sha256, rip-relative disp32 offsets) of its
+#: constructor, Execute and Bind. Each disp32 is the last 4 bytes of its
+#: instruction; its target is a .data slot or a .rdata string.
+SPN_EXEC_DISPS = [
     0x1e, 0x36, 0x47, 0x4d, 0x5e, 0x64, 0x75, 0x7b, 0x8c, 0x92, 0xa3, 0xa9, 0xba, 0xc0,
     0xd1, 0xd7, 0xe8, 0xee, 0xff, 0x105, 0x116, 0x11c, 0x12d, 0x133, 0x144, 0x14a, 0x15b,
     0x161, 0x172, 0x178, 0x189, 0x18f, 0x1a0, 0x1a6, 0x1b7, 0x1bd, 0x1ce, 0x1d4, 0x1e5,
@@ -52,7 +58,7 @@ EXEC_DISPS = [
     0x275, 0x286, 0x28c, 0x29d, 0x2a3, 0x2b4, 0x2ba, 0x2ce, 0x2d4, 0x2e8, 0x2ee, 0x302,
     0x308, 0x31c, 0x322, 0x336, 0x33c, 0x350, 0x356, 0x36a, 0x370, 0x384, 0x38a, 0x39e,
     0x3a4, 0x3b8, 0x3be, 0x3d2, 0x3d8, 0x3ec, 0x3f2, 0x406, 0x40c, 0x420, 0x436]
-BIND_DISPS = [
+SPN_BIND_DISPS = [
     0x22, 0x29, 0x30, 0x37, 0x4e, 0x55, 0x5c, 0x73, 0x7a, 0x81, 0x98, 0x9f, 0xa6, 0xbd,
     0xc4, 0xcb, 0xe2, 0xe9, 0xf0, 0x107, 0x10e, 0x115, 0x12c, 0x133, 0x13a, 0x151, 0x158,
     0x15f, 0x176, 0x17d, 0x184, 0x19b, 0x1a2, 0x1af, 0x1c0, 0x1c7, 0x1ce, 0x1e5, 0x1ec,
@@ -64,6 +70,25 @@ BIND_DISPS = [
     0x4d7, 0x4ee, 0x4f5, 0x502, 0x513, 0x51a, 0x521, 0x538, 0x53f, 0x546, 0x55d, 0x564,
     0x56b, 0x582, 0x589, 0x590, 0x5a7, 0x5ae, 0x5b5, 0x5cc, 0x5d3, 0x5da, 0x5f1, 0x5f8,
     0x5ff, 0x616, 0x61d, 0x624]
+SPAWN_PARTICLE = {
+    "ctor": (0x2710, 274, "95f2690cac553ad4eda87a2de734a912fc1567c33456d91d72d763ae93809298", []),
+    "exec": (0x2830, 1082, "6b8138e8b0d699133111cdaae35452b8c5e8484bb184496e5f0c75875b016ce7",
+             SPN_EXEC_DISPS),
+    "bind": (0x20D0, 1600, "c2335899e5939e6f9abfd2cc1785e3a7f535019c0fc3aaf57d02f51c9d06b091",
+             SPN_BIND_DISPS),
+}
+PLAY_SOUND = {
+    "ctor": (0x3900, 171, "cb5e3ca71e263fe981a970282d5295c6232dfdc23662d5918bd937894611aac3", [0x70]),
+    "exec": (0x39B0, 399, "3711324843bbaeb672ef6644888fe86e480fa8ec0b1d8d99d8243e764f6bbf58", [
+        0x1e, 0x36, 0x47, 0x4d, 0x5e, 0x64, 0x75, 0x7b, 0x8c, 0x92, 0xa3, 0xa9, 0xba, 0xc0, 0xd1,
+        0xd7, 0xe8, 0xee, 0xff, 0x105, 0x116, 0x11c, 0x12d, 0x133, 0x144, 0x14a, 0x15b, 0x161,
+        0x175, 0x18b]),
+    "bind": (0x36C0, 564, "57ba993a1e756016e83cb2c784e4f0d2ac09e62864bdd7b9130042551755ac50", [
+        0x22, 0x29, 0x30, 0x37, 0x4e, 0x55, 0x5c, 0x73, 0x7a, 0x81, 0x98, 0x9f, 0xa6, 0xbd, 0xc4,
+        0xcb, 0xdf, 0xe6, 0xed, 0x104, 0x10b, 0x112, 0x129, 0x130, 0x137, 0x14e, 0x155, 0x15c,
+        0x173, 0x17a, 0x181, 0x198, 0x19f, 0x1ac, 0x1bd, 0x1c4, 0x1cb, 0x1e2, 0x1e9, 0x1f0, 0x207,
+        0x20e, 0x215]),
+}
 
 # --- barrier script (b87ba2039b049d5e) ----------------------------------------
 BIND_CALL = 0x3F00                     # call R15NETPOOLEDACTORCREATENODE::Bind
@@ -104,11 +129,41 @@ def add_section(pe: PE, name: bytes, size: int) -> int:
 
 
 def det_function(det: PE, spec) -> bytes:
-    rva, size, sha = spec
+    rva, size, sha, _ = spec
     code = det.read(rva, size)
     if hashlib.sha256(code).hexdigest() != sha:
-        raise ValueError("detonator particle node differs: wrong detonator script build")
+        raise ValueError(f"detonator node function at {rva:#x} differs: wrong detonator script build")
     return code
+
+
+def transplant(det: PE, node: dict, blob: bytearray, fixups: list) -> dict:
+    """Copy one node class's ctor/Execute/Bind into `blob` with fresh copies of
+    every .data slot and .rdata string they reference. Returns {key: offset};
+    `fixups` collects (disp offset in blob, target offset in blob) to resolve
+    once the section's rva is known."""
+    _, _, dvs, dva, _, _ = det.section(b".data")
+    codes = {k: det_function(det, spec) for k, spec in node.items()}
+    targets = {}
+    for k, (rva, _, _, disps) in node.items():
+        for d in disps:
+            targets.setdefault(rva + d + 4 + struct.unpack_from("<i", codes[k], d)[0], None)
+    for t in sorted(t for t in targets if dva <= t < dva + dvs):     # slots: 8 zero bytes each
+        blob += bytes(-len(blob) % 8)
+        targets[t] = len(blob)
+        blob += bytes(8)
+    for t in sorted(t for t in targets if targets[t] is None):        # strings
+        s = c_string(det, t)
+        blob += bytes(-len(blob) % 8)
+        targets[t] = len(blob)
+        blob += s
+    offs = {}
+    for k, (rva, _, _, disps) in node.items():
+        blob += bytes(-len(blob) % 16)
+        offs[k] = len(blob)
+        blob += codes[k]
+        for d in disps:
+            fixups.append((offs[k] + d, targets[rva + d + 4 + struct.unpack_from("<i", codes[k], d)[0]]))
+    return offs
 
 
 def c_string(pe: PE, rva: int) -> bytes:
@@ -125,13 +180,20 @@ EMISSION_RATE, LIFE, COLOR_R, COLOR_G, COLOR_B, ALPHA = 0x44, 0x48, 0x4C, 0x50, 
 PARTICLE_SCALE, SCALE = (0x78, 0x7C, 0x80), (0xA8, 0xAC, 0xB0)
 
 
-def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict) -> bytes:
-    """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs, node at rsp+0x20."""
+def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict,
+               sound_ctor: int = 0, sound_exec: int = 0, event: int = 0) -> bytes:
+    """execute_node replacement: a PLAYSOUNDNODE for `event` (if any), then
+    `count` SPAWNPARTICLEEFFECTNODEs; each node is built at rsp+0x20."""
     f = lambda v: struct.pack("<f", v)
     b = bytearray(bytes.fromhex("53 56 57 4881ec00010000 4889cb 31f6"))  # push rbx/rsi/rdi; sub rsp,100h; rbx=rcx; esi=0
     b += bytes.fromhex("80bbdb00000000 740c 48c7c0ffffffff e9")      # cmp byte [rbx+0dbh],0; je L; mov rax,-1; jmp done
     jmp_done = len(b)
     b += bytes(4)
+    if event:                                                        # the sound, on the player ("self")
+        b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, sound_ctor)
+        b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
+        b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
+        b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, sound_exec)
     loop = len(b)
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # L: lea rcx,[rsp+20h]; call ctor
     b += b"\x48\xb8" + struct.pack("<Q", DET_FX) + bytes.fromhex("4889442428")       # node+08 asset
@@ -165,7 +227,8 @@ def ring_offsets(count: int, spread: float) -> bytes:
 
 def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
                  life: float = 8.0, spread: float = 1.5, emission: float = 8.0,
-                 particle_scale: float = 2.5, alpha: float = 10.0, shade: float = 0.9) -> bytes:
+                 particle_scale: float = 2.5, alpha: float = 10.0, shade: float = 0.9,
+                 sound_event: int = VEIL_EVENT) -> bytes:
     if not 1 <= count <= 16:
         raise ValueError("count must be 1..16")
     pe, det = PE(barrier_pe), PE(det_pe)
@@ -177,53 +240,28 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     for rva in PRIMING_SHOW:
         if pe.read(rva, 5) != SHOW_ON:
             raise ValueError("unexpected priming ShowModel node: wrong barrier script build")
-    ctor, execute, bind = (det_function(det, s) for s in (DET_CTOR, DET_EXEC, DET_BIND))
-
-    # Classify every target: .data slot (statics) or .rdata string (names).
-    _, _, dvs, dva, _, _ = det.section(b".data")
-    targets = {}
-    for (rva, _, _), code, disps in ((DET_EXEC, execute, EXEC_DISPS), (DET_BIND, bind, BIND_DISPS)):
-        for d in disps:
-            targets.setdefault(rva + d + 4 + struct.unpack_from("<i", code, d)[0], None)
-    slots = sorted(t for t in targets if dva <= t < dva + dvs)
-    names = sorted(t for t in targets if not dva <= t < dva + dvs)
-    if len(slots) != 85 or len(names) != 42:
-        raise ValueError(f"unexpected particle node references ({len(slots)} slots, {len(names)} names)")
-
-    # Lay out .veil: slots, names, ring, code.
-    blob = bytearray(8 * len(slots))
-    for i, t in enumerate(slots):
-        targets[t] = i * 8
-    for t in names:
-        s = c_string(det, t)
-        targets[t] = len(blob)
-        blob += s + bytes(-len(s) % 8)
+    blob, fixups = bytearray(), []
+    spn = transplant(det, SPAWN_PARTICLE, blob, fixups)
+    snd = transplant(det, PLAY_SOUND, blob, fixups) if sound_event else {}
+    blob += bytes(-len(blob) % 16)
     ring_off = len(blob)
     blob += ring_offsets(count, spread)
-    funcs = {}
-    for key, code in (("ctor", ctor), ("exec", execute), ("bind", bind)):
-        blob += bytes(-len(blob) % 16)
-        funcs[key] = len(blob)
-        blob += code
     blob += bytes(-len(blob) % 16)
     bind_stub_off = len(blob)
-    blob += bytes(32)                        # placeholder, filled below
+    blob += bytes(48)                        # placeholder, filled below
     blob += bytes(-len(blob) % 16)
     spawn_off = len(blob)
-    blob += bytes(512)                       # placeholder, filled below
+    blob += bytes(640)                       # placeholder, filled below
     va = add_section(pe, VEIL, len(blob))
+    for d, target in fixups:                 # re-aim the copied code at the new slots and strings
+        blob[d:d + 4] = rel32(va + d + 4, va + target)
 
-    # Re-aim the copied code at the new slots and names.
-    for (rva, _, _), key, disps in ((DET_EXEC, "exec", EXEC_DISPS), (DET_BIND, "bind", BIND_DISPS)):
-        base = funcs[key]
-        for d in disps:
-            old = rva + d + 4 + struct.unpack_from("<i", blob, base + d)[0]
-            blob[base + d:base + d + 4] = rel32(va + base + d + 4, va + targets[old])
-
-    # Bind stub: the create node's Bind, then the particle node's (rdi = binding table).
+    # Bind stub: the create node's Bind, then each transplanted node's (rdi = binding table).
     at = va + bind_stub_off
     stub = bytearray(bytes.fromhex("4883ec28 e8") + rel32(at + 9, CREATE_BIND))
-    stub += bytes.fromhex("488b5710 488b0f e8") + rel32(at + len(stub) + 12, va + funcs["bind"])
+    for offs in (spn, snd):
+        if offs:
+            stub += bytes.fromhex("488b5710 488b0f e8") + rel32(at + len(stub) + 12, va + offs["bind"])
     stub += bytes.fromhex("4883c428 c3")
     blob[bind_stub_off:bind_stub_off + len(stub)] = stub
 
@@ -231,8 +269,9 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
               COLOR_R: shade, COLOR_G: shade, COLOR_B: shade}
     floats.update({o: scale for o in SCALE})
     floats.update({o: particle_scale for o in PARTICLE_SCALE})
-    spawn = spawn_stub(va + spawn_off, va + funcs["ctor"], va + funcs["exec"], va + ring_off, count, floats)
-    if len(spawn) > 512:
+    spawn = spawn_stub(va + spawn_off, va + spn["ctor"], va + spn["exec"], va + ring_off, count, floats,
+                       va + snd.get("ctor", 0), va + snd.get("exec", 0), sound_event)
+    if len(spawn) > 640:
         raise ValueError("spawn stub too long")
     blob[spawn_off:spawn_off + len(spawn)] = spawn
 

@@ -4,7 +4,7 @@ The source is 6.3 s: the grenade going off (first ~2 s, burst then decay) and
 a steady hiss (2 s onward, about -36 dB RMS). The result keeps the first 2 s,
 then tiles the hiss (2.0-6.2 s) with equal-power crossfades until `--length`,
 and fades the tail down from `--fade-from` so it gets quieter as the smoke
-thins. Output: 16-bit PCM WAV, committed as assets/umbral_veil.wav, so the
+thins. Output: mono 16-bit 48 kHz PCM WAV (the game's sound slot is mono 48 kHz), committed as assets/umbral_veil.wav, so the
 deploy never needs ffmpeg or numpy (this script does: ffmpeg decodes the mp3).
 
     python tools/make_veil_sound.py [--src SmokeGrenade.mp3] [--out assets/umbral_veil.wav]
@@ -25,9 +25,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def decode(path: str, rate: int) -> np.ndarray:
     raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", path,
-                          "-f", "f32le", "-ac", "2", "-ar", str(rate), "-"],
+                          "-f", "f32le", "-ac", "1", "-ar", str(rate), "-"],
                          check=True, capture_output=True).stdout
-    return np.frombuffer(raw, dtype="<f4").reshape(-1, 2).astype(np.float64)
+    return np.frombuffer(raw, dtype="<f4").reshape(-1, 1).astype(np.float64)
 
 
 def bake(src: np.ndarray, rate: int, length: float, fade_from: float,
@@ -69,7 +69,7 @@ def main(argv) -> int:
     pcm = bake(decode(args.src, args.rate), args.rate, args.length, args.fade_from)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with wave.open(args.out, "wb") as w:
-        w.setnchannels(2)
+        w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(args.rate)
         w.writeframes((pcm * 32767).round().astype("<i2").tobytes())

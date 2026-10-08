@@ -363,6 +363,25 @@ def wem_scan(extract: str, c: "Collector", dry_run: bool) -> str:
                 lines.append(f"{t}/{asset}  {len(blob)}  " + "; ".join(hits))
                 if len(blob) < 90 * 1024 * 1024:
                     c.copy(path, f"sound/{t}_{asset}", "holds the veil's 14 s sound")
+    # Which resources name the veil's bank (or the combat sounds' bank) by its hash:
+    # those are what load it, so they say whether it is loaded in a match.
+    banks = {"03f1464db1fe49b5 (veil sound)": struct.pack("<Q", 0x03F1464DB1FE49B5),
+             "c823e2c9bc0168ad (combat sounds)": struct.pack("<Q", 0xC823E2C9BC0168AD)}
+    for t in sorted(os.listdir(extract)) if os.path.isdir(extract) else []:
+        folder = os.path.join(extract, t)
+        if not os.path.isdir(folder) or t == "6d358eef7bb85a98":
+            continue
+        for asset in os.listdir(folder):
+            path = os.path.join(folder, asset)
+            try:
+                if os.path.getsize(path) > 64 * 1024 * 1024:
+                    continue
+                blob = open(path, "rb").read()
+            except OSError:
+                continue
+            for name, needle in banks.items():
+                if needle in blob:
+                    lines.append(f"bank {name} referenced by {t}/{asset}")
     lines.append("RIFF/WAVE count per type folder: " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
     if not dry_run:
         os.makedirs(OUT, exist_ok=True)

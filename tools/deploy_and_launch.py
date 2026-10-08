@@ -10,6 +10,7 @@
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
+     veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -78,6 +79,7 @@ TACMOD_CONTROLLER = "4b65d1b009973281"
 BARRIER_SCRIPT = "b87ba2039b049d5e"
 SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
 STUN_SCRIPT = "190ed14ff6dc4ad8"
+SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
@@ -112,6 +114,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, TACMOD_CONTROLLER),
                                                     (SCRIPTS_TYPE, BARRIER_SCRIPT),
                                                     (SCRIPTS_TYPE, STUN_SCRIPT),
+                                                    (SOUND_BANK_TYPE, VEIL_BANK),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
@@ -144,6 +147,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
         tool("fix_smoke.py", "--base", STAGE, *src, *veil)
+        tool("veil_sound.py", *src)           # its smoke sound, in the unused 14 s sound slot
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
