@@ -5,6 +5,7 @@
 //	evrtool repack  <dataDir> <inputDir>            QuickRepack: stock + inputDir -> one delta package
 //	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages
 //	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
+//	evrtool find    <dataDir> <fileHex>...          where a file symbol is stored (stock manifest; findlive: live)
 //
 // "Stock" is manifests/<pkg>.bak when present (QuickRepack writes it before its first change),
 // otherwise the live manifest, which is then still unmodified.
@@ -131,9 +132,16 @@ func main() {
 			die("repack: %v", err)
 		}
 		fmt.Println("repack OK")
-	case "find":
+	case "find", "findlive":
 		// find <dataDir> <hash>...: every type a file symbol is stored under (stock manifest)
+		// findlive: the same against the live manifest, i.e. after a repack
 		m, _ := stockManifest(dataDir)
+		if mode == "findlive" {
+			var err error
+			if m, err = manifest.ReadFile(filepath.Join(dataDir, "manifests", pkg)); err != nil {
+				die("read manifest: %v", err)
+			}
+		}
 		want := map[uint64]bool{}
 		for _, a := range os.Args[3:] {
 			if v, err := strconv.ParseUint(a, 16, 64); err == nil {

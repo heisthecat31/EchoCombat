@@ -50,7 +50,7 @@ through untouched.
 
 `--deploy` writes `<pcvr_input_folder>/<resource_type_hash>/<asset_hash>`, the
 layout evrfiletools packages from, reading the path from its own
-`Settings/config.json`.  Every other type folder in the base tree is copied
+`Settings/config.json`.  `--stage <dir>` does the same into `<dir>` instead.  Every other type folder in the base tree is copied
 verbatim.  Run evrfiletools afterwards; this only stages files.
 """
 
@@ -162,7 +162,8 @@ def _arg(argv: list[str], flag: str, default=None):
 
 def main(argv: list[str]) -> int:
     do_drone = "--drone" in argv
-    do_deploy = "--deploy" in argv
+    stage_dir = _arg(argv, "--stage")
+    do_deploy = "--deploy" in argv or stage_dir is not None
     base_tree = _arg(argv, "--base")
     preset = _arg(argv, "--preset", DEFAULT_PRESET)
     if preset not in PRESETS:
@@ -219,7 +220,7 @@ def main(argv: list[str]) -> int:
     print(f"{len(changes)} change(s) -> {out}")
 
     if do_deploy:
-        root = pcvr_input_folder()
+        root = stage_dir or pcvr_input_folder()
         staging = os.path.join(root, JSON_RESOURCE_WIN10)
         os.makedirs(staging, exist_ok=True)
         print(f"\nstaging into {root}")
