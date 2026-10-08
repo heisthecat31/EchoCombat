@@ -125,7 +125,7 @@ def overlay(base: str, extract: str):
         print("starting from the gun patch's copy of:", ", ".join(sorted(from_patch)))
 
 
-def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float):
+def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -139,7 +139,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
         tool("fix_drone_script.py", *src)
         tool("fix_drone_bullet.py", *src)
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
-    tool("fix_smoke.py", "--base", STAGE, *src)
+    if smoke:
+        tool("fix_smoke.py", "--base", STAGE, *src)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
@@ -170,7 +171,9 @@ def repack(install: str):
         sys.exit(f"no manifest under {data}")
     print(f"\n== repacking {install}")
     run([evrtool(), "repack", data, STAGE])
-    for script in (DOT_TRIGGER_SCRIPT, SMOKE_SCRIPT):
+    for script in (DOT_TRIGGER_SCRIPT,) + ((SMOKE_SCRIPT,) if os.path.isdir(
+            os.path.join(STAGE, "991421b41de58370")) and os.path.exists(
+            os.path.join(STAGE, "991421b41de58370", SMOKE_SCRIPT)) else ()):
         out = subprocess.run([evrtool(), "findlive", data, script], capture_output=True, text=True).stdout
         for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
             if f"{t}/{script}" not in out:
@@ -190,7 +193,14 @@ def install_script_dlls(install: str):
     det_dll = os.path.join(folder, f"{DET_SCRIPT}.dll")
     if os.path.exists(det_dll) and open(det_dll, "rb").read() != det[det.find(b"MZ"):]:
         print(f"   warning: {det_dll} differs from the packaged detonator script")
-    for name in sorted(os.listdir(os.path.join(STAGE, SCRIPTS_TYPE))):
+    staged = set(os.listdir(os.path.join(STAGE, SCRIPTS_TYPE)))
+    # A script patched by an earlier deploy but not this one goes back to stock.
+    for orig in sorted(f for f in os.listdir(folder) if f.endswith(".dll.orig")):
+        name = orig[:-len(".dll.orig")]
+        if name not in staged:
+            shutil.copy2(os.path.join(folder, orig), os.path.join(folder, f"{name}.dll"))
+            print(f"   restored {name}.dll from its .orig")
+    for name in sorted(staged):
         asset = open(os.path.join(STAGE, SCRIPTS_TYPE, name), "rb").read()
         dest = os.path.join(folder, f"{name}.dll")
         if os.path.exists(dest) and not os.path.exists(dest + ".orig") and name != DOT_TRIGGER_SCRIPT:
@@ -217,6 +227,8 @@ def main(argv) -> int:
     ap.add_argument("--preset", default="trigger-nostick", help="fix_dot.py activation preset")
     ap.add_argument("--dot-damping", type=float, default=25.0,
                     help="how fast a thrown DOT slows down (higher = stops sooner); 25 = arc mine")
+    ap.add_argument("--no-smoke", action="store_true",
+                    help="leave UMBRAL VEIL out (stock tac mod controller), e.g. to A/B a tac mod")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -232,7 +244,8 @@ def main(argv) -> int:
                 sys.exit("echovr.exe is running; close it or pass --kill")
             subprocess.run(["taskkill", "/IM", "echovr.exe", "/F"])
             time.sleep(3)
-        stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping)
+        stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
+              not args.no_smoke)
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dlls(install)
