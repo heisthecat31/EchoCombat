@@ -623,7 +623,9 @@ def show_dispatch(at: int, decide: int, show_tramp: int, point: int) -> bytes:
     b += bytes.fromhex("3c03 0f85")
     normal = len(b)
     b += bytes(4)
-    b += bytes.fromhex("488b03 488b4068 83b85c01000000 0f85")
+    # a fresh run (node state 0) hides the wall even when the EnablePhysics node has
+    # already started POINT (+15Ch set): skipping it left the wall visible
+    b += bytes.fromhex("48837b1800 0f85")
     started = len(b)
     b += bytes(4)
     b += bytes.fromhex("4889d9 e8") + rel32(at + len(b) + 8, show_tramp)
@@ -643,7 +645,9 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> by
     cont = len(b)
     b += bytes(4)
     b += bytes.fromhex("48c7c20800fe7f 8b12 85c9 750b 89d1 83c901 89885c010000")
-    b += bytes.fromhex("29ca 81fa") + struct.pack("<I", delay) + b"\x0f\x82"
+    # elapsed = (now | 1) - start: the start is kept as now | 1 (never 0), and without
+    # the | 1 an even now gave -1, a huge unsigned wait -- POINT went off at once
+    b += bytes.fromhex("83ca01 29ca 81fa") + struct.pack("<I", delay) + b"\x0f\x82"
     wait = len(b)
     b += bytes(4)
     b += bytes.fromhex("c7805c01000001000000")                       # gone off
