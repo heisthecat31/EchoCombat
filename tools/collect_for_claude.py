@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -71,6 +72,11 @@ WHOLE_FOLDERS = {
 }
 #: Actors whose every table entry is collected (barrier wall, to clone as the smoke wall).
 ACTOR_SCAN = [0x3D8B8CA4D5292926]
+#: Particle effects the ordnance scripts spawn (stun field x2, arc x2, burst):
+#: whichever folder holds them is the particle effect asset type.
+PARTICLES = ["de22b615c9c69cdd", "4ce12ae42c1b6269", "413d710284c73629",
+             "6089d3e04ce94bb3", "bff34ce49d120472"]
+SMOKE_WORDS = ("smoke", "fog", "cloud", "steam", "dust", "mist", "haze", "vapor", "puff")
 
 #: Level loaded before every map; holds the player actor.
 GLOBAL_LEVEL = "3f9915d3001dc28e"
@@ -275,6 +281,37 @@ def commit_and_push(push: bool) -> int:
     return 1
 
 
+def particle_scan(extract: str, c: "Collector", dry_run: bool) -> None:
+    """Find the particle effect asset folder(s) and list every effect in them.
+
+    The folder is whichever type folder holds the effects the ordnance scripts
+    already spawn. Each effect is listed with its size and the readable names
+    inside it; effects whose names look like smoke are copied, so UMBRAL VEIL
+    can reuse one.
+    """
+    folders = set()
+    for t in sorted(os.listdir(extract)) if os.path.isdir(extract) else []:
+        if any(os.path.isfile(os.path.join(extract, t, p)) for p in PARTICLES):
+            folders.add(t)
+    lines = [f"particle folders: {' '.join(sorted(folders)) or 'none found'}"]
+    copied = 0
+    for t in sorted(folders):
+        for asset in sorted(os.listdir(os.path.join(extract, t))):
+            path = os.path.join(extract, t, asset)
+            blob = open(path, "rb").read()
+            names = sorted(set(m.decode() for m in re.findall(rb"[A-Za-z0-9_./\\-]{5,}", blob)))
+            smoky = [n for n in names if any(k in n.lower() for k in SMOKE_WORDS)]
+            lines.append(f"{t}/{asset}  {len(blob)}  {' '.join(names[:40])}")
+            if (asset in PARTICLES or smoky) and copied < 40 * 1024 * 1024:
+                c.copy(path, f"{t}/{asset}", "particle effect")
+                copied += len(blob)
+    if not dry_run:
+        os.makedirs(OUT, exist_ok=True)
+        with open(os.path.join(OUT, "particles.txt"), "w", newline="\n") as fh:
+            fh.write("\n".join(lines) + "\n")
+    c.copied.append(f"particles.txt  ({len(lines) - 1} effects listed)")
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--extract", default=EXTRACT, help="extract root (folder holding the type hash folders)")
@@ -340,6 +377,8 @@ def main(argv) -> int:
         with open(os.path.join(OUT, "actor_scan.txt"), "w", newline="\n") as fh:
             fh.write("\n".join(scan) + "\n")
     c.copied.append(f"actor_scan.txt  ({len(scan)} tables mention the scanned actors)")
+
+    particle_scan(extract, c, args.dry_run)
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(sorted(set(SEARCH[h] for h in hits)))}" for asset, hits in found]
