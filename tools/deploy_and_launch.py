@@ -199,8 +199,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
 
 
 def evrtool():
-    src = os.path.join(EVRTOOL_DIR, "main.go")
-    if not os.path.exists(EVRTOOL) or os.path.getmtime(src) > os.path.getmtime(EVRTOOL):
+    newest = max(os.path.getmtime(os.path.join(EVRTOOL_DIR, f))
+                 for f in os.listdir(EVRTOOL_DIR) if f.endswith((".go", ".mod", ".sum")))
+    if not os.path.exists(EVRTOOL) or newest > os.path.getmtime(EVRTOOL):
         print("building evrtool.exe")
         run(["go", "build", "-o", EVRTOOL, "."], cwd=EVRTOOL_DIR)
     return EVRTOOL
