@@ -3,8 +3,11 @@
 //	evrtool get     <dataDir> <listFile> <outDir>   dump <type>/<file> resources from the STOCK manifest
 //	evrtool list    <dataDir> <typeHex>             print every <type>/<file> of one type (stock manifest)
 //	evrtool repack  <dataDir> <inputDir>            QuickRepack: stock + inputDir -> one delta package
+//	evrtool merge   <dataDir> <inputDir>            like repack, but keeps other mods' delta packages (merge.go)
+//	evrtool unmerge <dataDir>                       take a merge back out, leaving the other mods
+//	evrtool install <dataDir> <stageDir>            player install: drone bullet tables + merge, side package too
 //	evrtool getlive <dataDir> <listFile> <outDir>   read files back through the live manifest
-//	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages
+//	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages (ALL mods)
 //	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
 //	evrtool find    <dataDir> <fileHex>...          where a file symbol is stored (stock manifest; findlive: live)
 //
@@ -62,7 +65,7 @@ func parsePair(s string) ([2]int64, bool) {
 
 func main() {
 	if len(os.Args) < 3 {
-		die("usage: evrtool get|list|repack|restore|cmp <dataDir> ...")
+		die("usage: evrtool get|list|repack|merge|unmerge|install|restore|cmp <dataDir> ...")
 	}
 	mode, dataDir := os.Args[1], os.Args[2]
 	switch mode {
@@ -149,6 +152,23 @@ func main() {
 			die("repack: %v", err)
 		}
 		fmt.Println("repack OK")
+	case "merge":
+		if len(os.Args) < 4 {
+			die("usage: evrtool merge <dataDir> <inputDir>")
+		}
+		merge(dataDir, scan(os.Args[3]))
+	case "unmerge":
+		unmerge(dataDir)
+	case "dronebullet":
+		if len(os.Args) < 4 {
+			die("usage: evrtool dronebullet <dataDir> <outDir>")
+		}
+		droneBulletStage(dataDir, os.Args[3])
+	case "install":
+		if len(os.Args) < 4 {
+			die("usage: evrtool install <dataDir> <stageDir>")
+		}
+		install(dataDir, os.Args[3])
 	case "find", "findlive":
 		// find <dataDir> <hash>...: every type a file symbol is stored under (stock manifest)
 		// findlive: the same against the live manifest, i.e. after a repack
@@ -184,6 +204,8 @@ func main() {
 		if err := os.WriteFile(mp, data, 0644); err != nil {
 			die("write manifest: %v", err)
 		}
+		os.Remove(mp + ".echocombat")
+		os.Remove(mp + ".echocombat.live")
 		for i := orig.Header.PackageCount; ; i++ {
 			p := filepath.Join(dataDir, "packages", fmt.Sprintf("%s_%d", pkg, i))
 			if _, err := os.Stat(p); err != nil {

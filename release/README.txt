@@ -1,0 +1,28 @@
+EchoCombat
+==========
+
+DOT FIELD, DRONE, UMBRAL VEIL (smoke tac mod) and POWER BOOST (tac mod).
+Everything is prebuilt: the patched package files (stage\), the script DLLs
+(bin\win10\scripts\) and the plugins (bin\win10\plugins\).
+
+Install
+  Close Echo VR, then run install.bat. If the game is not in the Oculus
+  folder, either drop this folder into ready-at-dawn-echo-arena\ or run
+    install.bat "D:\path\to\ready-at-dawn-echo-arena"
+  Install on the game server as well as on clients.
+
+Other mods are kept
+  If another mod already repacked the game (packages\48037dc70b0ecab2_3, _4,
+  ... and manifests\48037dc70b0ecab2.bak exist), EchoCombat is MERGED on top:
+  their delta packages stay and ours are added after them. Running install.bat
+  again replaces EchoCombat's own files instead of stacking more.
+
+Uninstall
+  uninstall.bat takes EchoCombat back out and keeps the other mods.
+  "evrtool restore <_data\5932408047\rad15\win10>" resets to stock (removes ALL mods).
+
+Notes
+  * The plugins are loaded from bin\win10\plugins\, which needs the plugin
+    loader you already use for that folder.
+  * The drone's bullet effects are patched at install time from your own game
+    files, so they always match your install.
