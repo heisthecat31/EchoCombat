@@ -248,6 +248,12 @@ def commit_and_push(push: bool) -> int:
     if not push:
         return 0
     branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    # Merge whatever was pushed meanwhile, so the push is a fast-forward.
+    r = git("pull", "--no-rebase", "--no-edit", "origin", branch)
+    if r.returncode:
+        print(r.stdout + r.stderr)
+        print("pull failed; resolve it, then run `git push` yourself")
+        return 1
     for delay in (0, 2, 4, 8, 16):
         time.sleep(delay)
         r = git("push", "-u", "origin", branch)
