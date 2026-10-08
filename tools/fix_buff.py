@@ -31,8 +31,13 @@ behaviour and tuning, recoloured from green to dark gold:
    marker_stub). PowerBoost.dll (plugin/powerboost.cpp) catches the marker
    on your client, forwards it to the server as a negative DamageDealt (which the
    server turns back into a heal), and the server's copy reduces your damage taken
-   by dr for dr_duration. Next: the 12 m / 37 deg
-   link to a teammate, the 60 heal, and the revive.
+   by dr for dr_duration.
+6. The link (phase 2): the buff script's bubble reads ability_properties.buff
+   (its "ability_properties|heal|" lookups are re-pointed), and link_tuning()
+   fills in the bubble keys from len / init_angle / heal_amt_on_success /
+   dr_duration / conn_time. PowerBoost.dll narrows the bubble's radius check to
+   the init_angle cone of the owner's aim and gives each linked teammate the dr
+   buff; the bubble's tethers are the (gold) link. Next: the revive.
 
     python tools/fix_buff.py --base <stage> --src <extract root> --out <dir>
 """
@@ -88,6 +93,50 @@ HEAL_BIND_CALL, HEAL_BIND_TARGET = 0x7905, 0x1900
 ACTIVATE_NODE = 0xAC00
 ACTIVATE_OLD = bytes.fromhex("4053 4883ec40")
 MARKER_BASE = 1_000_000
+
+# --- phase 2: the link (the heal bubble's targeting, reshaped into a cone) -------
+#: The heal script reads its bubble tuning as "ability_properties|heal|" + key; the
+#: buff script's copy reads "ability_properties|buff|" + key instead.
+HEAL_PREFIX = 0x71EEF7EEEA7CFD64          # CSymbol64("ability_properties|heal|")
+BUFF_PREFIX = 0x71EEF7E4FA7BF764          # CSymbol64("ability_properties|buff|")
+HEAL_UNIQUE = 0xD3CF9A4313DDFCFD          # CSymbol64("ability_properties|heal|unique_healing_only")
+BUFF_UNIQUE = 0x8870DFA9A8731203          # CSymbol64("ability_properties|buff|unique_healing_only")
+
+
+def link_tuning(t: dict) -> dict:
+    """The bubble keys POWER BOOST's bubble reads, from the config's own buff values.
+
+    heal_radius carries the cone to PowerBoost.dll: len (whole metres) +
+    init_angle / 100000, e.g. 12 m at 37 deg = 12.00037. A bubble whose radius has
+    such a fraction is POWER BOOST's: the plugin only links targets inside that cone
+    of the owner's aim, and gives each linked teammate the dr buff. (Repair Matrix's
+    radius, a whole 8, is left alone.) The bubble heals each linked teammate up to
+    heal_amt_on_success over dr_duration, reaching the full rate after conn_time;
+    the owner does not heal themself."""
+    length, angle = round(t["len"]), round(t["init_angle"])
+    if not (1 <= length <= 100 and 1 <= angle <= 180):
+        raise ValueError(f"len {t['len']} / init_angle {t['init_angle']} out of range")
+    heal = t["heal_amt_on_success"]
+    return {
+        "heal_radius": length + angle / 100000,
+        "heal_amt": heal, "heal_duration": t["dr_duration"],
+        "cap_healing": True, "max_healing": heal,
+        "scale_healing": False, "min_heal_mult": 1,
+        "time_to_max_heal": t["conn_time"], "self_heal_mult": 0,
+        "unique_healing_only": True,
+    }
+
+
+def read_buff_tuning(script: bytes) -> bytes:
+    """Point the copied heal script's bubble tuning lookups at ability_properties.buff."""
+    out = bytearray(script)
+    for old, new in ((HEAL_PREFIX, BUFF_PREFIX), (HEAL_UNIQUE, BUFF_UNIQUE)):
+        o, n = struct.pack("<Q", old), struct.pack("<Q", new)
+        if out.count(o) != 1:
+            raise ValueError(f"heal script: expected one {old:#x}, found {out.count(o)}")
+        i = out.find(o)
+        out[i:i + 8] = n
+    return bytes(out)
 
 
 def buff_marker(dr: float, seconds: float) -> float:
@@ -273,16 +322,18 @@ def main(argv) -> int:
     wraith = open(os.path.join(args.src, SCRIPTS, WRAITH_SCRIPT), "rb").read()
     ws_path, settings = load(args.base, WEAPON_SETTINGS)
     tuning = settings["ability_properties"]["buff"]
-    if tuning.get("dr") != args.dr:
-        tuning["dr"] = args.dr
-        print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
+    tuning["dr"] = args.dr
+    tuning.update(link_tuning(tuning))
+    print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"])
+    heal = read_buff_tuning(heal)
     mz = heal.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
         heal[:mz] + add_buff(gold_script(heal[mz:], gold, tint), wraith[wraith.find(b"MZ"):], marker))
-    print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s -> marker heal {marker:.0f} on yourself "
-          f"(needs PowerBoost.dll on the server)")
+    print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s (marker {marker:.0f}); link "
+          f"{tuning['len']} m / {tuning['init_angle']} deg (bubble radius {tuning['heal_radius']}), "
+          f"heal {tuning['heal_amt_on_success']} (needs PowerBoost.dll on server and clients)")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{BUFF_SCRIPT:x}"), "wb").write(bytes(4))
     print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (Repair Matrix in gold {gold}, tint {tint})")
