@@ -88,7 +88,8 @@ WALL_SCRIPT = "ac4e9374a146d3a4"
 HEAL_SCRIPT = "6a0f689e5b91c666"
 BUFF_SCRIPT = "4b65d1b0088d2682"
 PARTICLE_TYPES = ("3ae7c41914252baa", "be45c22fa8c2d3f")   # particle effect + its companion asset
-BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7")   # Repair Matrix's beam and hand effects
+BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's beam and hand effects
+                  "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
 WRAITH_SCRIPT = "e1971566197d460"
 POWERBOOST_DLL = os.path.join(ROOT, "out", "PowerBoost.dll")
 GLOBAL_LEVEL = "3f9915d3001dc28e"
@@ -158,7 +159,7 @@ def veil_mailbox(installs) -> str:
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
-          buff_dr: float = 0.09):
+          buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -175,7 +176,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     if smoke:
         tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()))
         if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
-            tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr))
+            tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr), "--charge", str(buff_charge),
+                 *(("--fx-test",) if buff_fx_test else ()))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
     tool("fix_dot_stick.py", *src)
@@ -400,6 +402,9 @@ def main(argv) -> int:
     ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out")
     ap.add_argument("--buff-dr", type=float, default=0.09,
                     help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
+    ap.add_argument("--buff-charge", type=float, default=40, help="POWER BOOST recharge time in seconds")
+    ap.add_argument("--buff-fx-test", action="store_true",
+                    help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -425,7 +430,7 @@ def main(argv) -> int:
                                   "--alpha", args.veil_alpha, "--shade", args.veil_shade)
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
-              not args.veil_stock_sound, not args.no_buff, args.buff_dr)
+              not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)

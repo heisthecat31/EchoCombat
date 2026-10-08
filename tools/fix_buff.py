@@ -72,6 +72,9 @@ TINT = (1.00, 0.30, 0.75)
 #: original -> copy: the beam (one per bubble slot) and the healer's hand effect.
 PARTICLES = {0x39424707BB2DF316: 0xFA379871313745A5,    # -> CSymbol64("fx_power_boost_beam")
              0xBE696D7D300CBAF7: 0xFA3798713B334AAC}    # -> CSymbol64("fx_power_boost_hand")
+BEAM = 0x39424707BB2DF316
+#: --fx-test: the stun mine's field effect, put in the beam copy's place
+FX_TEST_EFFECT = 0xDE22B615C9C69CDD
 #: each effect is two assets: the effect itself (recoloured) and a companion (copied)
 PARTICLE_TYPE, PARTICLE_COMPANION = "3ae7c41914252baa", "be45c22fa8c2d3f"
 #: the effects' colour: rgb = min + (max - min) * FX_GOLD (keeps their white cores white).
@@ -360,6 +363,10 @@ def main(argv) -> int:
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
     ap.add_argument("--gold", default=",".join(map(str, GOLD)), help="r,g,b for colours (x their brightness)")
+    ap.add_argument("--fx-test", action="store_true",
+                    help="test: the beam copy becomes the stun mine's field effect (shows whether the copy is used)")
+    ap.add_argument("--charge", type=float, default=40,
+                    help="recharge time in seconds (ability_properties.buff.required_charge)")
     ap.add_argument("--dr", type=float, default=0.09,
                     help="damage reduction while boosted (written into ability_properties.buff.dr)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
@@ -379,17 +386,21 @@ def main(argv) -> int:
     ws_path, settings = load(args.base, WEAPON_SETTINGS)
     tuning = settings["ability_properties"]["buff"]
     tuning["dr"] = args.dr
+    tuning["required_charge"] = args.charge
     tuning.update(link_tuning(tuning))
     print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"])
     heal = gold_particle_refs(read_buff_tuning(heal))
     for old, new in PARTICLES.items():
-        effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{old:x}"), "rb").read()
+        src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
+        effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{src_fx:x}"), "rb").read()
         gold_effect, changed = gold_particles(effect)
         for folder, data in ((PARTICLE_TYPE, gold_effect),
-                             (PARTICLE_COMPANION, open(os.path.join(args.src, PARTICLE_COMPANION, f"{old:x}"), "rb").read())):
+                             (PARTICLE_COMPANION, open(os.path.join(args.src, PARTICLE_COMPANION, f"{src_fx:x}"), "rb").read())):
             os.makedirs(os.path.join(args.out, folder), exist_ok=True)
             open(os.path.join(args.out, folder, f"{new:x}"), "wb").write(data)
+        if src_fx != old:
+            print(f"particle {old:x}: FX TEST, copy {new:x} is the stun field effect {src_fx:x}")
         print(f"particle {old:x} -> recoloured copy {new:x}: {len(changed)} colour(s) "
               + ", ".join("(%.2f %.2f %.2f)" % c for _, c in changed))
     mz = heal.find(b"MZ")
