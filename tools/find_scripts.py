@@ -13,6 +13,7 @@ tell a smoke wall from an energy barrier).
     python tools/find_scripts.py                        # pooled-actor classes, copy + commit + push
     python tools/find_scripts.py --no-push              # copy + commit only
     python tools/find_scripts.py --list-only            # just print
+    python tools/find_scripts.py --no-commit            # copy only (collect_for_claude.bat runs it so)
     python tools/find_scripts.py --pattern QUERYEXPRESSION
 """
 
@@ -49,6 +50,7 @@ def main(argv) -> int:
     ap.add_argument("--pattern", action="append", help="RTTI name fragment (repeatable)")
     ap.add_argument("--list-only", action="store_true")
     ap.add_argument("--no-push", action="store_true")
+    ap.add_argument("--no-commit", action="store_true", help="copy only (collect_for_claude.py commits)")
     args = ap.parse_args(argv[1:])
     patterns = [p.upper() for p in (args.pattern or DEFAULT)]
 
@@ -72,8 +74,10 @@ def main(argv) -> int:
         for t in (SCRIPTS, SCRIPT_RESOURCE):
             src = os.path.join(args.extract, t, name)
             if os.path.exists(src):
-                os.makedirs(os.path.join(OUT, t), exist_ok=True)
-                shutil.copy2(src, os.path.join(OUT, t, name))
+                dst = os.path.join(OUT, t, name)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                if not (os.path.exists(dst) and os.path.samefile(src, dst)):
+                    shutil.copy2(src, dst)
                 copied.append(os.path.join("data", "extract", t, name))
     listing = os.path.join(OUT, "pooled_actor_scripts.txt")
     with open(listing, "w") as f:
@@ -82,6 +86,8 @@ def main(argv) -> int:
     copied.append(os.path.relpath(listing, ROOT))
     print(f"copied {len(copied)} file(s) into data/extract")
 
+    if args.no_commit:
+        return 0
     subprocess.run(["git", "add", *copied], cwd=ROOT, check=True)
     subprocess.run(["git", "commit", "-m", f"Scripts using {', '.join(patterns)} (find_scripts.py)"], cwd=ROOT)
     if not args.no_push:
