@@ -10,7 +10,7 @@ use_remote_trigger edits did nothing):
   09563fe2) enables the dampener as soon as a magazine is Unstable and not held,
   i.e. on every throw. That is how the arc slows to a stop (damping 25). With
   10000 the DOT stopped dead where it was let go, so the damping is lowered
-  too: `--damping`, default 3 (higher = stops sooner; the arc uses 25).
+  too: `--damping`, default 25, the arc's in-flight value (higher = stops sooner).
 * `CR15ParentedConstraintCR`: no longer edited here -- `fix_dot_constraints.py`
   removes the DOT's record outright, together with its rigid attach.
 
@@ -64,7 +64,7 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--src", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--damping", type=float, default=3.0)
+    ap.add_argument("--damping", type=float, default=25.0)
     args = ap.parse_args(argv[1:])
 
     def dampener(out, rec):

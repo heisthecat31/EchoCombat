@@ -191,8 +191,8 @@ def main(argv) -> int:
     # stick_to_geo stops the field on its first contact after release, which is
     # the thrower's own hand, so the trigger preset leaves it off.
     ap.add_argument("--preset", default="trigger-nostick", help="fix_dot.py activation preset")
-    ap.add_argument("--dot-damping", type=float, default=3.0,
-                    help="how fast a thrown DOT slows down (higher = stops sooner; the arc uses 25)")
+    ap.add_argument("--dot-damping", type=float, default=25.0,
+                    help="how fast a thrown DOT slows down (higher = stops sooner); 25 = arc mine")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)

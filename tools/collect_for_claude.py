@@ -59,6 +59,9 @@ LEVEL_TABLES = {
 WHOLE_FOLDERS = {
     "2d90ee7bd8175ec2": "CR15NetMagazinePouchCRWin10",
 }
+#: Component names the DOT's scripts look for but cannot find on it (server log).
+COMPONENT_FINDS = ["51b9f7653ecac7cb", "84c65832f0b8b181"]
+
 #: External functions the DOT script calls when use_remote_trigger is on.  None
 #: of the scripts collected so far defines them; any script that mentions one is
 #: copied in.
@@ -201,6 +204,15 @@ def main(argv) -> int:
         c.copy(os.path.join(extract, SCRIPTS_TYPE, asset), f"{SCRIPTS_TYPE}/{asset}", name)
         c.copy(os.path.join(extract, SCRIPT_RESOURCE_TYPE, asset),
                f"{SCRIPT_RESOURCE_TYPE}/{asset}", name + " (CScriptResource)")
+
+    # Every component the DOT and the other ordnance own, across all tables, and
+    # where the components the DOT scripts cannot find live on other actors.
+    if not args.dry_run:
+        os.makedirs(OUT, exist_ok=True)
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "actor_components.py"),
+                        "--src", extract, "--out", os.path.join(OUT, "components.txt"),
+                        "--find", *COMPONENT_FINDS], stdout=subprocess.DEVNULL)
+        c.copied.append("components.txt  (component inventory per ordnance actor)")
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(SEARCH[h] for h in hits)}" for asset, hits in found]
