@@ -45,6 +45,10 @@ RATE = 48000
 #: "play_echocombat_translocate" / "echocombat_translocate_play_action") on sound
 #: LOC_SOUND (media 279761503) in bank LOC_SOUND_BANK.
 LOC_EVENT, LOC_ACTION = 2819690668, 1031878165
+#: how many copies of the sound the event starts at once: each one starts on the same
+#: sample, so they add up (2 = +6 dB, 3 = +9.5 dB, 4 = +12 dB). The sound object itself
+#: is left alone: the stun-bouncing-off-a-barrier sound plays it too.
+LOC_COPIES = 2
 LOC_SOUND, LOC_SOUND_BANK = 159312186, 3901061564
 #: RIFF header of the game's mono 48 kHz PCM wems, up to the data chunk's size.
 FMT = bytes.fromhex("666d742018000000feff010080bb0000007701000200100006000000014100004a554e4b0400000000000000")
@@ -78,7 +82,7 @@ def read_wav(path: str) -> bytes:
         return w.readframes(w.getnframes())
 
 
-def replace_sound(asset: bytes, pcm: bytes) -> bytes:
+def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES) -> bytes:
     start = asset.find(b"BKHD")
     if start != 16 or struct.unpack_from("<Q", asset, 0)[0] != len(asset) - 24:
         raise ValueError("unexpected bank resource wrapper")
@@ -116,10 +120,12 @@ def replace_sound(asset: bytes, pcm: bytes) -> bytes:
         p += 5 + size
     if not done:
         raise ValueError(f"sound object {SOUND} not found")
-    hirc += hirc_object(3, LOC_ACTION, struct.pack("<HIB", 0x0403, LOC_SOUND, 0) + bytes([0, 0, 4])
-                        + struct.pack("<I", LOC_SOUND_BANK))   # Play; no props; fade curve 4; its bank
-    hirc += hirc_object(4, LOC_EVENT, bytes([1]) + struct.pack("<I", LOC_ACTION))
-    struct.pack_into("<I", hirc, 0, n + 2)
+    actions = [LOC_ACTION + k for k in range(copies)]
+    for a in actions:                       # Play; no props; fade curve 4; the sound's bank
+        hirc += hirc_object(3, a, struct.pack("<HIB", 0x0403, LOC_SOUND, 0) + bytes([0, 0, 4])
+                            + struct.pack("<I", LOC_SOUND_BANK))
+    hirc += hirc_object(4, LOC_EVENT, bytes([len(actions)]) + b"".join(struct.pack("<I", a) for a in actions))
+    struct.pack_into("<I", hirc, 0, n + len(actions) + 1)
 
     bank = b"".join(t + struct.pack("<I", len(c)) + bytes(c) for t, c in parts)
     return struct.pack("<QQ", len(bank), 0) + bank + asset[-8:]
@@ -137,7 +143,7 @@ def main(argv) -> int:
     os.makedirs(os.path.join(args.out, BANK_TYPE), exist_ok=True)
     open(os.path.join(args.out, BANK_TYPE, BANK), "wb").write(fixed)
     print(f"{BANK_TYPE}/{BANK}: sound {MEDIA} -> {os.path.basename(args.wav)} "
-          f"({len(pcm) / 2 / RATE:.2f} s PCM), event {LOC_EVENT} -> sound {LOC_SOUND}, bank {len(asset)} -> {len(fixed)} bytes")
+          f"({len(pcm) / 2 / RATE:.2f} s PCM), event {LOC_EVENT} -> sound {LOC_SOUND} x{LOC_COPIES}, bank {len(asset)} -> {len(fixed)} bytes")
     return 0
 
 
