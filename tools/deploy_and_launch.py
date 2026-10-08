@@ -13,6 +13,7 @@
      veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
      fix_buff.py                             POWER BOOST tac mod: Repair Matrix in purplish red
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
+     fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -98,6 +99,7 @@ PARTICLE_TYPES = ("3ae7c41914252baa", "be45c22fa8c2d3f")   # particle effect + i
 BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's beam and hand effects
                   "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
 WRAITH_SCRIPT = "e1971566197d460"
+LOC_SCRIPT = "9398a165c004a9c0"          # TRANSLOCATOR (fix_loc_fx.py: teleport effect + sound)
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 #: gear icons (gear_icons.py): the stock icon atlases (descriptor + DDS) -- the HUD's
 #: gear sheet and the shared UI sheet the equipment station uses -- and their canvases
@@ -144,6 +146,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, QUERY_SCRIPT),
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
+                                                    (SCRIPTS_TYPE, LOC_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
@@ -197,6 +200,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
                  *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
+    # TRANSLOCATOR: the stun field's effect and a sound when the player teleports.
+    tool("fix_loc_fx.py", "--src", SOURCE, "--out", STAGE)
     # Gear icons: a texture of our own for the new gear (test colours for now), used by
     # the gear table / HUD canvases.
     tool("gear_icons.py", "--src", SOURCE, "--out", STAGE)

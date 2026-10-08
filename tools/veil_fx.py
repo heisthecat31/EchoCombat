@@ -275,8 +275,9 @@ EMISSION_RATE, LIFE, COLOR_R, COLOR_G, COLOR_B, ALPHA = 0x44, 0x48, 0x4C, 0x50, 
 PARTICLE_SCALE, SCALE = (0x78, 0x7C, 0x80), (0xA8, 0xAC, 0xB0)
 
 
-def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict) -> bytes:
-    """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs, each built at rsp+0x20."""
+def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: dict, asset: int = DET_FX) -> bytes:
+    """execute_node replacement: `count` SPAWNPARTICLEEFFECTNODEs of particle effect `asset`
+    (the detonator's smoke by default), each built at rsp+0x20."""
     f = lambda v: struct.pack("<f", v)
     b = bytearray(bytes.fromhex("53 56 57 4881ec00010000 4889cb 31f6"))  # push rbx/rsi/rdi; sub rsp,100h; rbx=rcx; esi=0
     b += bytes.fromhex("80bbdb00000000 740c 48c7c0ffffffff e9")      # cmp byte [rbx+0dbh],0; je L; mov rax,-1; jmp done
@@ -284,7 +285,7 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: 
     b += bytes(4)
     loop = len(b)
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # L: lea rcx,[rsp+20h]; call ctor
-    b += b"\x48\xb8" + struct.pack("<Q", DET_FX) + bytes.fromhex("4889442428")       # node+08 asset
+    b += b"\x48\xb8" + struct.pack("<Q", asset) + bytes.fromhex("4889442428")        # node+08 asset
     b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442440")         # node+20 actor = self
     b += bytes.fromhex("c644243100 c644243801 66c74424600101")       # enableduration 0, killatend 1, refpoint+leavebehind
     for off, value in sorted(floats.items()):                        # mov dword [rsp+20h+off], value
