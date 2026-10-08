@@ -152,8 +152,9 @@ def repack(install: str):
     run([evrtool(), "repack", data, STAGE])
     out = subprocess.run([evrtool(), "findlive", data, DOT_TRIGGER_SCRIPT],
                          capture_output=True, text=True).stdout
-    if DOT_TRIGGER_SCRIPT not in out:
-        sys.exit(f"DOT trigger script missing from {install}'s manifest after repack")
+    for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
+        if f"{t}/{DOT_TRIGGER_SCRIPT}" not in out:
+            sys.exit(f"DOT trigger script ({t}) missing from {install}'s manifest after repack")
     print("   DOT trigger script present:", out.strip())
 
 

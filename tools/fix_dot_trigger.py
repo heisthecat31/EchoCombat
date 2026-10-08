@@ -20,7 +20,8 @@ The detonator's own script (`190ed14fe3da5ed1`) has the same trigger plumbing:
                     detonator's and the DOT's server side react to
 
 This tool makes a trimmed copy of that script, `mp_combat_grenade_dot_trigger`
-(CSymbol64 4e8af51fe7d6af8c), and attaches it to the DOT magazine as a third
+(CSymbol64 4e8af51fe7d6af8c), plus the `CScriptResourceWin10` entry every script
+also has (4 zero bytes, identical for all of them), and attaches it to the DOT magazine as a third
 script after the shared magazine script and its own. In the copy:
 
 * the onstatechanged handlers (both: the server one that fires the detonator's
@@ -52,6 +53,10 @@ import struct
 import sys
 
 SCRIPTS = "6eace9f64204fd0"            # CSymbol64("StreamingScriptWin10")
+SCRIPT_RESOURCE = "991421b41de58370"   # CSymbol64("CScriptResourceWin10")
+#: Every script's CScriptResourceWin10 entry is these 4 bytes; the level resolves
+#: the script through it before loading the DLL, so the new script needs one too.
+SCRIPT_RESOURCE_BODY = bytes(4)
 SCRIPT_CR = "d99f6bbd8009c92c"         # CSymbol64("CScriptCRWin10")
 LEVELS = {
     "42670f2bed45703c": "mpl_combat_combustion",
@@ -156,6 +161,9 @@ def main(argv) -> int:
     open(os.path.join(args.out, SCRIPTS, f"{TRIGGER_SCRIPT:x}"), "wb").write(build_script(det))
     print(f"{SCRIPTS}/{TRIGGER_SCRIPT:x}: mp_combat_grenade_dot_trigger "
           f"(detonator script, {len(PATCHES)} patches)")
+    os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
+    open(os.path.join(args.out, SCRIPT_RESOURCE, f"{TRIGGER_SCRIPT:x}"), "wb").write(SCRIPT_RESOURCE_BODY)
+    print(f"{SCRIPT_RESOURCE}/{TRIGGER_SCRIPT:x}: its CScriptResourceWin10 entry")
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     for level, name in LEVELS.items():
