@@ -19,7 +19,11 @@
 3. `evrtool findlive` checks that the new scripts (DOT trigger, smoke) made it into each
    manifest, and its DLL is written to `bin/win10/scripts/`, which is where
    Echo actually loads script code from.
-4. Launch the headless instances from the server install, then the VR client
+4. The DLLs (build_powerboost.bat, build_dronefix.bat, build_loader.bat, with
+   MSVC; --no-build installs the committed out/ copies) go into each install:
+   PowerBoost.dll and DroneFix.dll in bin/win10/plugins/, the plugin loader as
+   bin/win10/dbgcore.dll.
+5. Launch the headless instances from the server install, then the VR client
    from the other install.
 
     python tools/deploy_and_launch.py                                 # gun patch from GUNPATCH
@@ -93,7 +97,6 @@ PARTICLE_TYPES = ("3ae7c41914252baa", "be45c22fa8c2d3f")   # particle effect + i
 BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's beam and hand effects
                   "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
 WRAITH_SCRIPT = "e1971566197d460"
-POWERBOOST_DLL = os.path.join(ROOT, "out", "PowerBoost.dll")
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
@@ -328,16 +331,59 @@ def patch_side_package(install: str):
     print("   side package read back: " + ("the patched bank" if ok else "NOT the patched bank"))
 
 
-def install_powerboost(install: str):
-    """POWER BOOST's damage reduction lives in PowerBoost.dll (build_powerboost.bat),
-    loaded from bin/win10/plugins/ by every instance, the headless servers included."""
-    folder = os.path.join(install, "bin", "win10", "plugins")
-    if not os.path.exists(POWERBOOST_DLL):
-        print(f"   warning: {POWERBOOST_DLL} not built (run build_powerboost.bat): POWER BOOST will not reduce damage")
-        return
-    os.makedirs(folder, exist_ok=True)
-    shutil.copy2(POWERBOOST_DLL, os.path.join(folder, "PowerBoost.dll"))
-    print(f"   wrote {os.path.join(folder, 'PowerBoost.dll')}")
+#: (build script, the DLL it writes to out/, where it goes under bin/win10)
+DLLS = [("build_powerboost.bat", "PowerBoost.dll", os.path.join("plugins", "PowerBoost.dll")),
+        ("build_dronefix.bat", "DroneFix.dll", os.path.join("plugins", "DroneFix.dll")),
+        ("build_loader.bat", "dbgcore.dll", "dbgcore.dll")]
+
+
+def build_dlls():
+    """Build the plugins and the plugin loader with MSVC (the build_*.bat scripts).
+    A DLL that fails to build falls back to the committed copy in out/."""
+    print("\n== building DLLs")
+    for bat, dll, _ in DLLS:
+        r = subprocess.run(["cmd", "/c", os.path.join(ROOT, bat)], cwd=ROOT, capture_output=True, text=True)
+        out = (r.stdout + r.stderr).strip()
+        if r.returncode:
+            print(f"   {bat} FAILED ({r.returncode}); using the committed out/{dll}\n      "
+                  + out.replace("\n", "\n      "))
+        else:
+            print(f"   built out/{dll}")
+        if not os.path.exists(os.path.join(ROOT, "out", dll)):
+            sys.exit(f"out/{dll} missing and could not be built")
+
+
+def is_plugin_loader(data: bytes) -> bool:
+    return b"plugins\0" in data and b"LoadLibrary" in data
+
+
+def install_dlls(install: str):
+    """PowerBoost.dll and DroneFix.dll into bin/win10/plugins/, and the plugin loader as
+    bin/win10/dbgcore.dll (echovr.exe loads it at startup; it loads plugins/). A
+    dbgcore.dll from another mod is moved into plugins/ so it still loads; an older
+    plugin loader is replaced (kept as dbgcore.dll.bak) so nothing loads twice."""
+    bin_dir = os.path.join(install, "bin", "win10")
+    plugins = os.path.join(bin_dir, "plugins")
+    os.makedirs(plugins, exist_ok=True)
+    for _, dll, dest in DLLS:
+        src = open(os.path.join(ROOT, "out", dll), "rb").read()
+        dst = os.path.join(bin_dir, dest)
+        if dll == "dbgcore.dll" and os.path.exists(dst):
+            old = open(dst, "rb").read()
+            if old != src:
+                if is_plugin_loader(old):
+                    shutil.copy2(dst, dst + ".bak")
+                    print(f"   replacing an older plugin loader (kept as {dst}.bak)")
+                else:
+                    moved = os.path.join(plugins, "dbgcore.dll")
+                    if os.path.exists(moved) and open(moved, "rb").read() != old:
+                        moved = os.path.join(plugins, "dbgcore_previous.dll")
+                    shutil.copy2(dst, moved)
+                    print(f"   moved the existing dbgcore.dll to {moved} so the loader still loads it")
+        open(dst, "wb").write(src)
+        if open(dst, "rb").read() != src:
+            sys.exit(f"{dst} did not keep what was written (antivirus? Echo running?)")
+        print(f"   wrote {dst}")
 
 
 def install_script_dlls(install: str):
@@ -413,6 +459,8 @@ def main(argv) -> int:
     ap.add_argument("--buff-fx-test", action="store_true",
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
+    ap.add_argument("--no-build", action="store_true",
+                    help="do not build the DLLs with MSVC; install the committed ones in out/")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
     ap.add_argument("--bots", type=int, metavar="N",
@@ -430,6 +478,8 @@ def main(argv) -> int:
                 sys.exit("echovr.exe is running; close it or pass --kill")
             subprocess.run(["taskkill", "/IM", "echovr.exe", "/F"])
             time.sleep(3)
+        if not args.no_build:
+            build_dlls()
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
               not args.no_smoke, ("--count", args.veil_count, "--scale", args.veil_scale,
                                   "--life", args.veil_life, "--spread", args.veil_spread,
@@ -444,8 +494,7 @@ def main(argv) -> int:
             patch_side_package(install)
             install_script_dlls(install)
             clear_wwise_cache(install)
-            if not args.no_buff:
-                install_powerboost(install)
+            install_dlls(install)
 
     if args.no_launch:
         return 0
