@@ -51,7 +51,7 @@ PACKAGE = "48037dc70b0ecab2"
 #: Headless instances started from the server install. Edit to match how you
 #: normally start them (region, ports, config path...).
 HEADLESS_COUNT = 2
-HEADLESS_ARGS = "-noovr -server -headless -noconsole -windowed -fixedtimestep"
+HEADLESS_ARGS = "-server -headless"
 #: The VR client, started from the client install.
 CLIENT_ARGS = ""
 
