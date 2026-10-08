@@ -73,6 +73,10 @@
    {
     "name": "dot",
     "display_name": "DOT FIELD"
+   },
+   {
+    "name": "drone",
+    "display_name": "DRONE"
    }
   ],
   "tacmods": [

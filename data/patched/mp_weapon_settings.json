@@ -126,6 +126,15 @@
    "barrier": 0,
    "ssi": 0
   },
+  "drone": {
+   "head": 1,
+   "arm": 1,
+   "leg": 1,
+   "torso": 1,
+   "ordnance": 1,
+   "barrier": 1,
+   "ssi": 1
+  },
   "dot": {
    "head": 1,
    "arm": 1,
@@ -357,7 +366,7 @@
    "fire_rate": 0.33,
    "max_target_distance": 25,
    "lifetime": 20,
-   "cooldown": 1
+   "cooldown": 30
   }
  },
  "ability_properties": {
