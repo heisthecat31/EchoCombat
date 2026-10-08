@@ -7,19 +7,28 @@
 //   +0xcecc40  HealServer(cs, index, amount, ...)          CR15NetDamageableCS: heal one damageable
 //   +0xd29770  ProcessDamageServer(cs, index, damage, ...)  CR15NetDamageableCS: damage one damageable
 //
+//   +0xcc0670  SendDamageDealt(cs, index, amount, type, info)  client -> server
+//                                         R15NetDamageableDamageDealt message
+//
 // The POWER BOOST script tells the plugin whom to buff through the engine's own heal
 // node: a heal of a "marker" amount, 1,000,000 + dr_permille * 1000 + seconds
-// (e.g. 1,020,010 = dr 0.020 for 10 s; every such value is exact in a float). The
-// HealServer hook recognises it, remembers that damageable (component system +
-// index) as buffed until then, and swallows it. While buffed, ProcessDamageServer
-// gets damage * (1 - dr) before any shield or health is taken off.
+// (e.g. 1,020,010 = dr 0.020 for 10 s; every such value is exact in a float).
 //
-// Both prologues are checked first; on a mismatch nothing is hooked. Server only in
-// effect (clients never run these). Log: PowerBoost.log next to the DLL.
+// That heal node runs on the client that used the tac mod, so the marker first shows
+// up in the client's HealServer. The client swallows it and sends it on as a
+// DamageDealt of -marker: the server's handler for that message turns any amount <= 0
+// into HealServer(-amount), so the server's HealServer sees the marker too. There it
+// is swallowed again and remembered: that damageable (component system + index) is
+// buffed until then, and ProcessDamageServer gets damage * (1 - dr) before any shield
+// or health is taken off.
+//
+// All prologues are checked first; on a mismatch nothing is hooked. "-server" on the
+// command line picks the server role. Log: PowerBoost.log next to the DLL.
 
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include "detours.h"
 
 namespace {
@@ -28,6 +37,8 @@ constexpr uintptr_t HEAL_RVA = 0xcecc40;
 constexpr uint8_t HEAL_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x18, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xec, 0x70 };
 constexpr uintptr_t DAMAGE_RVA = 0xd29770;
 constexpr uint8_t DAMAGE_BYTES[] = { 0x4c, 0x8b, 0xdc, 0x4d, 0x89, 0x4b, 0x20, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54 };
+constexpr uintptr_t SEND_RVA = 0xcc0670;
+constexpr uint8_t SEND_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x60, 0x33, 0xc0 };
 
 constexpr float MARKER_BASE = 1000000.0f;
 constexpr float MARKER_END = 2000000.0f;
@@ -36,6 +47,9 @@ using heal_fn = void(__fastcall *)(void *cs, uint32_t index, float amount, uint6
 using damage_fn = void(__fastcall *)(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6);
 heal_fn Real_Heal = nullptr;
 damage_fn Real_Damage = nullptr;
+using send_fn = void(__fastcall *)(void *cs, uint32_t index, float amount, uint8_t type, uint64_t info);
+send_fn SendDamageDealt = nullptr;
+bool g_server = false;
 
 struct Buff {
     void *cs;
@@ -91,6 +105,11 @@ float BuffMult(void *cs, uint16_t index) {
 
 void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4, uint64_t a5) {
     if (amount >= MARKER_BASE && amount < MARKER_END) {
+        if (!g_server) {                          // used here: hand it to the server
+            Log("marker %.0f for %p/%u -> server", amount, cs, index & 0xffff);
+            SendDamageDealt(cs, index, -amount, 0, 0);
+            return;
+        }
         unsigned v = (unsigned)(amount - MARKER_BASE + 0.5f);
         AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000);
         return;                                   // a marker, not a heal
@@ -107,6 +126,17 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
     Real_Damage(cs, index, damage, info, a5, a6);
 }
 
+// True when the command line has `flag` as a whole argument (any case).
+bool HasArg(const char *flag) {
+    const char *cmd = GetCommandLineA();
+    size_t n = strlen(flag);
+    for (const char *p = cmd; p && *p; ++p)
+        if ((p == cmd || p[-1] == ' ' || p[-1] == '\t') && _strnicmp(p, flag, n) == 0 &&
+            (p[n] == 0 || p[n] == ' ' || p[n] == '\t' || p[n] == '"'))
+            return true;
+    return false;
+}
+
 bool Check(uint8_t *at, const uint8_t *bytes, size_t n, const char *name) {
     if (memcmp(at, bytes, n) == 0) return true;
     Log("prologue mismatch at %s -- wrong echovr build, not hooking", name);
@@ -116,8 +146,11 @@ bool Check(uint8_t *at, const uint8_t *bytes, size_t n, const char *name) {
 void Install() {
     auto base = (uint8_t *)GetModuleHandleW(nullptr);
     if (!Check(base + HEAL_RVA, HEAL_BYTES, sizeof(HEAL_BYTES), "HealServer") ||
-        !Check(base + DAMAGE_RVA, DAMAGE_BYTES, sizeof(DAMAGE_BYTES), "ProcessDamageServer"))
+        !Check(base + DAMAGE_RVA, DAMAGE_BYTES, sizeof(DAMAGE_BYTES), "ProcessDamageServer") ||
+        !Check(base + SEND_RVA, SEND_BYTES, sizeof(SEND_BYTES), "SendDamageDealt"))
         return;
+    SendDamageDealt = (send_fn)(base + SEND_RVA);
+    g_server = HasArg("-server");
     Real_Heal = (heal_fn)(base + HEAL_RVA);
     Real_Damage = (damage_fn)(base + DAMAGE_RVA);
     DetourTransactionBegin();
@@ -125,7 +158,8 @@ void Install() {
     DetourAttach(&(PVOID &)Real_Heal, Hooked_Heal);
     DetourAttach(&(PVOID &)Real_Damage, Hooked_Damage);
     LONG rc = DetourTransactionCommit();
-    Log(rc == NO_ERROR ? "hooked HealServer and ProcessDamageServer" : "hook failed (%ld)", rc);
+    if (rc == NO_ERROR) Log("hooked HealServer and ProcessDamageServer (%s)", g_server ? "server" : "client");
+    else Log("hook failed (%ld)", rc);
 }
 
 } // namespace

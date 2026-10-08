@@ -25,9 +25,12 @@ behaviour and tuning, recoloured from green to dark gold:
 5. The buff (phase 1 of the config's design): using POWER BOOST heals yourself
    with a "marker" amount, 1,000,000 + dr_permille * 1000 + dr_duration s, read
    from ability_properties.buff at deploy, through a R15NetDamageableHeal node
-   transplanted from the wraith script into the R15NetHealBubbleActivate node's
-   place. PowerBoost.dll (plugin/powerboost.cpp) catches it on the server and
-   reduces your damage taken by dr for dr_duration. Next: the 12 m / 37 deg
+   transplanted from the wraith script and run just before the
+   R15NetHealBubbleActivate node (which still runs, so the ability ends and
+   recharges as before). PowerBoost.dll (plugin/powerboost.cpp) catches the marker
+   on your client, forwards it to the server as a negative DamageDealt (which the
+   server turns back into a heal), and the server's copy reduces your damage taken
+   by dr for dr_duration. Next: the 12 m / 37 deg
    link to a teammate, the 60 heal, and the revive.
 
     python tools/fix_buff.py --base <stage> --src <extract root> --out <dir>
@@ -94,10 +97,12 @@ def buff_marker(dr: float, seconds: float) -> float:
     return float(MARKER_BASE + permille * 1000 + secs)
 
 
-def marker_stub(at: int, ctor: int, execute: int, amount: float) -> bytes:
-    """execute_node replacement: one R15NetDamageableHeal on "self" of `amount`."""
+def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) -> bytes:
+    """execute_node replacement: one R15NetDamageableHeal on "self" of `amount`, then the
+    original execute_node (its first 6 bytes replayed here, then a jump to `resume`), so
+    the heal bubble still activates and the ability ends and recharges as before."""
     b = bytearray(bytes.fromhex("53 4883ec50 4889cb"))              # push rbx; sub rsp,50h; rbx=rcx
-    b += bytes.fromhex("80bbdb00000000 7409 48c7c0ffffffff eb")      # aborting: return -1
+    b += bytes.fromhex("80bbdb00000000 75")                          # aborting: straight to the original
     skip = len(b)
     b += b"\0"
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # node (30h bytes) at rsp+20h
@@ -105,13 +110,14 @@ def marker_stub(at: int, ctor: int, execute: int, amount: float) -> bytes:
     b += bytes.fromhex("c7442448") + struct.pack("<f", amount)                  # node+28 heal amount
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
     b[skip] = len(b) - (skip + 1)
-    b += bytes.fromhex("4883c450 5b c3")
+    b += bytes.fromhex("4889d9 4883c450 5b")                         # rcx=rbx; undo our frame
+    b += ACTIVATE_OLD + b"\xe9" + rel32(at + len(b) + len(ACTIVATE_OLD) + 5, resume)
     return bytes(b)
 
 
 def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
     """Phase 1: using POWER BOOST heals yourself with the marker (PowerBoost.dll then
-    buffs you); the heal bubble is no longer activated."""
+    buffs you), then activates the heal bubble as before (which ends the ability)."""
     pe, wraith = PE(gold_pe), PE(wraith_pe)
     if pe.read(HEAL_BIND_CALL, 5) != b"\xe8" + rel32(HEAL_BIND_CALL + 5, HEAL_BIND_TARGET) \
             or pe.read(ACTIVATE_NODE, 6) != ACTIVATE_OLD:
@@ -123,7 +129,7 @@ def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
     blob += bytes(48)
     blob += bytes(-len(blob) % 16)
     stub_off = len(blob)
-    blob += bytes(96)
+    blob += bytes(128)
     va = add_section(pe, b".buff\0\0\0", len(blob))
     for d, target in fixups:
         blob[d:d + 4] = rel32(va + d + 4, va + target)
@@ -132,7 +138,7 @@ def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
     stub += bytes.fromhex("488b5710 488b0f e8") + rel32(at + len(stub) + 12, va + node["bind"])
     stub += bytes.fromhex("4883c428 c3")
     blob[bind_off:bind_off + len(stub)] = stub
-    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker)
+    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker, ACTIVATE_NODE + len(ACTIVATE_OLD))
     blob[stub_off:stub_off + len(s_)] = s_
     pe.write(va, bytes(blob))
     pe.write(HEAL_BIND_CALL, b"\xe8" + rel32(HEAL_BIND_CALL + 5, at))
