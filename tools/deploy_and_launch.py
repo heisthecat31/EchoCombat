@@ -125,7 +125,8 @@ def overlay(base: str, extract: str):
         print("starting from the gun patch's copy of:", ", ".join(sorted(from_patch)))
 
 
-def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True):
+def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
+          smoke_shade: float = 0.15):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -140,7 +141,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         tool("fix_drone_bullet.py", *src)
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
-        tool("fix_smoke.py", "--base", STAGE, *src)
+        tool("fix_smoke.py", "--base", STAGE, *src, "--shade", str(smoke_shade))
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
@@ -229,6 +230,8 @@ def main(argv) -> int:
                     help="how fast a thrown DOT slows down (higher = stops sooner); 25 = arc mine")
     ap.add_argument("--no-smoke", action="store_true",
                     help="leave UMBRAL VEIL out (stock tac mod controller), e.g. to A/B a tac mod")
+    ap.add_argument("--smoke-shade", type=float, default=0.15,
+                    help="UMBRAL VEIL wall tint, r=g=b (Energy Barrier uses 0.729; 0 = black)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -245,7 +248,7 @@ def main(argv) -> int:
             subprocess.run(["taskkill", "/IM", "echovr.exe", "/F"])
             time.sleep(3)
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
-              not args.no_smoke)
+              not args.no_smoke, args.smoke_shade)
         for install in (args.server_install, args.client_install):
             repack(install)
             install_script_dlls(install)
