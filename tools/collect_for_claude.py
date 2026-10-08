@@ -80,6 +80,13 @@ PARTICLES = ["de22b615c9c69cdd", "4ce12ae42c1b6269", "413d710284c73629",
 #: Banks with either id, and any streamed .wem with the media id, are copied.
 SOUND_BANKS = {2092801294}
 SOUND_MEDIA = {19531070}
+#: Its fingerprint, from the decoded wav: 48 kHz mono, 679168 samples.
+SOUND_RATE, SOUND_CHANNELS, SOUND_SAMPLES = 48000, 1, 679168
+#: 32 bytes of its PCM at 1/4, 1/2 and 3/4: match only if the wem is plain PCM.
+SOUND_PCM = [bytes.fromhex(h) for h in (
+    "66cbebc8b6c652c52ec4acc215c112c09ebf44bf47bf92c061c3a9c618c923ca",
+    "c7ee3aef9cefd7ef92f08df133f20bf348f45ef5b2f6c1f897fa9ffb93fcaefd",
+    "0d0200022f037803f2025b03fc036e03120303047c047e033c025c01da00ff00")]
 SMOKE_WORDS = ("smoke", "fog", "cloud", "steam", "dust", "mist", "haze", "vapor", "puff")
 
 #: Level loaded before every map; holds the player actor.
@@ -314,6 +321,51 @@ def bank_ids(blob: bytes) -> tuple[int, set[int]]:
     return bank, media
 
 
+def wem_scan(extract: str, c: "Collector", dry_run: bool) -> str:
+    """Find sound 19531070 by its header, not its bytes: every RIFF/WAVE (a wem,
+    alone or embedded in a bank) whose fmt chunk says 48 kHz mono and whose
+    first 256 bytes hold the sample count 679168. Also any file holding a
+    DIDX entry for media 19531070, or its PCM if the wem is uncompressed."""
+    media_le = struct.pack("<I", next(iter(SOUND_MEDIA)))
+    count_le = struct.pack("<I", SOUND_SAMPLES)
+    lines, kinds = [], {}
+    for t in sorted(os.listdir(extract)) if os.path.isdir(extract) else []:
+        folder = os.path.join(extract, t)
+        if not os.path.isdir(folder):
+            continue
+        for asset in os.listdir(folder):
+            path = os.path.join(folder, asset)
+            try:
+                if os.path.getsize(path) < 64 * 1024:
+                    continue
+                blob = open(path, "rb").read()
+            except OSError:
+                continue
+            hits = []
+            o = blob.find(b"RIFF")
+            while o >= 0:
+                if blob[o + 8:o + 12] == b"WAVE" and blob[o + 12:o + 16] == b"fmt ":
+                    kinds[t] = kinds.get(t, 0) + 1
+                    codec, ch, rate = struct.unpack_from("<HHI", blob, o + 20)
+                    if ch == SOUND_CHANNELS and rate == SOUND_RATE and count_le in blob[o:o + 256]:
+                        hits.append(f"wem at {o:#x} codec {codec:#06x} size {struct.unpack_from('<I', blob, o + 4)[0] + 8}")
+                o = blob.find(b"RIFF", o + 4)
+            d = blob.find(b"DIDX")
+            if d >= 0 and media_le in blob[d:d + 8 + struct.unpack_from("<I", blob, d + 4)[0]]:
+                hits.append(f"DIDX lists media 19531070 (bank at {d:#x})")
+            hits += [f"PCM match at {blob.find(n):#x}" for n in SOUND_PCM if n in blob]
+            if hits:
+                lines.append(f"{t}/{asset}  {len(blob)}  " + "; ".join(hits))
+                if len(blob) < 90 * 1024 * 1024:
+                    c.copy(path, f"sound/{t}_{asset}", "holds the veil's 14 s sound")
+    lines.append("RIFF/WAVE count per type folder: " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
+    if not dry_run:
+        os.makedirs(OUT, exist_ok=True)
+        with open(os.path.join(OUT, "wem_matches.txt"), "w", newline="\n") as fh:
+            fh.write("\n".join(lines) + "\n")
+    return f"wem_matches.txt  ({len(lines) - 1} file(s) match the 14 s sound)"
+
+
 def sound_scan(extract: str, game: str, dry_run: bool, c: "Collector" = None) -> str:
     """Every Wwise sound bank (files starting BKHD, in the extract or the install)
     and the event ids it defines, so sound names can be checked offline."""
@@ -397,10 +449,15 @@ def main(argv) -> int:
     ap.add_argument("--log-dir", help="folder holding the client logs, if not the default")
     ap.add_argument("--no-push", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--sound-only", action="store_true",
+                    help="only look for UMBRAL VEIL's sound (wem_matches.txt), then commit and push")
     args = ap.parse_args(argv[1:])
 
     extract = find_extract_root(args.extract)
     c = Collector(args.dry_run)
+    if args.sound_only:
+        print(wem_scan(extract, c, args.dry_run))
+        return 0 if args.dry_run else commit_and_push(not args.no_push)
 
     for type_hash, name in LEVEL_TABLES.items():
         for level in LEVELS:
