@@ -1,32 +1,41 @@
-"""Gear icons for EchoCombat's new gear, from a texture of our own.
+"""Gear icons: a texture of our own, with a cell for every gear item.
 
-Echo's gear icons (gear table and HUD) are cut from one atlas texture,
-d8b84ca5707d3bd2 (1024x996, BC7 sRGB, 4x4 cells). Four UI canvases show them;
-each canvas element names its texture and a UV rectangle, and the canvas ends with
-a sprite table -- 24-byte records (CSymbol64 name, u0, v0, u1, v1), sorted by the
-name as a signed 64-bit number -- that the game looks an item's icon up in by name.
-Its header keeps the table's capacity at +0xe8, its count at +0xf0 and capacity * 24
-at +0xc8.
+Echo cuts its gear icons from two atlases: d8b84ca5707d3bd2 (1024x996, the HUD's gear
+sheet) and 9ec57c5df16fef80 (1800x1800, the shared UI sheet the equipment station
+uses). Both BC7 sRGB, one mip. A UI canvas (CUICanvasResourceWin10) is:
 
-The stock atlases are left alone. Instead:
+    header   +0x28 textured element count, +0x2c their vertex count (4 a quad),
+             +0x78 element capacity, +0x80 element count,
+             +0xc8 / +0xe8 / +0xf0 sprite table bytes (capacity * 24) / capacity / count
+    elements from 0x1b0, 0xe0 bytes each: +0x00 name (CSymbol64), +0x60 index,
+             +0x68 its parent's, +0x88 texture, +0x90 UV rect (u0 v0 u1 v1)
+    sprites  right after the elements: 24-byte records (CSymbol64 name, UV rect), sorted
+             by the name as a signed 64-bit number, one copy per element of the atlas a
+             sprite is cut from
 
-* per stock icon atlas (ATLASES), a NEW texture twice as wide:
-  the left half is the stock atlas (its BC7 blocks copied as they are, every mip),
-  the right half a 4x4 grid of cells for EchoCombat's own gear -- for now solid
-  test colours (NEW_ICONS), painted as BC7 mode 6 blocks;
-* in each canvas that shows it, every element that used the stock atlas uses the new
-  texture instead, its UVs (and the stock sprites' table UVs) halved in u so they
-  still land on the same icons, and a sprite record per new item is inserted (as many
-  copies as the canvas keeps of a stock sprite) pointing at its cell.
+The UI shows an item's icon by showing the element named after it -- ABILITY_SMOKE,
+GRENADE_DOT, WEAPON_RIFLE, ... (a stack of them at one place, one per item) -- with
+that element's own UV. The cut items' elements were left holding their parent's icon,
+the station has no GRENADE_DRONE at all, and several stock items share an icon
+(translocator / detonator, the guns). The selection grid's empty next slot shows the
+element LOCK.
+
+The stock atlases are left alone. Instead, per atlas:
+
+* a NEW texture twice as wide: the stock atlas's BC7 blocks on the left (copied, so
+  every stock icon stays), a GRID x GRID table of cells on the right, one per ITEMS
+  entry -- solid test colours for now (BC7 mode 6 blocks) until the real icons go in;
+* every canvas element on the atlas moves to it (u halved, as are the atlas's sprites);
+* every item's element, and its plain-name sprite (heal, assault, ...: what name-based
+  screens such as the kill feed look up), points at the item's own cell; a missing
+  GRENADE_DRONE element is cloned from GRENADE_DOT;
+* LOCK points at an empty cell: nothing is drawn.
 
 The texture is two assets: the 256-byte descriptor (cgtextureresourceWin10,
 4a4c32c49300b8a0), cloned from the stock atlas's with the size fields changed and
 streamingdisabled = 1, and the whole DDS as its GPU sidecar
-(CGTextureResourceWin10GPU, beac1969cb7b8861) -- as lone_echo_blender's
+(CGTextureResourceWin10GPU, beac1969cb7b8861), as lone_echo_blender's
 le_lightmap_to_evr.py writes new textures.
-
-To replace the test colours with real art later, edit NEW_ICONS (or draw into the
-right half of the DDS this writes).
 
     python tools/gear_icons.py --src <dir with the stock assets> --out <stage dir>
 """
@@ -52,13 +61,32 @@ ATLASES = {
                          ["13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b"]),
 }
 
-#: our gear: (sprite name, cell 0..15 in the right half, RGBA test colour)
-NEW_ICONS = [
-    ("smoke", 0, (170, 60, 255, 255)),   # UMBRAL VEIL: violet
-    ("buff", 1, (255, 150, 0, 255)),     # POWER BOOST: orange
-    ("dot", 2, (0, 230, 90, 255)),       # DOT FIELD: green
-    ("drone", 3, (0, 200, 255, 255)),    # DRONE: cyan
+#: every gear item, in cell order: (element prefix, gear name, RGBA test colour)
+ITEMS = [
+    ("ABILITY", "heal", (255, 255, 255, 255)),    # REPAIR MATRIX: white
+    ("ABILITY", "sensor", (255, 220, 0, 255)),    # THREAT SCANNER: yellow
+    ("ABILITY", "shield", (0, 120, 255, 255)),    # ENERGY BARRIER: blue
+    ("ABILITY", "wraith", (120, 120, 120, 255)),  # PHASE SHIFT: grey
+    ("ABILITY", "smoke", (170, 60, 255, 255)),    # UMBRAL VEIL: violet
+    ("ABILITY", "buff", (255, 150, 0, 255)),      # POWER BOOST: orange
+    ("GRENADE", "det", (255, 0, 0, 255)),         # DETONATOR: red
+    ("GRENADE", "stun", (255, 255, 120, 255)),    # STUN FIELD: pale yellow
+    ("GRENADE", "arc", (0, 255, 255, 255)),       # ARC MINE: aqua
+    ("GRENADE", "burst", (255, 120, 200, 255)),   # INSTANT REPAIR: pink
+    ("GRENADE", "loc", (140, 255, 0, 255)),       # TRANSLOCATOR: lime
+    ("GRENADE", "dot", (0, 230, 90, 255)),        # DOT FIELD: green
+    ("GRENADE", "drone", (0, 200, 255, 255)),     # DRONE: cyan
+    ("WEAPON", "assault", (150, 0, 0, 255)),      # PULSAR: dark red
+    ("WEAPON", "blaster", (0, 0, 160, 255)),      # NOVA: navy
+    ("WEAPON", "scout", (0, 120, 0, 255)),        # COMET: dark green
+    ("WEAPON", "rocket", (160, 80, 0, 255)),      # METEOR: brown
+    ("WEAPON", "magnum", (120, 0, 140, 255)),     # PROTOSTAR: purple
+    ("WEAPON", "smg", (0, 130, 130, 255)),        # QUARK: teal
+    ("WEAPON", "chain", (200, 200, 200, 255)),    # BLAZAR: light grey
+    ("WEAPON", "rifle", (255, 80, 0, 255)),       # STARBURST: dark orange
 ]
+GRID = 5                                 # cells per row / column of the right half
+EMPTY_CELL = GRID * GRID - 1             # never painted: fully transparent
 CELL_MARGIN = 0.1                        # of a cell, left transparent around the icon
 
 # descriptor fields (lone_echo_blender evr_texture_resource / le_lightmap_to_evr)
@@ -67,9 +95,10 @@ D_W, D_H, D_MIPS, D_RESMEM, D_PITCH = 0xE8, 0xEC, 0xF0, 0xF4, 0xF8
 DDS_HEADER = 148                         # "DDS " + 124 + DX10 20
 BC7 = (98, 99)
 
-# canvas: elements (0xe0 bytes each, the texture at +0 and its UV rect at +8) from 0x238,
-# their count in the header's first array at +0x80
-ELEMENTS, ELEMENT_SIZE, ELEMENT_COUNT = 0x238, 0xE0, 0x80
+# canvas (see the top)
+H_TEXTURED, H_VERTS, E_CAPACITY, ELEMENT_COUNT = 0x28, 0x2C, 0x78, 0x80
+ELEMENTS, ELEMENT_SIZE = 0x1B0, 0xE0
+E_NAME, E_INDEX, E_PARENT, E_TEX, E_UV = 0x00, 0x60, 0x68, 0x88, 0x90
 T_BYTES, T_CAPACITY, T_COUNT = 0xC8, 0xE8, 0xF0
 RECORD = 24
 
@@ -102,7 +131,7 @@ def blocks(w: int, h: int):
 
 
 def build_dds(stock: bytes):
-    """The stock atlas on the left, NEW_ICONS' cells on the right. Returns (dds, w, h, mips)."""
+    """The stock atlas on the left, ITEMS' cells on the right. Returns (dds, w, h, mips)."""
     if stock[:4] != b"DDS " or stock[84:88] != b"DX10":
         raise ValueError("stock atlas is not a DX10 DDS")
     h, w = struct.unpack_from("<II", stock, 12)
@@ -115,7 +144,7 @@ def build_dds(stock: bytes):
     nw = w * 2
     src = DDS_HEADER
     out = bytearray()
-    colour = {cell: bc7_solid(*rgba) for _, cell, rgba in NEW_ICONS}
+    colour = {cell: bc7_solid(*rgba) for cell, (_, _, rgba) in enumerate(ITEMS)}
     clear = bc7_solid(0, 0, 0, 0)
     for k in range(mips):
         mw, mh = mip_dims(w, h, k)
@@ -131,10 +160,10 @@ def build_dds(stock: bytes):
             for bx in range(bw, nbw):                                # right: our cells
                 u = ((bx - bw) * 4 + 2) / (nmw - mw)                 # 0..1 across the right half
                 v = (by * 4 + 2) / mh
-                cx, cy = min(int(u * 4), 3), min(int(v * 4), 3)
-                fu, fv = u * 4 - cx, v * 4 - cy
+                cx, cy = min(int(u * GRID), GRID - 1), min(int(v * GRID), GRID - 1)
+                fu, fv = u * GRID - cx, v * GRID - cy
                 inside = CELL_MARGIN <= fu <= 1 - CELL_MARGIN and CELL_MARGIN <= fv <= 1 - CELL_MARGIN
-                out += colour.get(cy * 4 + cx, clear) if inside else clear
+                out += colour.get(cy * GRID + cx, clear) if inside else clear
     header = bytearray(stock[:DDS_HEADER])
     struct.pack_into("<I", header, 16, nw)                           # width
     struct.pack_into("<I", header, 28, mips_new)                     # mip count
@@ -144,11 +173,11 @@ def build_dds(stock: bytes):
 
 def cell_uv(cell: int, width_ratio: float = 0.5):
     """UV rect of a right-half cell (u 0.5..1 of the new texture), inside its margin."""
-    cx, cy = cell % 4, cell // 4
-    u0 = 0.5 + (cx + CELL_MARGIN) / 4 * width_ratio
-    u1 = 0.5 + (cx + 1 - CELL_MARGIN) / 4 * width_ratio
-    v0 = (cy + CELL_MARGIN) / 4
-    v1 = (cy + 1 - CELL_MARGIN) / 4
+    cx, cy = cell % GRID, cell // GRID
+    u0 = 0.5 + (cx + CELL_MARGIN) / GRID * width_ratio
+    u1 = 0.5 + (cx + 1 - CELL_MARGIN) / GRID * width_ratio
+    v0 = (cy + CELL_MARGIN) / GRID
+    v1 = (cy + 1 - CELL_MARGIN) / GRID
     return u0, v0, u1, v1
 
 
@@ -165,41 +194,27 @@ def descriptor(stock_desc: bytes, dds: bytes, w: int, h: int, mips: int) -> byte
 
 # --- canvases -------------------------------------------------------------------------
 def sprite_table(d: bytes):
-    """(start, count): the sorted sprite records, `count` from the header."""
+    """(start, count): the sorted sprite records, right after the elements."""
     count = struct.unpack_from("<I", d, T_COUNT)[0]
     n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
-    lo = ELEMENTS + 8                                                # past the header, at least
-    for start in range(lo, len(d) - count * RECORD + 1, 8):
-        prev = None
-        ok = True
-        for i in range(count):
-            o = start + i * RECORD
-            h = struct.unpack_from("<q", d, o)[0]
-            f = struct.unpack_from("<4f", d, o + 8)
-            if not all(-0.01 <= x <= 1.01 for x in f) or h == 0 or (prev is not None and h < prev):
-                ok = False
-                break
-            prev = h
-        if ok:
-            return start, count
-    raise ValueError(f"no sorted sprite table of {count} records found ({n} elements)")
+    start = ELEMENTS + n * ELEMENT_SIZE
+    names = [struct.unpack_from("<q", d, start + k * RECORD)[0] for k in range(count)]
+    if start + count * RECORD > len(d) or names != sorted(names) or 0 in names:
+        raise ValueError(f"no sorted sprite table of {count} records after {n} elements")
+    return start, count
 
 
-def element_textures(d: bytes) -> list:
-    n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
-    return [struct.unpack_from("<Q", d, ELEMENTS + k * ELEMENT_SIZE)[0] for k in range(n)]
+def element(d, j: int, field: int, fmt: str = "<Q"):
+    return struct.unpack_from(fmt, d, ELEMENTS + j * ELEMENT_SIZE + field)
 
 
 def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
-    """The canvas's elements on `atlas` moved to `new_tex`, with NEW_ICONS added.
-    Returns (bytes, report).
-
-    The sprite table keeps one copy of each sprite per element of the atlas it is cut
-    from, so a sprite whose copy count is the number of `atlas` elements belongs to
-    `atlas` (when no other texture has as many elements)."""
+    """The canvas's `atlas` elements on `new_tex`, every item on its own cell, LOCK
+    blank. Returns (bytes, report)."""
     d = bytearray(d)
     report = []
-    texs = element_textures(d)
+    n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
+    texs = [element(d, j, E_TEX)[0] for j in range(n)]
     mine = texs.count(atlas)
     if not mine:
         return bytes(d), [f"no element uses {atlas:016x}; left as is"]
@@ -207,78 +222,86 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
     if others:
         raise ValueError(f"{', '.join(f'{t:016x}' for t in others)} has as many elements as the atlas: "
                          f"cannot tell their sprites apart")
-    for k, t in enumerate(texs):
-        if t == atlas:
-            o = ELEMENTS + k * ELEMENT_SIZE
-            f = struct.unpack_from("<4f", d, o + 8)
-            struct.pack_into("<Q4f", d, o, new_tex, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
-    report.append(f"{mine} element(s) moved to the new texture")
     start, count = sprite_table(d)
-    names = [struct.unpack_from("<Q", d, start + k * RECORD)[0] for k in range(count)]
-    copies = {h: names.count(h) for h in set(names)}
-    halved = 0
-    for k, h in enumerate(names):
-        if copies[h] == mine:
-            o = start + k * RECORD + 8
-            f = struct.unpack_from("<4f", d, o)
-            struct.pack_into("<4f", d, o, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
-            halved += 1
-    report.append(f"{halved // mine} of its sprites rescaled")
-    recs = [bytes(d[start + k * RECORD:start + (k + 1) * RECORD]) for k in range(count)]
-    added = []
-    for name, cell, _ in NEW_ICONS:
-        h = symbol64(name)
-        if h in copies:
-            report.append(f"'{name}' already has a sprite here; left as is")
-            continue
-        recs += [struct.pack("<Q4f", h, *cell_uv(cell))] * mine
-        added.append(name)
+    recs = [bytearray(d[start + k * RECORD:start + (k + 1) * RECORD]) for k in range(count)]
+    copies = {}
+    for r in recs:
+        h = struct.unpack_from("<Q", r)[0]
+        copies[h] = copies.get(h, 0) + 1
+    atlas_sprites = {h for h, c in copies.items() if c == mine}       # one copy per atlas element
+    for r in recs:                                                   # the atlas's sprites, halved
+        if struct.unpack_from("<Q", r)[0] in atlas_sprites:
+            f = struct.unpack_from("<4f", r, 8)
+            struct.pack_into("<4f", r, 8, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
+    for j in range(n):                                               # the atlas's elements, moved
+        if texs[j] == atlas:
+            f = element(d, j, E_UV, "<4f")
+            struct.pack_into("<Q4f", d, ELEMENTS + j * ELEMENT_SIZE + E_TEX, new_tex,
+                             f[0] * 0.5, f[1], f[2] * 0.5, f[3])
+    report.append(f"{mine} element(s) and {len(atlas_sprites)} sprite(s) moved to the new texture")
+
+    names = {element(d, j, E_NAME)[0]: j for j in range(n)}
+    # the station has no GRENADE_DRONE: a copy of GRENADE_DOT (same place) becomes it
+    dot, drone = symbol64("GRENADE_DOT"), symbol64("GRENADE_DRONE")
+    if dot in names and drone not in names and texs[names[dot]] == atlas:
+        if n >= struct.unpack_from("<I", d, E_CAPACITY)[0]:
+            raise ValueError("no room for another element")
+        src = ELEMENTS + names[dot] * ELEMENT_SIZE
+        e = bytearray(d[src:src + ELEMENT_SIZE])
+        idx, parent = struct.unpack_from("<qq", e, E_INDEX)
+        struct.pack_into("<Q", e, E_NAME, drone)
+        struct.pack_into("<qq", e, E_INDEX, n, n + parent - idx)
+        at = ELEMENTS + n * ELEMENT_SIZE                             # = the sprite table's start
+        d[at:at] = e
+        names[drone] = n
+        n += 1
+        mine += 1
+        struct.pack_into("<I", d, ELEMENT_COUNT, n)
+        struct.pack_into("<I", d, H_TEXTURED, struct.unpack_from("<I", d, H_TEXTURED)[0] + 1)
+        struct.pack_into("<I", d, H_VERTS, struct.unpack_from("<I", d, H_VERTS)[0] + 4)
+        start += ELEMENT_SIZE
+        extra = []
+        seen = set()
+        for r in recs:                                               # one more copy of each atlas sprite
+            h = struct.unpack_from("<Q", r)[0]
+            if h in atlas_sprites and h not in seen:
+                seen.add(h)
+                extra.append(bytearray(r))
+        recs += extra
+        report.append(f"GRENADE_DRONE added (e{n - 1}, a copy of GRENADE_DOT)")
+    # every item: its element and its plain-name sprite on its own cell
+    pointed, added = [], []
+    for cell, (kind, item, _) in enumerate(ITEMS):
+        uv = cell_uv(cell)
+        j = names.get(symbol64(f"{kind}_{item.upper()}"))
+        if j is not None and element(d, j, E_TEX)[0] == new_tex:
+            struct.pack_into("<4f", d, ELEMENTS + j * ELEMENT_SIZE + E_UV, *uv)
+            pointed.append(item)
+        h = symbol64(item)
+        mine_recs = [r for r in recs if struct.unpack_from("<Q", r)[0] == h]
+        if mine_recs:
+            for r in mine_recs:
+                struct.pack_into("<4f", r, 8, *uv)
+        else:
+            recs += [bytearray(struct.pack("<Q4f", h, *uv)) for _ in range(mine)]
+            added.append(item)
+    report.append(f"items on their own cells: {', '.join(pointed) or 'none'}")
+    if added:
+        report.append(f"sprites added: {', '.join(added)}")
+    j = names.get(symbol64("LOCK"))
+    if j is not None:                                                # the "next slot" padlock: blank
+        struct.pack_into("<Q4f", d, ELEMENTS + j * ELEMENT_SIZE + E_TEX, new_tex, *cell_uv(EMPTY_CELL))
+        report.append(f"LOCK (e{j}) blanked")
     recs.sort(key=lambda r: struct.unpack_from("<q", r)[0])
     d[start:start + count * RECORD] = b"".join(recs)
-    report += point_duplicates(d, new_tex, recs)
     cap = struct.unpack_from("<I", d, T_CAPACITY)[0]
     while cap < len(recs):
         cap *= 2
     struct.pack_into("<I", d, T_COUNT, len(recs))
     struct.pack_into("<I", d, T_CAPACITY, cap)
     struct.pack_into("<I", d, T_BYTES, cap * RECORD)
-    report.append(f"added {', '.join(added) or 'nothing'} ({mine} record(s) each); sprites {count} -> {len(recs)}")
+    report.append(f"sprites {count} -> {len(recs)}")
     return bytes(d), report
-
-
-#: The UI shows an item's icon by showing one element of a stack (elements at the same
-#: rect, one per item type), each with its own fixed UV -- not by sprite name. The cut
-#: items' elements are there, holding their parent's icon: in a stack, the second
-#: element on `parent`'s sprite is the `item`'s. (The translocator's element holds the
-#: detonator's icon in the stock game the same way.)
-DUPLICATE_OF = [("buff", "heal"), ("smoke", "shield"), ("dot", "stun")]
-E_RECT = 0x6C
-
-
-def point_duplicates(d: bytearray, new_tex: int, recs: list) -> list:
-    """Points each cut item's element (see DUPLICATE_OF) at the item's cell."""
-    sprite = {struct.unpack_from("<Q", r)[0]: struct.unpack_from("<4f", r, 8) for r in recs}
-    cells = {name: cell for name, cell, _ in NEW_ICONS}
-    stacks = {}
-    for k, t in enumerate(element_textures(d)):
-        if t == new_tex:
-            o = ELEMENTS + k * ELEMENT_SIZE
-            stacks.setdefault(bytes(d[o + E_RECT:o + E_RECT + 16]), []).append(k)
-    done = []
-    for rect, ks in stacks.items():
-        if len(ks) < 2:
-            continue
-        for item, parent in DUPLICATE_OF:
-            uv = sprite.get(symbol64(parent))
-            if uv is None or item not in cells:
-                continue
-            same = [k for k in ks if all(abs(a - b) < 1e-4 for a, b in
-                                        zip(struct.unpack_from("<4f", d, ELEMENTS + k * ELEMENT_SIZE + 8), uv))]
-            if len(same) >= 2:
-                k = same[-1]
-                struct.pack_into("<4f", d, ELEMENTS + k * ELEMENT_SIZE + 8, *cell_uv(cells[item]))
-                done.append(f"e{k} {item}")
-    return [f"cut items' elements -> our cells: {', '.join(done)}" if done else "no cut-item elements found"]
 
 
 def read(src: str, t: str, asset: str, fallback: str = "") -> bytes:
@@ -314,7 +337,7 @@ def main(argv) -> int:
             os.makedirs(os.path.join(args.out, t), exist_ok=True)
             open(os.path.join(args.out, t, name), "wb").write(blob)
         print(f"gear icons: {a} -> texture {name} ({tex_name}) {w}x{h}, {len(dds) >> 10} KB; "
-              f"cells: " + ", ".join(f"{n} #{c}" for n, c, _ in NEW_ICONS))
+              f"{len(ITEMS)} item cells")
         for c in canvases:
             d = read(args.src, CANVAS, c, os.path.join(fb, "canvases"))
             out, report = patch_canvas(d, atlas, new_tex)
