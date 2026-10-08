@@ -188,7 +188,9 @@ def main(argv) -> int:
     ap.add_argument("--extract", default=EXTRACT)
     ap.add_argument("--server-install", default=SERVER_INSTALL)
     ap.add_argument("--client-install", default=CLIENT_INSTALL)
-    ap.add_argument("--preset", default="trigger", help="fix_dot.py activation preset")
+    # stick_to_geo stops the field on its first contact after release, which is
+    # the thrower's own hand, so the trigger preset leaves it off.
+    ap.add_argument("--preset", default="trigger-nostick", help="fix_dot.py activation preset")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)

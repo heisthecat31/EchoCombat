@@ -24,19 +24,24 @@ This tool makes a trimmed copy of that script, `mp_combat_grenade_dot_trigger`
 also has (4 zero bytes, identical for all of them), and attaches it to the DOT magazine as a third
 script after the shared magazine script and its own. In the copy:
 
-* the onstatechanged handlers (both: the server one that fires the detonator's
-  explosion and sets Exploded, and the client one with its visuals) never match,
-  so the DOT's own field logic is the only reaction to the state change
+* the server onstatechanged thread (the detonator's explosion, then Exploded)
+  stops at its first node, so the DOT's own field logic owns the state
+* the client onstatechanged thread, on the activated state and on Exploded,
+  goes straight to disabling the trigger component for the owner. That releases
+  the trigger hand so the gun fires again, without the detonator's visuals/sounds
+* the autorun thread (detonator explosion setup, cooldown copy) stops at once
 * the ondeposited, ontypechanged and onspawnedremote handlers never match
 * the onspawnedlocal chain stops after enabling the trigger, so the detonator's
   spawn sound is not played
 
 Each patch site is checked against the expected original bytes first.
 
-Use it with the `trigger` preset of `fix_dot.py` (`use_remote_trigger` on,
-`activate_on_collision` off). With `stick_to_geo` on, the DOT script's own
-impact handling stops the field where it hits; the native weld stays off via
-`fix_dot_stick.py` / `fix_dot_constraints.py`.
+Use it with the `trigger-nostick` preset of `fix_dot.py` (`use_remote_trigger`
+on, `activate_on_collision` and `stick_to_geo` off). With `stick_to_geo` on, the
+DOT script stops the field on its first contact after release, which is the
+thrower's own hand, so it hangs where it was let go. Whether the active field
+then holds still is up to the DOT script's dampener nodes, which run from
+threads not traced here (unverified).
 
     python tools/fix_dot_trigger.py --src <extract root> --out <dir>
 
@@ -79,14 +84,34 @@ def _imm(rva, original):
     return rva + 2, struct.pack("<Q", original), _DEAD[:-1] + bytes([rva & 0xFF])
 
 
+_END = bytes.fromhex("4883c8ffc3c3")           # or rax, -1; ret; ret: end of thread
+
+
+def _goto(node):                                  # mov eax, node; ret
+    return b"\xb8" + struct.pack("<I", node) + b"\xc3"
+
+
 PATCHES = [
-    _imm(0xB8EF, 0xD15AF7A86BF42202),   # delegate_onstatechanged (server + client)
+    # Event handler: these never match, so their threads never start.
     _imm(0xBA9A, 0x0360CE7DFC51DD43),   # delegate_onspawnedremote
     _imm(0xBB22, 0x088725A83299F252),   # delegate_ondeposited
     _imm(0xBBAA, 0x71B428190A37733E),   # delegate_ontypechanged
-    # next_node, node 75014b69 -> 70415af5 (client check, then spawn sound):
-    # `mov eax, 0x70415af5; ret` becomes `or rax, -1; ret`, the end-of-thread value.
-    (0xC3C1, bytes.fromhex("b8f55a4170c3"), bytes.fromhex("4883c8ffc3c3")),
+    # next_node rewires, each `mov eax, <next node>; ret`:
+    # onspawnedlocal: after enabling the trigger, stop (no client check + spawn sound).
+    (0xC3C1, _goto(0x70415AF5), _END),
+    # autorun: stop at its first node. It configures the detonator's explosion
+    # component (absent on the DOT, so four "can't find component" errors) and
+    # copies the detonator's cooldown into a script real.
+    (0xCD59, _goto(0x7FD4B29C), _END),
+    # onstatechanged, server: stop at the first node, so the detonator never fires
+    # its explosion or sets Exploded; the DOT's own server logic owns the state.
+    (0xC658, _goto(0x6521D5A6), _END),
+    # onstatechanged, client: on the activated state (e32dc) and on Exploded, skip
+    # the detonator's visuals and sounds and go straight to "if owner is local ->
+    # disable the R15Trigger component", so the trigger hand is freed the moment
+    # the field activates (or the magazine ends any other way) and the gun fires again.
+    (0xC8F1, _goto(0xAC4DF5EC), _goto(0x5A04A5E5)),
+    (0xC927, _goto(0xCABF6A85), _goto(0x5A04A5E5)),
 ]
 
 HDR = 0x38
