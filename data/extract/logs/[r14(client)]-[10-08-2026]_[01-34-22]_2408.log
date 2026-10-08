@@ -1,0 +1,541 @@
+[10-08-2026] [01:34:22]: ======= Build: goldmaster 631547 from //rad/rad15_live('r') =======
+[10-08-2026] [01:34:22]: CL Args: "C:\Oculus\Games\Software\Software\ready-at-dawn-echo-arena\bin\win10\echovr.exe" 
+[10-08-2026] [01:34:22]: 
+[10-08-2026] [01:34:22]: ---> Starting 7 worker threads in the scheduler.
+[10-08-2026] [01:34:22]: 
+[10-08-2026] [01:34:22]: Initializing enumerate thread: 0000014D7A06ADE0
+[10-08-2026] [01:34:22]: Forking enumerate thread: 00007FF767C7FA20 : 0000014D7A06ADE0
+[10-08-2026] [01:34:22]: Initializing OVR session...
+[10-08-2026] [01:34:22]: OVRInterface plugin library location: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64
+[10-08-2026] [01:34:22]: OVRInterface plugin libraries:
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_EXT_hand_interaction.dll
+    Class Id: 0xefee4db80b211365, class Name: XrExtHandInteractionExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+      Interface Id: 0xa19932327a9784c3
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_EXT_hand_tracking.dll
+    Class Id: 0x62582d091582647c, class Name: XrExtHandTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x5f77a98bd5853351, class Name: XrFbHandTrackingMeshExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a42427b3cad1d, class Name: XrMetaHandTrackingFrequencyHintExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xb89c0d2d34139a67, class Name: XrMetaSimultaneousHandsAndControllersExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xed07f75800dea55c, class Name: XrFbHandTrackingAimExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x231a449959b76a41, class Name: XrFbHandTrackingCapsulesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x2c6e02496b1bed9f, class Name: XrExtHandTrackingWideMotionMode2ExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d12477a0bed9f, class Name: XrExtHandTrackingDataSourceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d33457b0bed9f, class Name: XrMetaiX1ForceAdmirePathExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaX1HandTrackingSampleTimeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaIHandTrackingManipulationDataExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x1247601424f4072f, class Name: XrExtHandJointsMotionRangeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x407e5a87dd4685dd, class Name: XrMetaHandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xe847da60357d2028, class Name: XrMetaX2HandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81bc8d78e17ee123, class Name: XrExtHandTrackingWideMotionModeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81baddace2cee1c3, class Name: XrExtHandTrackingUnextrapolatedPosesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x384b92753b8f4d67, class Name: XrFbHandTrackingConfidenceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x385c92753b9f4e68, class Name: XrMetaX1HandTrackingJointVisibilityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_EXT_stationary_reference_space.dll
+    Class Id: 0xc74a0bdd3760e227, class Name: XrExtX1StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x510be8946baa0463, class Name: XrExtX2StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+  Library: C:\Program Files\Oculus\Support\oculus-runtime\client-plugins\x64\XR_FB_body_tracking.dll
+    Class Id: 0x75e1577e3cf4c1b0, class Name: XrFbBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e1577e3cf4aa09, class Name: XrMetaX1FullBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x39dc3fbaea7d3201, class Name: XrMetaFullBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e153417bbd8709, class Name: XrMetaX1BodyTrackingFidelityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81f5e23cdc754f3a, class Name: XrMetaBodyTrackingFidelityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e153417bbd870a, class Name: XrMetaX1BodyTrackingCalibrationExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xf3d6bac72be14d5c, class Name: XrMetaBodyTrackingCalibrationEx
+[10-08-2026] [01:34:22]: OVR is specifying adapter index 0 (NVIDIA GeForce RTX 5060) to create a D3D device
+[10-08-2026] [01:34:22]: Successfully initialized OVR session.
+[10-08-2026] [01:34:22]: OVRInterface classes and interfaces:
+    Class Id: 0x2a70ed34760b552e, class Name: ServiceTrexManagerImplementation
+      Interface Id: 0xae0b8a9331378a85
+    Class Id: 0xaf0a819a96974952, class Name: ServiceTrexPluginImplementation
+      Interface Id: 0x3ddca8deb48f5aa3
+    Class Id: 0x3f5065e1993f5d7b, class Name: OVRLogWriteImplementation
+      Interface Id: 0xb00b00044683ab0
+    Class Id: 0xb00b000388925a0, class Name: OVRLogServerInterfaceImplementation
+      Interface Id: 0xb00b0007a7b7c70
+    Class Id: 0x2e43f4607afb48e8, class Name: OVRTelemetryInterfaceClientImplementation
+      Interface Id: 0xb00b00088073380
+    Class Id: 0xd6284ae34645b617, class Name: OVRGatekeeperInterfaceImplementation
+      Interface Id: 0x32aa1aa5ef7d2559
+    Class Id: 0x9b8fb0f3ef7a5be2, class Name: OVREnvironmentDepth
+      Interface Id: 0x14f38bcc6f5bfb31
+    Class Id: 0x192ed17193ef5e74, class Name: OpenXRExtensionRuntime
+      Interface Id: 0x223362abe367d30a
+    Class Id: 0x8468c1e24d25362a, class Name: OpenXRExtensionRuntimeCAPI
+      Interface Id: 0x4ca63103efd5f5ed
+    Class Id: 0x71dee913e4ca6a35, class Name: OpenXRRuntimeHandle
+      Interface Id: 0xba2299b1d57a30c7
+    Class Id: 0xefee4db80b211365, class Name: XrExtHandInteractionExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+      Interface Id: 0xa19932327a9784c3
+    Class Id: 0x62582d091582647c, class Name: XrExtHandTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x5f77a98bd5853351, class Name: XrFbHandTrackingMeshExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a42427b3cad1d, class Name: XrMetaHandTrackingFrequencyHintExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xb89c0d2d34139a67, class Name: XrMetaSimultaneousHandsAndControllersExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xed07f75800dea55c, class Name: XrFbHandTrackingAimExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x231a449959b76a41, class Name: XrFbHandTrackingCapsulesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x2c6e02496b1bed9f, class Name: XrExtHandTrackingWideMotionMode2ExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d12477a0bed9f, class Name: XrExtHandTrackingDataSourceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5d33457b0bed9f, class Name: XrMetaiX1ForceAdmirePathExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaX1HandTrackingSampleTimeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x8c5a31127b33ef9f, class Name: XrMetaIHandTrackingManipulationDataExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x1247601424f4072f, class Name: XrExtHandJointsMotionRangeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x407e5a87dd4685dd, class Name: XrMetaHandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xe847da60357d2028, class Name: XrMetaX2HandTrackingMicrogesturesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81bc8d78e17ee123, class Name: XrExtHandTrackingWideMotionModeExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x81baddace2cee1c3, class Name: XrExtHandTrackingUnextrapolatedPosesExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x384b92753b8f4d67, class Name: XrFbHandTrackingConfidenceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x385c92753b9f4e68, class Name: XrMetaX1HandTrackingJointVisibilityExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0xc74a0bdd3760e227, class Name: XrExtX1StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x510be8946baa0463, class Name: XrExtX2StationaryReferenceSpaceExtensionAddition
+      Interface Id: 0x4adefbb87b1845cf
+    Class Id: 0x75e1577e3cf4c1b0, class Name: XrFbBodyTrackingExtensionAddition
+      Interface Id: 0x4adefbb87b1845c
+[10-08-2026] [01:34:22]: LibOVR module is located at C:\Program Files\Oculus\Support\oculus-runtime\LibOVRRTImpl64_1.dll
+[10-08-2026] [01:34:22]: Connected to the server running version (prod = 1).1.208.0(build = 0) feature version = 0. Client runs version (prod = 1).1.208.0(build = 0) feature version = 0
+[10-08-2026] [01:34:22]: Enabling D3D12 Device Removed Extended Data (DRED)
+[10-08-2026] [01:34:22]: Creating D3D12 device on adapter 'NVIDIA GeForce RTX 5060'
+[10-08-2026] [01:34:22]: Successfully created device.
+[10-08-2026] [01:34:22]: Initializing extensions ...
+[10-08-2026] [01:34:22]: Nvidia driver version: r610_85 (61088)
+[10-08-2026] [01:34:22]: Successfully initialized extensions.
+[10-08-2026] [01:34:22]: Loading global archives
+[10-08-2026] [01:34:22]: Loading archive 0xCB3A93530D07FDC5
+[10-08-2026] [01:34:22]: Loading game archives
+[10-08-2026] [01:34:22]: Initializing renderer
+[10-08-2026] [01:34:22]: Initializing OVR D3D components...
+[10-08-2026] [01:34:22]: ovr_Initialize success
+[10-08-2026] [01:34:22]: ovr_Create_Impl called.
+[10-08-2026] [01:34:22]: HMDState::CreateHMDState VsyncToFirstScanline = 0.001676
+[10-08-2026] [01:34:22]: Using default profile default
+[10-08-2026] [01:34:22]: IAD changed to 60.8mm
+[10-08-2026] [01:34:22]: UpdateGeneratedState: IPD = 0.0608323, IAD = 0.0608323, screen_sep = 0.0665023
+[10-08-2026] [01:34:22]: Creating factory
+[10-08-2026] [01:34:22]: ovr_Create_Impl VsyncToFirstScanline = 0.001676
+[10-08-2026] [01:34:22]: CliD3D11CompositorClient::initialize 1
+[10-08-2026] [01:34:23]: Creating KMTHandle 0x14d7c70abd0
+[10-08-2026] [01:34:23]: KMTHandle::Create hDevice=0x80003340
+[10-08-2026] [01:34:23]: KMTHandle::Create hContexts[0] = 2147497408
+[10-08-2026] [01:34:23]: KMTHandle::Create hContexts[1] = 2147497664
+[10-08-2026] [01:34:23]: CliD3D11CompositorClient initialized
+[10-08-2026] [01:34:23]: ovr_CreateTextureSwapChainDX_Impl: success.
+[10-08-2026] [01:34:23]: CliD3D11CompositorClient::addD3DRef 2
+[10-08-2026] [01:34:23]: ovr_CreateTextureSwapChainDX_Impl: success.
+[10-08-2026] [01:34:23]: Successfully initialized OVR D3D components.
+[10-08-2026] [01:34:23]: Finished initializing engine
+[10-08-2026] [01:34:23]: ### Applying new graphics settings ###
+[10-08-2026] [01:34:23]:     Graphics quality: Custom
+[10-08-2026] [01:34:23]:     Texture quality: Medium
+[10-08-2026] [01:34:23]:     Cascade shadow resolution: 2048
+[10-08-2026] [01:34:23]:     Spot shadow resolution: 768
+[10-08-2026] [01:34:23]:     Shadow MSAA: 4x
+[10-08-2026] [01:34:23]:     Volumetrics: Disabled
+[10-08-2026] [01:34:23]:     Bloom: Disabled
+[10-08-2026] [01:34:23]:     Light Quality: Low
+[10-08-2026] [01:34:23]:     FX Quality: Low
+[10-08-2026] [01:34:23]:     Mesh Quality: Low
+[10-08-2026] [01:34:23]:     MSAA mode: None
+[10-08-2026] [01:34:23]:     TAA: Enabled
+[10-08-2026] [01:34:23]:     Multi-Res: Enabled
+[10-08-2026] [01:34:23]:     Adaptive Res: Disabled
+[10-08-2026] [01:34:23]:     Resolution Scale: 1.100000
+[10-08-2026] [01:34:23]:     Fullscreen: Enabled
+[10-08-2026] [01:34:23]: Loading archive 0xC6BC8607972268C9
+[10-08-2026] [01:34:23]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [01:34:23]: Creating OVR provider
+[10-08-2026] [01:34:25]: Creating RAD provider
+[10-08-2026] [01:34:25]: Using OVR provider for mic input
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:34:25]: [NETGAME] Resetting local connection stats
+[10-08-2026] [01:34:25]: [NSUSER] Setting local user data storage directory to C:\Users\lucas\AppData\Local\RAD\EchoVR\users
+[10-08-2026] [01:34:25]: [NETGAME] NetGame switching state (from logged out, to loading root)
+[10-08-2026] [01:34:25]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [01:34:25]: [LEVELLOAD] Loading level '0xAC360E41E4EDE056'
+[10-08-2026] [01:34:25]: {"category":"social","provider":"ovr","message":"ovrMessage_Notification_ApplicationLifecycle_LaunchIntentChanged","launchtype":"NORMAL"}
+[10-08-2026] [01:34:25]: [OVR] Logged in user name: he_is_the_cat
+[10-08-2026] [01:34:25]: [R15GAME] Lost input focus
+[10-08-2026] [01:34:25]: CliD3D11CompositorClient::release 2
+[10-08-2026] [01:34:25]: CliD3D11CompositorClient::release 1
+[10-08-2026] [01:34:25]: Unblocking monitored fence
+[10-08-2026] [01:34:25]: CliD3D11CompositorClient released
+[10-08-2026] [01:34:25]: CliD3D11CompositorClient::initialize 1
+[10-08-2026] [01:34:25]: Creating KMTHandle 0x14e0f7a65c0
+[10-08-2026] [01:34:25]: KMTHandle::Create hDevice=0x4000ae80
+[10-08-2026] [01:34:25]: KMTHandle::Create hContexts[0] = 3221257280
+[10-08-2026] [01:34:25]: KMTHandle::Create hContexts[1] = 2147522624
+[10-08-2026] [01:34:25]: CliD3D11CompositorClient initialized
+[10-08-2026] [01:34:25]: ovr_CreateTextureSwapChainDX_Impl: success.
+[10-08-2026] [01:34:25]: CliD3D11CompositorClient::addD3DRef 2
+[10-08-2026] [01:34:25]: ovr_CreateTextureSwapChainDX_Impl: success.
+[10-08-2026] [01:34:25]: Detected the active window handle changed to 1e0cc0
+[10-08-2026] [01:34:25]: [LEVELLOAD] Loading level '0x43934C379CF1E366'
+[10-08-2026] [01:34:25]: [OVR] Logged in user org-scoped id: 14387
+[10-08-2026] [01:34:25]: No item assignment found for item: 0x7F630C94B0EAFD0B
+[10-08-2026] [01:34:25]: No item assignment found for item: 0x1719C695329F5910
+[10-08-2026] [01:34:25]: [SETTINGS TRANSLATOR] removing feature 'rift'
+[10-08-2026] [01:34:25]: [SETTINGS TRANSLATOR] processing setting 'game|experimentalthrowing'
+[10-08-2026] [01:34:25]: ### Applying new graphics settings ###
+[10-08-2026] [01:34:25]:     Graphics quality: Custom
+[10-08-2026] [01:34:25]:     Texture quality: Medium
+[10-08-2026] [01:34:25]:     Cascade shadow resolution: 2048
+[10-08-2026] [01:34:25]:     Spot shadow resolution: 768
+[10-08-2026] [01:34:25]:     Shadow MSAA: 4x
+[10-08-2026] [01:34:25]:     Volumetrics: Disabled
+[10-08-2026] [01:34:25]:     Bloom: Disabled
+[10-08-2026] [01:34:25]:     Light Quality: Low
+[10-08-2026] [01:34:25]:     FX Quality: Low
+[10-08-2026] [01:34:25]:     Mesh Quality: Low
+[10-08-2026] [01:34:25]:     MSAA mode: None
+[10-08-2026] [01:34:25]:     TAA: Enabled
+[10-08-2026] [01:34:25]:     Multi-Res: Enabled
+[10-08-2026] [01:34:25]:     Adaptive Res: Disabled
+[10-08-2026] [01:34:25]:     Resolution Scale: 1.100000
+[10-08-2026] [01:34:25]:     Fullscreen: Enabled
+[10-08-2026] [01:34:25]: [LEVELLOAD] Finished loading level '0x43934C379CF1E366' in 34 ms
+[10-08-2026] [01:34:25]: [LEVELLOAD] Allocator used: 643288, available: 133574440
+[10-08-2026] [01:34:25]: [LEVELLOAD] Enabling level '0x43934C379CF1E366'
+[10-08-2026] [01:34:25]: {"message":"ovr_RichPresence_GetDestinations","category":"richpresence","reqid":8,"n":12}
+[10-08-2026] [01:34:25]: {"message":"ovr_IAP_GetViewerPurchases","category":"iap","reqid":7,"n":1}
+[10-08-2026] [01:34:25]: [LEVELLOAD] Level '0xAC360E41E4EDE056' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [01:34:25]: '0x05CE113632359CE3' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: '0x90FB42D145CA476B' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: '0xF0B6D16660E5E275' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: '0xE6652937BF86AFC9' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: '0x9D3ED5B9760EEBEF' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: '0x9344B604478E3CBD' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: '0x3EF440AF73ED3A79' / '0xABFE651C8D260515' has parent set to Auto but parent in Maya does not have an ncaTransform called '0xABFE651C8D260515'. Will act as though it is not parented.
+[10-08-2026] [01:34:25]: [BLACKBOARD] Unable to resolve script actor for blackboard value 0xF565D0591C4B5CDB on actor 0xF6FB648D5664F26A
+[10-08-2026] [01:34:25]: [SETTINGS TRANSLATOR] removing feature 'rift'
+[10-08-2026] [01:34:25]: [SETTINGS TRANSLATOR] processing setting 'game|experimentalthrowing'
+[10-08-2026] [01:34:25]: ### Applying new graphics settings ###
+[10-08-2026] [01:34:25]:     Graphics quality: Custom
+[10-08-2026] [01:34:25]:     Texture quality: Medium
+[10-08-2026] [01:34:25]:     Cascade shadow resolution: 2048
+[10-08-2026] [01:34:25]:     Spot shadow resolution: 768
+[10-08-2026] [01:34:25]:     Shadow MSAA: 4x
+[10-08-2026] [01:34:25]:     Volumetrics: Disabled
+[10-08-2026] [01:34:25]:     Bloom: Disabled
+[10-08-2026] [01:34:25]:     Light Quality: Low
+[10-08-2026] [01:34:25]:     FX Quality: Low
+[10-08-2026] [01:34:25]:     Mesh Quality: Low
+[10-08-2026] [01:34:25]:     MSAA mode: None
+[10-08-2026] [01:34:25]:     TAA: Enabled
+[10-08-2026] [01:34:25]:     Multi-Res: Enabled
+[10-08-2026] [01:34:25]:     Adaptive Res: Disabled
+[10-08-2026] [01:34:25]:     Resolution Scale: 1.100000
+[10-08-2026] [01:34:25]:     Fullscreen: Enabled
+[10-08-2026] [01:34:25]: [CONFIGS] RequestConfig: type=main_menu, id=main_menu
+[10-08-2026] [01:34:25]: ~ Scriptnode can't find actor in gamespace ~
+	Script Actor:     0x710CD6662636E6B8
+	Script:           0x26EBC7ED80EBA931
+	Node Type:        EnableComponentNode
+	Node UUID:        c9971725
+	Target Actor:     0x41D2D7311B3A020C
+	Gamespace:        
+: raduri://0x26EBC7ED80EBA931?elementname=c9971725&elementtype=scriptnodeelementtype=scriptproperty
+[10-08-2026] [01:34:25]: [LEVELLOAD] Finished loading level '0xAC360E41E4EDE056' in 276 ms
+[10-08-2026] [01:34:25]: [LEVELLOAD] Allocator used: 6871192, available: 127346536
+[10-08-2026] [01:34:25]: [LEVELLOAD] Enabling level '0xAC360E41E4EDE056'
+[10-08-2026] [01:34:25]: {"message":"ovr_Notification_GetRoomInvites","category":"social","reqid":9,"n":0}
+[10-08-2026] [01:34:25]: {"category":"iap","message":"ovr_IAP_GetProductsBySKU"}
+[10-08-2026] [01:34:25]: [SCRIPT] 0xEDC9026F9F7DA90C: Tried to call function Disable externally but concurrent calls were set too low. Increase on FunctionDef node.
+[10-08-2026] [01:34:25]: {"message":"ovr_IAP_GetProductsBySKU","category":"iap","reqid":15,"n":0}
+[10-08-2026] [01:34:26]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [01:34:26]: [NSUSER] Creating user OVR-ORG-14387
+[10-08-2026] [01:34:26]: [NETGAME] Logging in...
+[10-08-2026] [01:34:26]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [01:34:26]: [NETGAME] NetGame switching state (from loading root, to logging in)
+[10-08-2026] [01:34:26]: [R15GAME] Has input focus
+[10-08-2026] [01:34:26]: [LOGIN] Logging in OVR-ORG-14387: {"game_settings":{"voipmode":1,"HUD":true,"smoothrotationspeed":10.0,"experimentalthrowing":0,"EnablePitch":true,"EnableGhostAll":false,"EnablePersonalBubble":false,"releasedistance":6.5,"EnableNetStatusHUD":true,"MatchTagDisplay":false,"EnableYaw":true,"EnableNetStatusPause":true,"dynamicmusicmode":1,"EnableRoll":true,"EnableMuteAll":false,"EnableMaxLoudness":true,"EnableSmoothRotation":true,"EnableMuteEnemyTeam":false,"EnableAPIAccess":true,"EnableVoipLoudness":true,"voipmodeffect":0,"voiploudnesslevel":4,"announcer":8,"personalbubblemode":0,"music":0,"ghostallmode":0,"sfx":10,"personalbubbleradius":2.0,"voip":10,"grabdeadzone":1.5,"wristangleoffset":-45.0,"muteallmode":0},"system_info":{"headset_type":"Oculus Rift CV1","cpu":"AMD Ryzen 7 5700X 8-Core Processor             ","driver_version":"r610_85 (61088)","network_type":"Ethernet","video_card":"NVIDIA GeForce RTX 5060","num_physical_cores":8,"num_logical_cores":16,"memory_total":32,"memory_used":16999,"dedicated_gpu_memory":7896},"graphics_settings":{"temporalaa":true,"fullscreen":true,"display":0,"adaptiverestargetframerate":90,"qualitylevel":0,"resolutionscale":1.1,"adaptiveresmaxscale":1.0,"adaptiveresolution":false,"adaptiveresminscale":0.69999999,"adaptiveresheadroom":0.050000001,"msaa":0,"quality":{"shadowresolution":768,"cascaderesolution":2048,"fx":0,"bloom":false,"cascadedistance":1.0,"textures":1,"shadowmsaa":2,"shadowfilterscale":1.0,"meshes":0,"staggerfarcascades":false,"volumetrics":false,"lights":0,"shadows":0,"anims":1},"sharpening":2.0,"multires":true,"gamma":0.25,"capturefov":112.0},"accountid":14387,"buildversion":631547,"appid":1369078409873402,"lobbyversion":1680630467,"publisher_lock":"rad15_live","hmdserialnumber":"WMHD316P3007LE","desiredclientprofileversion":0}
+[10-08-2026] [01:34:26]: {"message":"ovr_User_GetLoggedInUserFriends","category":"social","reqid":19,"n":11}
+[10-08-2026] [01:34:27]: Peer ws://127.0.0.1:777/config update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:34:27]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/config
+[10-08-2026] [01:34:27]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/config failed
+[10-08-2026] [01:34:27]: [NETGAME] Service status request failed: 404 Not Found
+[10-08-2026] [01:34:28]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:34:28]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:34:28]: [LOGIN] Log in request failed: Service unavailable
+[10-08-2026] [01:34:28]: [NETGAME] Log in request failed: Service unavailable
+[10-08-2026] [01:34:28]: [NETGAME] NetGame switching state (from logging in, to login failed)
+[10-08-2026] [01:34:28]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:34:28]: [NETGAME] Failed to connect to the login service
+[10-08-2026] [01:34:28]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [01:34:28]: [NETGAME] NetGame switching state (from login failed, to service unavailable)
+[10-08-2026] [01:34:28]: [NETGAME] Service is unavailable
+[10-08-2026] [01:34:28]: Ending multiplayer
+[10-08-2026] [01:34:28]: Ending multiplayer
+[10-08-2026] [01:34:30]: [NETGAME] Service status request failed: 404 Not Found
+[10-08-2026] [01:34:35]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:34:35]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:34:35]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:34:42]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:34:42]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:34:42]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:34:49]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:34:49]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:34:49]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:34:56]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:34:56]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:34:56]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:35:03]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:35:03]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:35:03]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:35:10]: Peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName update - 0x2FD48A8D4C79448D
+  - 0x2FDA8A8C4D75508F: Winsock Error 10061 (WSAECONNREFUSED):
+	'No connection could be made because the target machine actively refused it.'
+  - 0xB4130B7A4AC7E049: 
+  - 0xC8C33E483C7A12B5: d:\projects\rad\dev\src\engine\libs\os\network\csystcpip_win_xb1.cpp
+  - 0xC8C33E48367A10B5: 164
+  - 0x5CDBDD908EB88C3B: 0x1ebefecce9d13c6
+
+[10-08-2026] [01:35:10]: [TCP CLIENT] [R14NETCLIENT] Lost connection (okay) to peer ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName
+[10-08-2026] [01:35:10]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName failed
+[10-08-2026] [01:35:15]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/login?auth=AccountPassword&displayname=AccountName established
+[10-08-2026] [01:35:17]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [01:35:17]: [NETGAME] Logging in...
+[10-08-2026] [01:35:17]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [01:35:17]: [NETGAME] NetGame switching state (from service unavailable, to logging in)
+[10-08-2026] [01:35:17]: [LOGIN] Logging in OVR-ORG-14387: {"game_settings":{"voipmode":1,"HUD":true,"smoothrotationspeed":10.0,"experimentalthrowing":0,"EnablePitch":true,"EnableGhostAll":false,"EnablePersonalBubble":false,"releasedistance":6.5,"EnableNetStatusHUD":true,"MatchTagDisplay":false,"EnableYaw":true,"EnableNetStatusPause":true,"dynamicmusicmode":1,"EnableRoll":true,"EnableMuteAll":false,"EnableMaxLoudness":true,"EnableSmoothRotation":true,"EnableMuteEnemyTeam":false,"EnableAPIAccess":true,"EnableVoipLoudness":true,"voipmodeffect":0,"voiploudnesslevel":4,"announcer":8,"personalbubblemode":0,"music":0,"ghostallmode":0,"sfx":10,"personalbubbleradius":2.0,"voip":10,"grabdeadzone":1.5,"wristangleoffset":-45.0,"muteallmode":0},"system_info":{"headset_type":"Oculus Rift CV1","cpu":"AMD Ryzen 7 5700X 8-Core Processor             ","driver_version":"r610_85 (61088)","network_type":"Ethernet","video_card":"NVIDIA GeForce RTX 5060","num_physical_cores":8,"num_logical_cores":16,"memory_total":32,"memory_used":16999,"dedicated_gpu_memory":7896},"graphics_settings":{"temporalaa":true,"fullscreen":true,"display":0,"adaptiverestargetframerate":90,"qualitylevel":0,"resolutionscale":1.1,"adaptiveresmaxscale":1.0,"adaptiveresolution":false,"adaptiveresminscale":0.69999999,"adaptiveresheadroom":0.050000001,"msaa":0,"quality":{"shadowresolution":768,"cascaderesolution":2048,"fx":0,"bloom":false,"cascadedistance":1.0,"textures":1,"shadowmsaa":2,"shadowfilterscale":1.0,"meshes":0,"staggerfarcascades":false,"volumetrics":false,"lights":0,"shadows":0,"anims":1},"sharpening":2.0,"multires":true,"gamma":0.25,"capturefov":112.0},"accountid":14387,"buildversion":631547,"appid":1369078409873402,"lobbyversion":1680630467,"publisher_lock":"rad15_live","hmdserialnumber":"WMHD316P3007LE","desiredclientprofileversion":0}
+[10-08-2026] [01:35:17]: [NSUSER] LoginId: E2F17DAC-530D-522C-33F3-B112608034B5:
+
+[10-08-2026] [01:35:17]: [NSUSER] Login settings received: {"iap_unlocked":false,"remote_log_social":false,"remote_log_warnings":false,"remote_log_errors":false,"remote_log_rich_presence":false,"remote_log_metrics":true,"env":"live","matchmaker_queue_mode":"disabled","config_data":{}}
+[10-08-2026] [01:35:17]: [PROFILE] Getting logged in user OVR-ORG-14387's profile: {"defaultclientprofileid":"default","defaultserverprofileid":"default_new_item_types","unlocksetids":{"all":{}},"statgroupids":{"arena":{},"arena_practice_ai":{},"arena_public_ai":{},"daily_2026_10_07":{},"combat":{},"weekly_2026_10_05":{}}}
+[10-08-2026] [01:35:17]: [DOCUMENTS] Requesting document (eula)
+[10-08-2026] [01:35:17]: [NSUSER] saved C:\Users\lucas\AppData\Local\RAD\EchoVR\users\OVR-ORG\14387\clientprofile.json: {"displayname":"AccountName","social":{"community_values_version":1,"setup_version":1},"newunlocks":[],"xplatformid":"OVR-ORG-14387","customization":{"new_unlocks_poi_version":0,"battlepass_season_poi_version":0,"store_entry_poi_version":0,"clear_new_unlocks_version":0},"weapon":"scout","npe":{"firstmatch":{"completed":true},"lobby":{"completed":true},"movement":{"completed":true},"arenabasics":{"completed":true}},"grenade":"det","weaponarm":1}
+[10-08-2026] [01:35:17]: [NSUSER] saved C:\Users\lucas\AppData\Local\RAD\EchoVR\users\OVR-ORG\14387\serverprofile.json: {"loadout":{"instances":{"unified":{"slots":{"banner":"rwd_banner_s1_default","emote":"emote_blink_smiley_a","decal":"decal_default","pattern":"pattern_default","secondemote":"emote_blink_smiley_a","decal_body":"decal_default","tint_alignment_a":"tint_blue_a_default","tint":"tint_neutral_a_default","title":"rwd_title_title_default","tint_body":"tint_neutral_a_default","tint_alignment_b":"tint_orange_a_default","pattern_body":"pattern_default","pip":"rwd_decalback_default","tag":"rwd_tag_s1_a_secondary","chassis":"rwd_chassis_body_s11_a","bracer":"rwd_bracer_default","booster":"rwd_booster_default","medal":"rwd_medal_default","goal_fx":"rwd_goal_fx_default","emissive":"emissive_default"}}},"number":1},"publisher_lock":"rad15_live","purchasedcombat":0,"displayname":"AccountName","lobbyversion":1680630467,"updatetime":1791419717,"xplatformid":"OVR-ORG-14387","logintime":1791419717,"unlocks":{"arena":{"pattern_default":true,"rwd_booster_default":true,"rwd_decalborder_default":true,"decal_combat_flamingo_a":true,"rwd_decalback_default":true,"emote_dizzy_eyes_a":true,"decal_combat_logo_a":true,"loadout_number":true,"rwd_title_title_default":true,"decal_default":true,"decal_sheldon_a":true,"emote_default":true,"pattern_lightning_a":true,"emote_blink_smiley_a":true,"rwd_banner_s1_default":true,"rwd_bracer_default":true,"rwd_chassis_body_s11_a":true,"rwd_medal_default":true,"rwd_goal_fx_default":true,"rwd_tag_default":true,"rwd_tag_s1_a_secondary":true,"tint_blue_a_default":true,"tint_neutral_a_default":true,"tint_neutral_a_s10_default":true,"tint_orange_a_default":true,"emissive_default":true},"combat":{"rwd_booster_s10":true,"rwd_chassis_body_s10_a":true}},"_version":5,"modifytime":1791419717,"stats":{"arena":{"Level":{"cnt":1,"op":"add","val":1}},"combat":{"Level":{"cnt":1,"op":"add","val":1}}},"createtime":1791419717,"dev":{"disable_afk_timeout":true,"xplatformid":"OVR-ORG-14387"}}
+[10-08-2026] [01:35:17]: [NETGAME] NetGame switching state (from logging in, to logged in)
+[10-08-2026] [01:35:17]: [DOCUMENTS] Document received (0xC8C33E483F6612B1) {"type":"eula","lang":"en","link_cc":"https://en.wikipedia.org/wiki/Lone_Echo","mark_as_read_profile_key":"legal|eula_version","version":1,"link_pp":"https://en.wikipedia.org/wiki/Lone_Echo","version_ga":1,"mark_as_read_profile_key_ga":"legal|game_admin_version","text":"Warning: This is an unofficial server. By continuing, you indicate your connection is intentional, for legal personal research purposes.","text_ga":"Unofficial server operators have visibility into game traffic, while players with authorized Game Admin roles may act as spectators or moderators to observe player interactions.","link_ec":"https://en.wikipedia.org/wiki/Lone_Echo","link_cp":"https://en.wikipedia.org/wiki/Lone_Echo","link_vr":"https://en.wikipedia.org/wiki/Lone_Echo","link_ea":"https://en.wikipedia.org/wiki/Lone_Echo","link_ga":"https://en.wikipedia.org/wiki/Lone_Echo","link_tc":"https://en.wikipedia.org/wiki/Lone_Echo"}
+[10-08-2026] [01:35:17]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [01:35:17]: [SOCIALGROUPS] Social lobby group info received
+[10-08-2026] [01:35:17]: [SOCIALGROUPS] active group = THE PLAYGROUND
+[10-08-2026] [01:35:17]: [NSUSER] sent profile update: {"social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF"}}
+[10-08-2026] [01:35:17]: [NSUSER] saved C:\Users\lucas\AppData\Local\RAD\EchoVR\users\OVR-ORG\14387\clientprofile.json: {"displayname":"AccountName","social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF","community_values_version":1,"setup_version":1},"newunlocks":[],"xplatformid":"OVR-ORG-14387","customization":{"new_unlocks_poi_version":0,"battlepass_season_poi_version":0,"store_entry_poi_version":0,"clear_new_unlocks_version":0},"weapon":"scout","npe":{"firstmatch":{"completed":true},"lobby":{"completed":true},"movement":{"completed":true},"arenabasics":{"completed":true}},"grenade":"det","weaponarm":1}
+[10-08-2026] [01:35:17]: [NSUSER] saved C:\Users\lucas\AppData\Local\RAD\EchoVR\users\OVR-ORG\14387\clientprofilepending.json: {"social":{"group":"90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF"}}
+[10-08-2026] [01:35:17]: [NSUSER] profile update succeeded
+[10-08-2026] [01:35:17]: [NSUSER] deleted C:\Users\lucas\AppData\Local\RAD\EchoVR\users\OVR-ORG\14387\clientprofilepending.json
+[10-08-2026] [01:35:18]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"version":1680630467},"roomid":1488954283052965}
+[10-08-2026] [01:35:18]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"\",\"party_id\":1488954283052965,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [01:35:18]: [DEBUGPRINT] PickRandomTip: context = 0x41D2C432172E0810
+[10-08-2026] [01:35:18]: Beginning multiplayer
+[10-08-2026] [01:35:18]: [NETGAME] Resetting player data
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: Resetting player data ???-0 (slot: 18446744073709551615)
+[10-08-2026] [01:35:18]: [SYSNET] Found Internet connection (IPv4)
+[10-08-2026] [01:35:18]: [NSLOBBY] loading matchmaking library 'pnsradmatchmaking'
+[10-08-2026] [01:35:18]: [NETGAME] NetGame switching state (from logged in, to loading global)
+[10-08-2026] [01:35:18]: Ending multiplayer gameplay
+[10-08-2026] [01:35:18]: [NETGAME] Resetting local connection stats
+[10-08-2026] [01:35:18]: [NETGAME] AFK detection enabled (by init)
+[10-08-2026] [01:35:18]: Loading default camera data
+[10-08-2026] [01:35:18]: [NETGAME] Initializing HTTP API
+[10-08-2026] [01:35:18]: [NETGAME] Bound HTTP listener to 127.0.0.1:6721, responding to /session
+[10-08-2026] [01:35:18]: SetMaxLoudnessEnabled Enabled
+[10-08-2026] [01:35:18]: [LEVELLOAD] Loading level '0x3F9915D3001DC28E'
+[10-08-2026] [01:35:19]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":1,"mm":{"status":0},"version":1680630467},"roomid":1488954283052965}
+[10-08-2026] [01:35:19]: [LEVELLOAD] Level '0x3F9915D3001DC28E' offset by (0.000, 0.000, 0.000)
+[10-08-2026] [01:35:19]: CDialogue2CS in level 0x3F9915D3001DC28E could not find CSubtitleCS.
+[10-08-2026] [01:35:19]: List element 0x097E30913F760259 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F76025A in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F76025B in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F760254 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F760255 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA29550A in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA29550B in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA295508 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA295509 in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA29550E in list 0x46B5BEC3E9B61A5A (canvas 0x3CE278C8184CC075) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F760259 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F76025A in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F76025B in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F760254 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x097E30913F760255 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA29550A in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA29550B in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA295508 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA295509 in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: List element 0x0FA085F6EA29550E in list 0x46B5BEC3E9B61A5A (canvas 0xAB5DF0BAC76CF1F3) is extraneous - disabling
+[10-08-2026] [01:35:19]: [DEBUGPRINT]  [ARM COMPUTER] Closing social controls
+[10-08-2026] [01:35:19]: [NETGAME] Unknown player 0xffffffff checking for emote play
+[10-08-2026] [01:35:19]: [NETGAME] Unknown player 0xffffffff checking for emote play
+[10-08-2026] [01:35:19]: Ran out of pooled objective markers, contact a programmer.
+[10-08-2026] [01:35:19]: [LEVELLOAD] Finished loading level '0x3F9915D3001DC28E' in 1034 ms
+[10-08-2026] [01:35:19]: [LEVELLOAD] Allocator used: 49227400, available: 84990328
+[10-08-2026] [01:35:19]: [NETGAME] NetGame switching state (from loading global, to lobby)
+[10-08-2026] [01:35:19]: [NETGAME] Find social lobby '0x042D9CF9CFDDCF76'
+[10-08-2026] [01:35:19]: [NETGAME] Requesting search for a public session of gametype 0x042D9CF9CFDDCF76, level , group 90DD4DB5-B5DD-4655-839E-FDBE5F4BC0BF
+[10-08-2026] [01:35:19]: [NETGAME] NetClientLobby switching state (from idle, to finding)
+[10-08-2026] [01:35:19]: [NSLOBBY] requesting find session with version 0xC62F01D78F77910D
+[10-08-2026] [01:35:19]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateMembershipLockStatus","roomid":1488954283052965,"status":"lock"}
+[10-08-2026] [01:35:19]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":2,"mm":{"status":5,"starttime":1791419719,"gametype":301069346851901302,"eta":1800.000000},"version":1680630467,"joinable":false},"roomid":1488954283052965}
+[10-08-2026] [01:35:19]: [TCP CLIENT] [R14NETCLIENT] connection to ws://127.0.0.1:777/matching established
+[10-08-2026] [01:35:19]: received ping request for 0 servers
+[10-08-2026] [01:35:19]: [NSLOBBY] received lobby session failure
+[10-08-2026] [01:35:19]: [NETLOBBY] Lobby session failure: lobby no crossplay
+[10-08-2026] [01:35:19]: [NETGAME] NetClientLobby switching state (from finding, to creation failed)
+[10-08-2026] [01:35:19]: [NSLOBBY] canceling find session
+[10-08-2026] [01:35:19]: [NETGAME] Server find failed
+[10-08-2026] [01:35:19]: [NETGAME] LobbySessionFailureCB
+[10-08-2026] [01:35:19]: Ending multiplayer
+[10-08-2026] [01:35:19]: [NETGAME] EndMultiplayer
+[10-08-2026] [01:35:19]: [NETGAME] LeaveGame
+[10-08-2026] [01:35:19]: [NETGAME] Removing all users...
+[10-08-2026] [01:35:19]: [NETLOBBY] Ending session
+[10-08-2026] [01:35:19]: [NSLOBBY] ending session
+[10-08-2026] [01:35:19]: [NSLOBBY] leaving session
+[10-08-2026] [01:35:19]: [NSLOBBY] unregistering
+[10-08-2026] [01:35:19]: [NETGAME] NetGame switching state (from lobby, to logged in)
+[10-08-2026] [01:35:19]: [NSLOBBY] leaving session
+[10-08-2026] [01:35:19]: [NSLOBBY] ending session
+[10-08-2026] [01:35:19]: [NSLOBBY] leaving session
+[10-08-2026] [01:35:19]: [NSLOBBY] unregistering
+[10-08-2026] [01:35:19]: disconnecting matchmaker
+[10-08-2026] [01:35:19]: [NETGAME] Destroying global gs
+[10-08-2026] [01:35:19]: [LEVELLOAD] Unloading level '0x3F9915D3001DC28E'
+[10-08-2026] [01:35:20]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":3,"mm":{"starttime":1791419719,"status":15},"version":1680630467,"joinable":false},"roomid":1488954283052965}
+[10-08-2026] [01:35:20]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateMembershipLockStatus","roomid":1488954283052965,"status":"unlock"}
+[10-08-2026] [01:35:21]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":4,"mm":{"starttime":1791419719,"status":15},"version":1680630467,"joinable":true},"roomid":1488954283052965}
+[10-08-2026] [01:35:22]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [01:35:22]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"\",\"party_id\":1488954283052965,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [01:35:22]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [01:35:24]: [DEBUGPRINT] PickRandomTip: context = 0x41D2C432172E0810
+[10-08-2026] [01:35:26]: Ending multiplayer
+[10-08-2026] [01:35:26]: [LEVELLOAD] Disabling level '0xAC360E41E4EDE056'
+[10-08-2026] [01:35:26]: [LEVELLOAD] Disabling level '0x43934C379CF1E366'
+[10-08-2026] [01:35:26]: [LEVELLOAD] Unloading level '0xAC360E41E4EDE056'
+[10-08-2026] [01:35:26]: [LEVELLOAD] Unloading level '0x43934C379CF1E366'
+[10-08-2026] [01:35:27]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Clear"}
+[10-08-2026] [01:35:27]: [NETGAME] LogOut
+[10-08-2026] [01:35:27]: [NSUSER] Destroying user OVR-ORG-14387
+[10-08-2026] [01:35:27]: [LOGIN] Logging OVR-ORG-1 out
+[10-08-2026] [01:35:27]: [NETGAME] NetGame switching state (from logged in, to logged out)
+[10-08-2026] [01:35:27]: [SYSNET] Clearing low latency option
+[10-08-2026] [01:35:27]: CliD3D11CompositorClient::release 2
+[10-08-2026] [01:35:27]: CliD3D11CompositorClient::release 1
+[10-08-2026] [01:35:27]: Unblocking monitored fence
+[10-08-2026] [01:35:27]: CliD3D11CompositorClient released
+[10-08-2026] [01:35:27]: ovr_Destroy_Impl called.
+[10-08-2026] [01:35:27]: ovr_Shutdown_Impl called.
+[10-08-2026] [01:35:27]: Joining enumerate thread: 00007FF767C7FA20
