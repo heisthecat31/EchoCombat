@@ -3,6 +3,8 @@
 1. Stage into `build/stage` (wiped first), in an order where each step builds on
    the last:
      fix_dot.py --base <gun patch> --stage   gun patch tree + merged JSON (DOT preset)
+   The extract-based tools read build/source: the gun patch's copy of each table
+   they edit when it has one, otherwise the extract's.
      fix_drone.py                            drone registry / damage / cooldown, on that JSON
      fix_drone_script.py, fix_drone_bullet.py
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py
@@ -55,13 +57,19 @@ CLIENT_ARGS = ""
 
 JSON_TYPE = "607d858c90268f9a"
 DOT_TRIGGER_SCRIPT = "4e8af51fe7d6af8c"
-#: Type folders the extract-based fix tools write. A gun patch carrying any of
-#: them would be silently overwritten, so that is refused.
-FIX_TYPES = {
+#: Type folders the extract-based fix tools read and rewrite. Where the gun
+#: patch carries its own copy of one of these tables, the tools start from that
+#: copy instead of the pristine extract, so both sets of edits survive. Every fix
+#: tool is a no-op on input it has already patched.
+FIX_TYPES = [
     "5b723f040a3778ee", "dde8fffc5b4d7ad4", "f2676c58c07bab0c", "2b292830e51c4fd2",
-    "92abd3e1432bf5e8", "d99f6bbd8009c92c", "6eace9f64204fd0", "4fd65c8d2b63d470",
-    "21a09c2016d8f3e6",
-}
+    "92abd3e1432bf5e8", "d99f6bbd8009c92c", "4fd65c8d2b63d470", "21a09c2016d8f3e6",
+]
+LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",
+          "cb9977f7fc2b4526", "df5ca7b7dfa383d4"]
+SCRIPTS_TYPE = "6eace9f64204fd0"
+DET_SCRIPT = "190ed14fe3da5ed1"
+SOURCE = os.path.join(ROOT, "build", "source")
 
 
 def run(cmd, **kw):
@@ -86,17 +94,33 @@ def gunpatch_root(path: str) -> str:
     sys.exit(f"{path} has no {JSON_TYPE}/ folder (extract the zip and point at the folder holding it)")
 
 
+def overlay(base: str, extract: str):
+    """build/source: the tables the fix tools read, gun patch copy first, else the extract."""
+    from_patch = set()
+    wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT)]
+    for t, asset in wanted:
+        src = os.path.join(base, t, asset)
+        if os.path.exists(src):
+            from_patch.add(t)
+        else:
+            src = os.path.join(extract, t, asset)
+            if not os.path.exists(src):
+                sys.exit(f"missing {t}/{asset} in both the gun patch and {extract}")
+        os.makedirs(os.path.join(SOURCE, t), exist_ok=True)
+        shutil.copy2(src, os.path.join(SOURCE, t, asset))
+    if from_patch:
+        print("starting from the gun patch's copy of:", ", ".join(sorted(from_patch)))
+
+
 def stage(gunpatch: str, extract: str, preset: str, drone: bool):
     base = gunpatch_root(gunpatch)
-    clash = sorted(FIX_TYPES & set(os.listdir(base)))
-    if clash:
-        sys.exit(f"gun patch also carries {', '.join(clash)}, which the fix tools rebuild from "
-                 f"the extract; merging those is not supported")
-    if os.path.isdir(STAGE):
-        shutil.rmtree(STAGE)
-    os.makedirs(STAGE)
+    for d in (STAGE, SOURCE):
+        if os.path.isdir(d):
+            shutil.rmtree(d)
+        os.makedirs(d)
+    overlay(base, extract)
     tool("fix_dot.py", "--base", base, "--preset", preset, "--stage", STAGE)
-    src = ["--src", extract, "--out", STAGE]
+    src = ["--src", SOURCE, "--out", STAGE]
     if drone:
         tool("fix_drone.py", "--base", STAGE, "--out", STAGE)
         tool("fix_drone_script.py", *src)
