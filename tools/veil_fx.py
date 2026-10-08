@@ -679,7 +679,10 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int, charg
     # (a node that was still waiting out the charge-up -- the other node fired -- holds
     # the busy marker, not a sound's state: it just finishes, its state cleared)
     # (the busy marker is 20000000h in the high dword, the last indicator's time below)
-    b += bytes.fromhex("488b4318 4885c0 7417 4889c2 48c1ea20 81fa00000020 7510 48c7431800000000"
+    # A node still waiting when the other fired plays the sound: the firing node has run
+    # the burst and the stun explosion, and a sound after those stayed silent (only the
+    # explosion's own fizzle was heard).
+    b += bytes.fromhex("488b4318 4885c0 7419 4889c2 48c1ea20 81fa00000020 7512 48c7431800000000 eb08"
                        "31c0 4883c420 5b c3")
     b[fire] = len(b) - (fire + 1)
     b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, sound)
