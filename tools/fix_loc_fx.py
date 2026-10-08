@@ -42,13 +42,14 @@ DET_SCRIPT = "190ed14fe3da5ed1"
 #: the stun field's burst (stun script, execute_node_8ff76ff9)
 LOC_FX = 0x4CE12AE42C1B6269
 LOC_FX_TIME = 1.5
+LOC_FX_SCALE = 2.0
 
 TELEPORT_NODE = 0x7040                    # execute_node_3c80a3d4: R15TELEPORTPLAYERNODE
 TELEPORT_OLD = bytes.fromhex("4c8bdc 49895b08 57")   # mov r11,rsp; mov [r11+8],rbx; push rdi
 BIND_CALL, BIND_TARGET = 0x3725, 0x17E0   # setup_bindings: call R15NETACTIVATEEXPLOSIONNODE::Bind
 
 
-def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT, scale: float = 1.0,
+def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT, scale: float = LOC_FX_SCALE,
           life: float = 1.0, time: float = LOC_FX_TIME) -> bytes:
     pe, det = PE(loc_pe), PE(det_pe)
     if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
@@ -123,7 +124,7 @@ def main(argv) -> int:
     ap.add_argument("--out", required=True, help="stage directory")
     ap.add_argument("--fx", type=lambda v: int(v, 16), default=LOC_FX, help="particle effect (hex)")
     ap.add_argument("--sound", type=int, default=LOC_EVENT, help="sound event id")
-    ap.add_argument("--scale", type=float, default=1.0, help="effect size")
+    ap.add_argument("--scale", type=float, default=LOC_FX_SCALE, help="effect size")
     ap.add_argument("--life", type=float, default=1.0, help="effect lifetime multiplier")
     ap.add_argument("--time", type=float, default=LOC_FX_TIME, help="effect killed after this many s (0: never)")
     args = ap.parse_args(argv[1:])
