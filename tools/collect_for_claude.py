@@ -7,6 +7,7 @@ Copies them into `data/extract/`, keeping the extract's `<type>/<asset>` layout:
   (`CR15NetExplosionCR`), plus the three DOT tables the fix scripts already touch
 * the magazine pouch table (`CR15NetMagazinePouchCR`), whole folder
 * the ordnance script DLLs (dot, det, shared magazine script, arc, stun, burst, loc)
+  and their `CScriptResourceWin10` entries
 * every other script that mentions one of the external functions the DOT script
   calls for its remote trigger, or that reads trigger input or the pouch's
   last-thrown magazine; all matches are listed in `search.txt`
@@ -74,7 +75,8 @@ SEARCH = {
     b"delegate_ontriggered": "handles OnTriggered",
 }
 
-SCRIPTS_TYPE = "6eace9f64204fd0"
+SCRIPTS_TYPE = "6eace9f64204fd0"         # StreamingScriptWin10: the compiled DLL
+SCRIPT_RESOURCE_TYPE = "991421b41de58370"  # CScriptResourceWin10: what the level loads first
 SCRIPTS = {
     "97d0806e6ea89130": "mp_combat_grenade_dot",
     "190ed14fe3da5ed1": "det",
@@ -197,6 +199,8 @@ def main(argv) -> int:
 
     for asset, name in SCRIPTS.items():
         c.copy(os.path.join(extract, SCRIPTS_TYPE, asset), f"{SCRIPTS_TYPE}/{asset}", name)
+        c.copy(os.path.join(extract, SCRIPT_RESOURCE_TYPE, asset),
+               f"{SCRIPT_RESOURCE_TYPE}/{asset}", name + " (CScriptResource)")
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
     report = [f"{asset}  {', '.join(SEARCH[h] for h in hits)}" for asset, hits in found]
