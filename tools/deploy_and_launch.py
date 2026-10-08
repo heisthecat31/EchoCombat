@@ -87,6 +87,8 @@ SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
 WALL_SCRIPT = "ac4e9374a146d3a4"
 HEAL_SCRIPT = "6a0f689e5b91c666"
 BUFF_SCRIPT = "4b65d1b0088d2682"
+PARTICLE_TYPES = ("3ae7c41914252baa", "be45c22fa8c2d3f")   # particle effect + its companion asset
+BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7")   # Repair Matrix's beam and hand effects
 WRAITH_SCRIPT = "e1971566197d460"
 POWERBOOST_DLL = os.path.join(ROOT, "out", "PowerBoost.dll")
 GLOBAL_LEVEL = "3f9915d3001dc28e"
@@ -127,7 +129,8 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, WALL_SCRIPT),
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
-                                                    ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
+                                                    ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
+        (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES]       # POWER BOOST's gold beam / hand
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):

@@ -67,6 +67,16 @@ BUFF_GEAR = {"name": "buff", "display_name": "POWER BOOST"}
 GOLD = (0.80, 0.56, 0.06)
 TINT = (1.00, 0.78, 0.25)
 
+#: Repair Matrix's particle effects have their green baked in; the buff script spawns
+#: gold copies of them instead (Repair Matrix keeps the originals).
+#: original -> copy: the beam (one per bubble slot) and the healer's hand effect.
+PARTICLES = {0x39424707BB2DF316: 0xFA379871313745A5,    # -> CSymbol64("fx_power_boost_beam")
+             0xBE696D7D300CBAF7: 0xFA3798713B334AAC}    # -> CSymbol64("fx_power_boost_hand")
+#: each effect is two assets: the effect itself (recoloured) and a companion (copied)
+PARTICLE_TYPE, PARTICLE_COMPANION = "3ae7c41914252baa", "be45c22fa8c2d3f"
+#: peak-preserving gold for the effects: rgb = max(rgb) * FX_GOLD
+FX_GOLD = (1.00, 0.70, 0.075)
+
 ENTRY = bytes.fromhex("48895c2408")   # mov [rsp+8], rbx: first instruction of each Execute
 #: (Execute rva in the heal script, colour field offset in the node, mode)
 CLASSES = [
@@ -125,6 +135,41 @@ def link_tuning(t: dict) -> dict:
         "time_to_max_heal": t["conn_time"], "self_heal_mult": 0,
         "unique_healing_only": True,
     }
+
+
+def gold_particles(effect: bytes, gold=FX_GOLD) -> tuple[bytes, list]:
+    """Recolour the green in a particle effect asset (format not mapped, so heuristic):
+    every float rgb triple with green clearly on top (> 1.2x red and blue, every
+    channel 0.005..4: real colours here carry a little red and blue, unlike the
+    velocities and ranges around them) becomes max(rgb) * gold, scanning forward and stepping past each one
+    changed. Direction-like triples made of 0s and 1s, and the (0.01, 1, 0.04)
+    triple both effects carry outside any colour, are left alone."""
+    out = bytearray(effect)
+    changed, o = [], 0
+    while o + 12 <= len(out):
+        r, g, b = struct.unpack_from("<3f", out, o)
+        vals = (r, g, b)
+        ok = (all(0.005 <= v <= 4 for v in vals) and g >= 0.05 and g > 1.2 * r and g > 1.2 * b
+              and not all(v in (0.0, 1.0) for v in vals)
+              and not (abs(r - 0.01) < 1e-4 and g == 1.0 and abs(b - 0.04) < 1e-4))
+        if ok:
+            struct.pack_into("<3f", out, o, *(g * c for c in gold))
+            changed.append((o, vals))
+            o += 12
+        else:
+            o += 4
+    return bytes(out), changed
+
+
+def gold_particle_refs(script: bytes) -> bytes:
+    """Point the buff script's particle spawns at the gold copies."""
+    out = bytearray(script)
+    for old, new in PARTICLES.items():
+        o = struct.pack("<Q", old)
+        if out.count(o) == 0:
+            raise ValueError(f"heal script: no reference to particle effect {old:#x}")
+        out = bytearray(bytes(out).replace(o, struct.pack("<Q", new)))
+    return bytes(out)
 
 
 def read_buff_tuning(script: bytes) -> bytes:
@@ -326,7 +371,16 @@ def main(argv) -> int:
     tuning.update(link_tuning(tuning))
     print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"])
-    heal = read_buff_tuning(heal)
+    heal = gold_particle_refs(read_buff_tuning(heal))
+    for old, new in PARTICLES.items():
+        effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{old:x}"), "rb").read()
+        gold_effect, changed = gold_particles(effect)
+        for folder, data in ((PARTICLE_TYPE, gold_effect),
+                             (PARTICLE_COMPANION, open(os.path.join(args.src, PARTICLE_COMPANION, f"{old:x}"), "rb").read())):
+            os.makedirs(os.path.join(args.out, folder), exist_ok=True)
+            open(os.path.join(args.out, folder, f"{new:x}"), "wb").write(data)
+        print(f"particle {old:x} -> gold copy {new:x}: {len(changed)} colour(s) "
+              + ", ".join("(%.2f %.2f %.2f)" % c for _, c in changed))
     mz = heal.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
