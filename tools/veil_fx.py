@@ -293,6 +293,7 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: 
     b += bytes.fromhex("488d3c76")                                   # lea rdi,[rsi+rsi*2]
     for k, disp in enumerate((0xB0, 0xB4, 0xB8)):                    # node+90..98 offset = ring[i]
         b += bytes.fromhex("8b54b8") + bytes([4 * k]) + bytes.fromhex("899424") + struct.pack("<I", disp)
+    b += bytes.fromhex("48c7431800000000")                           # ctx state 0: each cloud starts fresh
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)  # Execute(node, ctx)
     b += bytes.fromhex("ffc6 83fe") + bytes([count]) + b"\x0f\x82" + rel32(0, 0)
     b[-4:] = struct.pack("<i", loop - len(b))
@@ -593,8 +594,12 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     p += bytes.fromhex("4889d9 4883c420 5b 4989e3 53 4883ec50 e9")         # not veil: EnablePhysics as before
     p += rel32(at["phys"] + len(p) + 4, WALL_PHYS + 8)
     p[jnz] = len(p) - (jnz + 1)
-    p += bytes.fromhex("48837b1800 7508 4889d9 e8")                          # veil: clouds (first run), then the sound
+    # veil: clouds (first run), then the sound. The particle node's Execute leaves its
+    # engine state in ctx+18h; PlaySound must start from 0 or it takes the particle
+    # node's data for its own and crashes, so the state is reset in between.
+    p += bytes.fromhex("48837b1800 7510 4889d9 e8")
     p += rel32(at["phys"] + len(p) + 4, at["spawn"])
+    p += bytes.fromhex("48c7431800000000")                                  # mov qword [rbx+18h], 0
     p += bytes.fromhex("4889d9 4883c420 5b e9")
     p += rel32(at["phys"] + len(p) + 4, at["sound"])
     put("phys", bytes(p))

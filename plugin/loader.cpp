@@ -144,6 +144,13 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
         if (n == 0 || n >= MAX_PATH) return TRUE;
         wchar_t *slash = wcsrchr(g_dir, L'\\');
         if (!slash || (slash - g_dir) + 9 >= MAX_PATH) return TRUE;
+        // Only the game gets the plugins. Other programs next to it load this DLL too
+        // (the crash reporter, BsSndRpt64.exe, when Echo crashes); for them it is just
+        // dbgcore.dll.
+        wchar_t exe[MAX_PATH];
+        DWORD en = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        const wchar_t *exe_name = en ? wcsrchr(exe, L'\\') : nullptr;
+        if (!exe_name || _wcsicmp(exe_name + 1, L"echovr.exe") != 0) return TRUE;
         wcscpy_s(slash + 1, MAX_PATH - (slash + 1 - g_dir), L"plugins");
         CreateDirectoryW(g_dir, nullptr);
         snprintf(g_log, sizeof(g_log), "%ls\\loader.log", g_dir);
