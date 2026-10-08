@@ -42,7 +42,8 @@ DET_SCRIPT = "190ed14fe3da5ed1"
 #: the stun field's burst (stun script, execute_node_8ff76ff9)
 LOC_FX = 0x4CE12AE42C1B6269
 LOC_FX_TIME = 2.5
-LOC_FX_SCALE = 2.0
+LOC_FX_SCALE = 2.0          # the emitter's size and each particle's size
+LOC_FX_LIFE = 2.5           # particle lifetime multiplier: how slowly it fades
 
 TELEPORT_NODE = 0x7040                    # execute_node_3c80a3d4: R15TELEPORTPLAYERNODE
 TELEPORT_OLD = bytes.fromhex("4c8bdc 49895b08 57")   # mov r11,rsp; mov [r11+8],rbx; push rdi
@@ -50,7 +51,7 @@ BIND_CALL, BIND_TARGET = 0x3725, 0x17E0   # setup_bindings: call R15NETACTIVATEE
 
 
 def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT, scale: float = LOC_FX_SCALE,
-          life: float = 1.0, time: float = LOC_FX_TIME) -> bytes:
+          life: float = LOC_FX_LIFE, time: float = LOC_FX_TIME) -> bytes:
     pe, det = PE(loc_pe), PE(det_pe)
     if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
         raise ValueError("translocator script already patched")
@@ -89,7 +90,7 @@ def patch(loc_pe: bytes, det_pe: bytes, fx: int = LOC_FX, sound: int = LOC_EVENT
 
     floats = {EMISSION_RATE: 1.0, LIFE: life, ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0, COLOR_B: 1.0}
     floats.update({o: scale for o in SCALE})
-    floats.update({o: 1.0 for o in PARTICLE_SCALE})
+    floats.update({o: scale for o in PARTICLE_SCALE})
     put("spawn", spawn_stub(at["spawn"], va + spn["ctor"], va + spn["exec"], va + ring, 1, floats, asset=fx,
                                 duration=time))
     put("sound", sound_stub(at["sound"], va + snd["ctor"], va + snd["exec"], sound))
@@ -125,7 +126,7 @@ def main(argv) -> int:
     ap.add_argument("--fx", type=lambda v: int(v, 16), default=LOC_FX, help="particle effect (hex)")
     ap.add_argument("--sound", type=int, default=LOC_EVENT, help="sound event id")
     ap.add_argument("--scale", type=float, default=LOC_FX_SCALE, help="effect size")
-    ap.add_argument("--life", type=float, default=1.0, help="effect lifetime multiplier")
+    ap.add_argument("--life", type=float, default=LOC_FX_LIFE, help="effect lifetime multiplier")
     ap.add_argument("--time", type=float, default=LOC_FX_TIME, help="effect killed after this many s (0: never)")
     args = ap.parse_args(argv[1:])
     loc = open(os.path.join(args.src, SCRIPTS, LOC_SCRIPT), "rb").read()
