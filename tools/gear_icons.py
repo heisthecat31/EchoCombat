@@ -43,6 +43,7 @@ le_lightmap_to_evr.py writes new textures.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import struct
 import sys
@@ -61,32 +62,79 @@ ATLASES = {
                          ["13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b"]),
 }
 
-#: every gear item, in cell order: (element prefix, gear name, RGBA test colour)
+#: every gear item: (element prefix, gear name, display name). Items in STOCK_ICON keep
+#: their stock icon (each one distinct); the others get a cell of their own, with the
+#: PNG from ICON_DIRS named after the gear or display name (blazar.png, dot.png, ...),
+#: or a solid test colour (TEST_COLOURS) until one is made.
 ITEMS = [
-    ("ABILITY", "heal", (255, 255, 255, 255)),    # REPAIR MATRIX: white
-    ("ABILITY", "sensor", (255, 220, 0, 255)),    # THREAT SCANNER: yellow
-    ("ABILITY", "shield", (0, 120, 255, 255)),    # ENERGY BARRIER: blue
-    ("ABILITY", "wraith", (120, 120, 120, 255)),  # PHASE SHIFT: grey
-    ("ABILITY", "smoke", (170, 60, 255, 255)),    # UMBRAL VEIL: violet
-    ("ABILITY", "buff", (255, 150, 0, 255)),      # POWER BOOST: orange
-    ("GRENADE", "det", (255, 0, 0, 255)),         # DETONATOR: red
-    ("GRENADE", "stun", (255, 255, 120, 255)),    # STUN FIELD: pale yellow
-    ("GRENADE", "arc", (0, 255, 255, 255)),       # ARC MINE: aqua
-    ("GRENADE", "burst", (255, 120, 200, 255)),   # INSTANT REPAIR: pink
-    ("GRENADE", "loc", (140, 255, 0, 255)),       # TRANSLOCATOR: lime
-    ("GRENADE", "dot", (0, 230, 90, 255)),        # DOT FIELD: green
-    ("GRENADE", "drone", (0, 200, 255, 255)),     # DRONE: cyan
-    ("WEAPON", "assault", (150, 0, 0, 255)),      # PULSAR: dark red
-    ("WEAPON", "blaster", (0, 0, 160, 255)),      # NOVA: navy
-    ("WEAPON", "scout", (0, 120, 0, 255)),        # COMET: dark green
-    ("WEAPON", "rocket", (160, 80, 0, 255)),      # METEOR: brown
-    ("WEAPON", "magnum", (120, 0, 140, 255)),     # PROTOSTAR: purple
-    ("WEAPON", "smg", (0, 130, 130, 255)),        # QUARK: teal
-    ("WEAPON", "chain", (200, 200, 200, 255)),    # BLAZAR: light grey
-    ("WEAPON", "rifle", (255, 80, 0, 255)),       # STARBURST: dark orange
+    ("ABILITY", "heal", "REPAIR MATRIX"), ("ABILITY", "sensor", "THREAT SCANNER"),
+    ("ABILITY", "shield", "ENERGY BARRIER"), ("ABILITY", "wraith", "PHASE SHIFT"),
+    ("ABILITY", "smoke", "UMBRAL VEIL"), ("ABILITY", "buff", "POWER BOOST"), ("ABILITY", "point", "POINT"),
+    ("GRENADE", "det", "DETONATOR"), ("GRENADE", "stun", "STUN FIELD"), ("GRENADE", "arc", "ARC MINE"),
+    ("GRENADE", "burst", "INSTANT REPAIR"), ("GRENADE", "loc", "TRANSLOCATOR"), ("GRENADE", "dot", "DOT FIELD"),
+    ("GRENADE", "drone", "DRONE"),
+    ("WEAPON", "assault", "PULSAR"), ("WEAPON", "blaster", "NOVA"), ("WEAPON", "scout", "COMET"),
+    ("WEAPON", "rocket", "METEOR"), ("WEAPON", "magnum", "PROTOSTAR"), ("WEAPON", "smg", "QUARK"),
+    ("WEAPON", "chain", "BLAZAR"), ("WEAPON", "rifle", "STARBURST"),
 ]
+STOCK_ICON = {"heal", "sensor", "shield", "wraith", "det", "stun", "arc", "burst",
+              "assault", "blaster", "scout", "rocket"}
+TEST_COLOURS = {"smoke": (170, 60, 255, 255), "buff": (255, 150, 0, 255), "point": (255, 40, 120, 255)}
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ICON_DIRS = [os.path.join(ROOT_DIR, "ICONS", "hd"), os.path.join(ROOT_DIR, "ICONS")]
+#: element clones for items a canvas has no element for: (new, copied from)
+CLONES = [("GRENADE_DRONE", "GRENADE_DOT"), ("ABILITY_POINT", "ABILITY_SMOKE")]
 GRID = 5                                 # cells per row / column of the right half
 EMPTY_CELL = GRID * GRID - 1             # never painted: fully transparent
+
+
+def own_cells() -> dict:
+    """gear name -> cell, for the items that get one."""
+    return {name: k for k, (_, name, _) in enumerate(i for i in ITEMS if i[1] not in STOCK_ICON)}
+
+
+def icon_png(name: str, display: str):
+    for d in ICON_DIRS:
+        for stem in (name, display, display.replace(" ", "_"), display.replace(" ", "")):
+            for f in (os.listdir(d) if os.path.isdir(d) else []):
+                if f.lower() == stem.lower() + ".png":
+                    return os.path.join(d, f)
+    return None
+
+
+def cells_image(w: int, h: int):
+    """The right half, (h, w, 4) RGBA: each item's PNG (or test colour) in its cell. Each
+    cell's RGB is uniform (white under an icon, the colour under a test cell) so the
+    BC7 blocks only have alpha to fit."""
+    import numpy as np
+    from PIL import Image
+    img = np.zeros((h, w, 4), np.uint8)
+    img[:, :, :3] = 255
+    used = []
+    for (kind, name, display) in ITEMS:
+        cell = own_cells().get(name)
+        if cell is None:
+            continue
+        cx, cy = cell % GRID, cell // GRID
+        x0, x1 = round(cx * w / GRID), round((cx + 1) * w / GRID)
+        y0, y1 = round(cy * h / GRID), round((cy + 1) * h / GRID)
+        ix0, ix1 = round(x0 + (x1 - x0) * CELL_MARGIN), round(x1 - (x1 - x0) * CELL_MARGIN)
+        iy0, iy1 = round(y0 + (y1 - y0) * CELL_MARGIN), round(y1 - (y1 - y0) * CELL_MARGIN)
+        png = icon_png(name, display)
+        if png:
+            icon = Image.open(png).convert("RGBA")
+            side = min(ix1 - ix0, iy1 - iy0)
+            icon = icon.resize((side, side), Image.LANCZOS)
+            a = np.asarray(icon)[:, :, 3]
+            ox, oy = ix0 + (ix1 - ix0 - side) // 2, iy0 + (iy1 - iy0 - side) // 2
+            img[oy:oy + side, ox:ox + side, 3] = a
+            used.append(f"{name} <- {os.path.basename(png)}")
+        else:
+            r, g, b, a = TEST_COLOURS.get(name, (255, 255, 255, 255))
+            img[y0:y1, x0:x1, :3] = (r, g, b)
+            img[iy0:iy1, ix0:ix1, 3] = a
+            used.append(f"{name} test colour")
+    return img, used
 CELL_MARGIN = 0.1                        # of a cell, left transparent around the icon
 
 # descriptor fields (lone_echo_blender evr_texture_resource / le_lightmap_to_evr)
@@ -131,7 +179,11 @@ def blocks(w: int, h: int):
 
 
 def build_dds(stock: bytes):
-    """The stock atlas on the left, ITEMS' cells on the right. Returns (dds, w, h, mips)."""
+    """The stock atlas on the left, our cells (cells_image) on the right.
+    Returns (dds, w, h, mips, report)."""
+    import numpy as np
+    from PIL import Image
+    import bc7
     if stock[:4] != b"DDS " or stock[84:88] != b"DX10":
         raise ValueError("stock atlas is not a DX10 DDS")
     h, w = struct.unpack_from("<II", stock, 12)
@@ -141,11 +193,10 @@ def build_dds(stock: bytes):
         raise ValueError(f"stock atlas is DXGI {dxgi}, not BC7")
     # mips whose left half is block-aligned (width a multiple of 4) copy exactly
     mips_new = min(mips, max(k for k in range(mips) if (w >> k) % 4 == 0) + 1)
+    right, used = cells_image(w, h)
     nw = w * 2
     src = DDS_HEADER
     out = bytearray()
-    colour = {cell: bc7_solid(*rgba) for cell, (_, _, rgba) in enumerate(ITEMS)}
-    clear = bc7_solid(0, 0, 0, 0)
     for k in range(mips):
         mw, mh = mip_dims(w, h, k)
         bw, bh = blocks(mw, mh)
@@ -153,22 +204,19 @@ def build_dds(stock: bytes):
         src += bw * bh * 16
         if k >= mips_new:
             continue
-        nmw, _ = mip_dims(nw, h, k)
-        nbw, _ = blocks(nmw, mh)
+        r = np.asarray(Image.fromarray(right).resize((mw, mh), Image.LANCZOS)) if k else right
+        pad = np.zeros((bh * 4, bw * 4, 4), np.uint8)
+        pad[:, :, :3] = 255
+        pad[:mh, :mw] = r
+        enc = bc7.encode(pad)
         for by in range(bh):
             out += level[by * bw * 16:(by + 1) * bw * 16]           # left: the stock row
-            for bx in range(bw, nbw):                                # right: our cells
-                u = ((bx - bw) * 4 + 2) / (nmw - mw)                 # 0..1 across the right half
-                v = (by * 4 + 2) / mh
-                cx, cy = min(int(u * GRID), GRID - 1), min(int(v * GRID), GRID - 1)
-                fu, fv = u * GRID - cx, v * GRID - cy
-                inside = CELL_MARGIN <= fu <= 1 - CELL_MARGIN and CELL_MARGIN <= fv <= 1 - CELL_MARGIN
-                out += colour.get(cy * GRID + cx, clear) if inside else clear
+            out += enc[by * bw * 16:(by + 1) * bw * 16]             # right: our row
     header = bytearray(stock[:DDS_HEADER])
     struct.pack_into("<I", header, 16, nw)                           # width
     struct.pack_into("<I", header, 28, mips_new)                     # mip count
     struct.pack_into("<I", header, 20, blocks(nw, h)[0] * blocks(nw, h)[1] * 16)   # top-level linear size
-    return bytes(header) + bytes(out), nw, h, mips_new
+    return bytes(header) + bytes(out), nw, h, mips_new, used
 
 
 def cell_uv(cell: int, width_ratio: float = 0.5):
@@ -241,37 +289,42 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
     report.append(f"{mine} element(s) and {len(atlas_sprites)} sprite(s) moved to the new texture")
 
     names = {element(d, j, E_NAME)[0]: j for j in range(n)}
-    # the station has no GRENADE_DRONE: a copy of GRENADE_DOT (same place) becomes it
-    dot, drone = symbol64("GRENADE_DOT"), symbol64("GRENADE_DRONE")
-    if dot in names and drone not in names and texs[names[dot]] == atlas:
+    # items a canvas has no element for: a copy of a sibling (same place) becomes theirs
+    for new_name, from_name in CLONES:
+        new, src_name = symbol64(new_name), symbol64(from_name)
+        if src_name not in names or new in names or texs[names[src_name]] != atlas:
+            continue
         if n >= struct.unpack_from("<I", d, E_CAPACITY)[0]:
             raise ValueError("no room for another element")
-        src = ELEMENTS + names[dot] * ELEMENT_SIZE
+        src = ELEMENTS + names[src_name] * ELEMENT_SIZE
         e = bytearray(d[src:src + ELEMENT_SIZE])
         idx, parent = struct.unpack_from("<qq", e, E_INDEX)
-        struct.pack_into("<Q", e, E_NAME, drone)
+        struct.pack_into("<Q", e, E_NAME, new)
         struct.pack_into("<qq", e, E_INDEX, n, n + parent - idx)
         at = ELEMENTS + n * ELEMENT_SIZE                             # = the sprite table's start
         d[at:at] = e
-        names[drone] = n
+        names[new] = n
+        texs.append(atlas)
         n += 1
         mine += 1
         struct.pack_into("<I", d, ELEMENT_COUNT, n)
         struct.pack_into("<I", d, H_TEXTURED, struct.unpack_from("<I", d, H_TEXTURED)[0] + 1)
         struct.pack_into("<I", d, H_VERTS, struct.unpack_from("<I", d, H_VERTS)[0] + 4)
         start += ELEMENT_SIZE
-        extra = []
-        seen = set()
+        extra, seen = [], set()
         for r in recs:                                               # one more copy of each atlas sprite
             h = struct.unpack_from("<Q", r)[0]
             if h in atlas_sprites and h not in seen:
                 seen.add(h)
                 extra.append(bytearray(r))
         recs += extra
-        report.append(f"GRENADE_DRONE added (e{n - 1}, a copy of GRENADE_DOT)")
-    # every item: its element and its plain-name sprite on its own cell
+        report.append(f"{new_name} added (e{n - 1}, a copy of {from_name})")
+    # items with a cell of their own: their element and their plain-name sprite on it
     pointed, added = [], []
-    for cell, (kind, item, _) in enumerate(ITEMS):
+    for kind, item, _ in ITEMS:
+        cell = own_cells().get(item)
+        if cell is None:
+            continue
         uv = cell_uv(cell)
         j = names.get(symbol64(f"{kind}_{item.upper()}"))
         if j is not None and element(d, j, E_TEX)[0] == new_tex:
@@ -285,7 +338,7 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
         else:
             recs += [bytearray(struct.pack("<Q4f", h, *uv)) for _ in range(mine)]
             added.append(item)
-    report.append(f"items on their own cells: {', '.join(pointed) or 'none'}")
+    report.append(f"on their own cells: {', '.join(pointed) or 'none'}")
     if added:
         report.append(f"sprites added: {', '.join(added)}")
     j = names.get(symbol64("LOCK"))
@@ -312,7 +365,20 @@ def read(src: str, t: str, asset: str, fallback: str = "") -> bytes:
     raise FileNotFoundError(f"{t}/{asset} not found in {src}" + (f" or {fallback}" if fallback else ""))
 
 
+def need_modules():
+    """numpy and Pillow (the icon PNGs and the BC7 encoder): installed with pip if missing."""
+    import importlib
+    import subprocess
+    missing = [pip for mod, pip in (("numpy", "numpy"), ("PIL", "pillow"))
+               if importlib.util.find_spec(mod) is None]
+    if missing:
+        print(f"gear icons: installing {', '.join(missing)} (python -m pip install --user ...)")
+        subprocess.run([sys.executable, "-m", "pip", "install", "--user", *missing], check=True)
+        importlib.invalidate_caches()
+
+
 def main(argv) -> int:
+    need_modules()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--src", required=True, help="where the stock assets are (<type>/<asset>)")
     ap.add_argument("--out", required=True, help="stage directory")
@@ -330,14 +396,14 @@ def main(argv) -> int:
         if not stock_dds.startswith(b"DDS "):
             raise SystemExit(f"the GPU sidecar of {a} is not a DDS")
         stock_desc = read(args.src, TEXTURE_DESC, a)
-        dds, w, h, mips = build_dds(stock_dds)
+        dds, w, h, mips, used = build_dds(stock_dds)
         new_tex = symbol64(tex_name)
         name = f"{new_tex:016x}"
         for t, blob in ((TEXTURE_GPU, dds), (TEXTURE_DESC, descriptor(stock_desc, dds, w, h, mips))):
             os.makedirs(os.path.join(args.out, t), exist_ok=True)
             open(os.path.join(args.out, t, name), "wb").write(blob)
         print(f"gear icons: {a} -> texture {name} ({tex_name}) {w}x{h}, {len(dds) >> 10} KB; "
-              f"{len(ITEMS)} item cells")
+              f"cells: {'; '.join(used)}")
         for c in canvases:
             d = read(args.src, CANVAS, c, os.path.join(fb, "canvases"))
             out, report = patch_canvas(d, atlas, new_tex)
