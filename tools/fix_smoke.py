@@ -66,6 +66,7 @@ SMOKE_GEAR = {"name": "smoke", "display_name": "UMBRAL VEIL"}
 SMOKE = 0xE32DC7C9D4804FB5             # CSymbol64("smoke")
 
 DET_SCRIPT = "190ed14fe3da5ed1"          # mp_combat_grenade_det: its smoke particle node
+WALL_SCRIPT = "ac4e9374a146d3a4"         # the barrier wall's own script (smoke wall mode added)
 
 # --- controller layout (checked) -------------------------------------------
 NODE_FN = 0x12670                      # execute_node_5e2732a4 (barrier enable call)
@@ -273,6 +274,9 @@ def main(argv) -> int:
     ap.add_argument("--particle-scale", type=float, default=2.5, help="size of each smoke puff")
     ap.add_argument("--alpha", type=float, default=10.0, help="opacity multiplier")
     ap.add_argument("--shade", type=float, default=0.9, help="colour multiplier (lower = darker)")
+    ap.add_argument("--mailbox", type=lambda v: int(v, 0), default=0,
+                    help="rva of the spare bytes in echovr.exe (veil_fx.mailbox_rva): the sound then plays "
+                         "from an invisible smoke wall, so it stays where the veil went off; 0 = it follows the player")
     args = ap.parse_args(argv[1:])
 
     eq_path, equipment = load(args.base, EQUIPMENT)
@@ -291,12 +295,20 @@ def main(argv) -> int:
     det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()
     open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
         barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,
-        emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha, shade=args.shade))
+        emission=args.emission, particle_scale=args.particle_scale, alpha=args.alpha, shade=args.shade,
+        mailbox=args.mailbox))
+    if args.mailbox:
+        from veil_fx import anchor_wall
+        wall = open(os.path.join(args.src, SCRIPTS, WALL_SCRIPT), "rb").read()
+        mz = wall.find(b"MZ")
+        open(os.path.join(args.out, SCRIPTS, WALL_SCRIPT), "wb").write(wall[:mz] + anchor_wall(wall[mz:], args.mailbox))
+        print(f"{SCRIPTS}/{WALL_SCRIPT}: barrier wall script gains the smoke wall mode (mailbox {args.mailbox:#x})")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{SMOKE_SCRIPT:x}"), "wb").write(bytes(4))
     print(f"{SCRIPTS}/{SMOKE_SCRIPT:x}: mp_combat_ability_smoke: {args.count} smoke clouds, "
           f"scale {args.scale}, life x{args.life}, {args.spread} m apart, "
-          f"emission x{args.emission}, puffs x{args.particle_scale}, alpha x{args.alpha}, shade {args.shade} (no wall)")
+          f"emission x{args.emission}, puffs x{args.particle_scale}, alpha x{args.alpha}, shade {args.shade}, "
+          + ("sound from an invisible smoke wall" if args.mailbox else "no wall, sound on the player"))
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)

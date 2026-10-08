@@ -29,6 +29,9 @@ The barrier script has no particle node, so the detonator script's
   see veil_sound.py) on the player with a transplanted PLAYSOUNDNODE (the
   detonator's too, with its constructor's defaults: the sound component every
   player and magazine uses, a temporary emitter, no waiting).
+* with a mailbox (the default deploy), the wall IS created, as an invisible,
+  collision-free "smoke wall" that plays the sound where it stands, so the
+  sound stays put (see anchor_wall); the clouds take the custom-param node.
 """
 
 from __future__ import annotations
@@ -104,6 +107,95 @@ PARAM_NODE = 0x63D0
 #: local player): `mov byte ptr [rsp+48h], 1` (show) becomes 0 (hide).
 PRIMING_SHOW = [0x74F8, 0x6668]        # execute_node_367b0674, execute_node_b8a054bc
 SHOW_ON, SHOW_OFF = bytes.fromhex("c644244801"), bytes.fromhex("c644244800")
+
+# --- the smoke wall: an invisible, collision-free barrier wall that carries the sound ---
+#: The smoke script stamps a "mailbox" (8 spare bytes past echovr.exe's .data,
+#: located per exe by veil_mailbox()) with the time just before it creates the
+#: wall; the wall script, whose two spawn nodes ask decide(), claims a stamp
+#: under 2 s old and remembers it is a smoke wall in 8 bytes it adds to its
+#: global data. Assembled with keystone; 0x11223344 marks the mailbox rva.
+MAILBOX_MARK = struct.pack("<I", 0x11223344)
+#: rcx = node ctx: unless the node is aborting, mailbox = now;
+#: then the create node's own first instruction (mov [rsp+8], rbx).
+STAMP = bytes.fromhex(
+    "80b9db00000000752450526548a16000000000000000488b401048c7c20800fe7f488b1248899044"
+    "3322115a5848895c2408")
+#: decide(rcx = ctx) -> eax 1 smoke wall / 0 not; first call per wall decides.
+DECIDE = bytes.fromhex(
+    "4c8b114d8b5268418b925801000081fa534d4f4b745381fa4e4f524d745c6548a1600000000000000"
+    "04c8b40104d8d804433221149c7c10800fe7f4d8b09498b004885c074294c89ca4829c24881fa002d"
+    "3101771a31d2f0490fb110751141c78258010000534d4f4bb801000000c341c782580100004e4f524d"
+    "31c0c3")
+#: ShowModel hook, called in place of `mov byte [rsp+48h], 1`: show = !decide(rbx),
+#: every register and the flags kept. SHOW_PRE, call decide, SHOW_POST.
+SHOW_PRE = bytes.fromhex("9c50515241504151415241534883ec284889d9")
+SHOW_POST = bytes.fromhex("3401888424b80000004883c428415b415a415941585a59589dc3")
+#: EnablePhysics node entry: PHYS_PRE, call decide, PHYS_MID, jmp node+8; smoke: jmp sound.
+PHYS_PRE = bytes.fromhex("514883ec20")
+PHYS_MID = bytes.fromhex("4883c4205984c0750d4989e3534883ec50")
+GLOBAL_LEN = 0x158                     # wall script_get_global_data_len: mov eax, 158h; ret
+SMOKE_FLAG = GLOBAL_LEN                # the 8 bytes it gains
+
+# --- wall script (ac4e9374a146d3a4), shared with the energy barrier ------------
+WALL_GLOBAL_LEN_FN = 0x5CC0
+WALL_SHOW = 0x6D78                     # execute_node_fac8332c: mov byte [rsp+48h], 1 (show)
+WALL_PHYS = 0x7190                     # execute_node_ddd4137d: EnablePhysics(on), at spawn
+WALL_PHYS_OLD = bytes.fromhex("4c8bdc534883ec50")
+WALL_SOUND_CTOR, WALL_SOUND_EXEC = 0x2720, 0x27D0   # the wall's own PLAYSOUNDNODE
+
+
+def mailbox_rva(exe: bytes) -> int:
+    """8 spare bytes at the end of echovr.exe's .data page (past its VirtualSize,
+    so the game never touches them; mapped read/write with the rest of .data)."""
+    pe = PE(exe)
+    _, _, vsize, va, _, _ = pe.section(b".data")
+    page_end = (va + vsize + 0xFFF) & ~0xFFF
+    if page_end - (va + vsize) < 0x20:
+        raise ValueError("no spare bytes after echovr.exe's .data")
+    return page_end - 0x10
+
+
+def anchor_wall(wall_pe: bytes, mailbox: int, event: int = None) -> bytes:
+    """The barrier wall script, made to turn a wall the smoke script just created
+    into the veil's sound anchor: no model, no collision, plays `event` where
+    it stands. Every other wall (the energy barrier's) is untouched."""
+    event = VEIL_EVENT if event is None else event
+    pe = PE(wall_pe)
+    if any(s[1] == VEIL.rstrip(b"\0") for s in pe.sections()):
+        raise ValueError("wall script already patched")
+    if pe.read(WALL_GLOBAL_LEN_FN, 6) != b"\xb8" + struct.pack("<I", GLOBAL_LEN) + b"\xc3" \
+            or pe.read(WALL_SHOW, 5) != bytes.fromhex("c644244801") \
+            or pe.read(WALL_PHYS, 8) != WALL_PHYS_OLD:
+        raise ValueError("unexpected wall script build")
+    mb = struct.pack("<I", mailbox)
+    blob = bytearray()
+    decide = len(blob)
+    blob += DECIDE.replace(MAILBOX_MARK, mb)
+    blob += bytes(-len(blob) % 16)
+    show = len(blob)
+    blob += SHOW_PRE + bytes(5) + SHOW_POST              # call decide at show+len(SHOW_PRE)
+    blob += bytes(-len(blob) % 16)
+    sound = len(blob)
+    blob += bytes(128)
+    blob += bytes(-len(blob) % 16)
+    phys = len(blob)
+    blob += PHYS_PRE + bytes(5) + PHYS_MID + bytes(5) + bytes(5)
+    va = add_section(pe, VEIL, len(blob))
+    c = show + len(SHOW_PRE)
+    blob[c:c + 5] = b"\xe8" + rel32(va + c + 5, va + decide)
+    s_ = sound_stub(va + sound, WALL_SOUND_CTOR, WALL_SOUND_EXEC, event)
+    blob[sound:sound + len(s_)] = s_
+    c = phys + len(PHYS_PRE)
+    blob[c:c + 5] = b"\xe8" + rel32(va + c + 5, va + decide)
+    c += 5 + len(PHYS_MID)
+    blob[c:c + 5] = b"\xe9" + rel32(va + c + 5, WALL_PHYS + 8)     # not smoke: on into EnablePhysics
+    blob[c + 5:c + 10] = b"\xe9" + rel32(va + c + 10, va + sound)  # smoke: the sound instead
+    pe.write(va, bytes(blob))
+    pe.write(WALL_GLOBAL_LEN_FN, b"\xb8" + struct.pack("<I", GLOBAL_LEN + 8) + b"\xc3")
+    pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, va + show))
+    pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, va + phys) + b"\x90" * 3)
+    return bytes(pe.d)
+
 
 VEIL = b".veil\0\0\0"
 RWX_CODE = 0xE0000020
@@ -211,11 +303,9 @@ def spawn_stub(at: int, ctor: int, execute: int, ring: int, count: int, floats: 
 
 
 def sound_stub(at: int, ctor: int, execute: int, event: int) -> bytes:
-    """execute_node replacement: one PLAYSOUNDNODE for `event` on the player ("self").
-
-    `isrefpoint` is set so the player is only the reference point: the sound
-    stays where the veil went off instead of following the player (as with
-    the particle node's isrefpoint + leavebehind).
+    """execute_node replacement: one PLAYSOUNDNODE for `event` on the script's
+    own actor ("self"). (isrefpoint does not pin a sound in place: tested, it
+    still followed the player.)
 
     It takes over a graph node of its own (the custom-param node). Sharing the
     cloud node did not work: two different node classes run on one graph node
@@ -227,7 +317,6 @@ def sound_stub(at: int, ctor: int, execute: int, event: int) -> bytes:
     b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)  # node (0x88 bytes) at rsp+20h
     b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")   # node+18 actor symbol
     b += bytes.fromhex("c7442448") + struct.pack("<I", event)                   # node+28 event id
-    b += bytes.fromhex("c644245801")                                            # node+38 isrefpoint = 1
     b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
     b[skip] = len(b) - (skip + 1)
     b += bytes.fromhex("4881c4b0000000 5b c3")
@@ -248,7 +337,11 @@ def ring_offsets(count: int, spread: float) -> bytes:
 def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6.0,
                  life: float = 8.0, spread: float = 1.5, emission: float = 8.0,
                  particle_scale: float = 2.5, alpha: float = 10.0, shade: float = 0.9,
-                 sound_event: int = VEIL_EVENT) -> bytes:
+                 sound_event: int = VEIL_EVENT, mailbox: int = 0) -> bytes:
+    """mailbox != 0: the wall is still created (as the smoke wall, see
+    anchor_wall, which plays the sound) and the clouds take the custom-param
+    node. mailbox == 0: no wall; clouds on the create node, and the sound,
+    following the player, on the custom-param node."""
     if not 1 <= count <= 16:
         raise ValueError("count must be 1..16")
     pe, det = PE(barrier_pe), PE(det_pe)
@@ -263,6 +356,8 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
             raise ValueError("unexpected priming ShowModel node: wrong barrier script build")
     blob, fixups = bytearray(), []
     spn = transplant(det, SPAWN_PARTICLE, blob, fixups)
+    if mailbox:
+        sound_event = 0                      # the smoke wall plays it
     snd = transplant(det, PLAY_SOUND, blob, fixups) if sound_event else {}
     blob += bytes(-len(blob) % 16)
     ring_off = len(blob)
@@ -276,6 +371,9 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
     blob += bytes(-len(blob) % 16)
     sound_off = len(blob)
     blob += bytes(128)                       # placeholder, filled below
+    blob += bytes(-len(blob) % 16)
+    stamp_off = len(blob)
+    blob += STAMP.replace(MAILBOX_MARK, struct.pack("<I", mailbox)) + bytes(5)
     va = add_section(pe, VEIL, len(blob))
     for d, target in fixups:                 # re-aim the copied code at the new slots and strings
         blob[d:d + 4] = rel32(va + d + 4, va + target)
@@ -301,11 +399,18 @@ def add_smoke_fx(barrier_pe: bytes, det_pe: bytes, count: int = 7, scale: float 
         sound = sound_stub(va + sound_off, va + snd["ctor"], va + snd["exec"], sound_event)
         blob[sound_off:sound_off + len(sound)] = sound
 
+    c = stamp_off + len(STAMP)
+    blob[c:c + 5] = b"\xe9" + rel32(va + c + 5, CREATE_NODE + 5)   # back into the create node
+
     pe.write(va, bytes(blob))
     pe.write(BIND_CALL, b"\xe8" + rel32(BIND_CALL + 5, at))
-    pe.write(CREATE_NODE, b"\xe9" + rel32(CREATE_NODE + 5, va + spawn_off))
-    if sound_event:
-        pe.write(PARAM_NODE, b"\xe9" + rel32(PARAM_NODE + 5, va + sound_off))
+    if mailbox:
+        pe.write(CREATE_NODE, b"\xe9" + rel32(CREATE_NODE + 5, va + stamp_off))
+        pe.write(PARAM_NODE, b"\xe9" + rel32(PARAM_NODE + 5, va + spawn_off))
+    else:
+        pe.write(CREATE_NODE, b"\xe9" + rel32(CREATE_NODE + 5, va + spawn_off))
+        if sound_event:
+            pe.write(PARAM_NODE, b"\xe9" + rel32(PARAM_NODE + 5, va + sound_off))
     for rva in PRIMING_SHOW:
         pe.write(rva, SHOW_OFF)
     return bytes(pe.d)

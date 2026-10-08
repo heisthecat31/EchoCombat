@@ -83,6 +83,7 @@ BARRIER_SCRIPT = "b87ba2039b049d5e"
 SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
 STUN_SCRIPT = "190ed14ff6dc4ad8"
 SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
+WALL_SCRIPT = "ac4e9374a146d3a4"
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
@@ -118,6 +119,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, BARRIER_SCRIPT),
                                                     (SCRIPTS_TYPE, STUN_SCRIPT),
                                                     (SOUND_BANK_TYPE, VEIL_BANK),
+                                                    (SCRIPTS_TYPE, WALL_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
@@ -131,6 +133,17 @@ def overlay(base: str, extract: str):
         shutil.copy2(src, os.path.join(SOURCE, t, asset))
     if from_patch:
         print("starting from the gun patch's copy of:", ", ".join(sorted(from_patch)))
+
+
+def veil_mailbox(installs) -> str:
+    """The spare bytes in echovr.exe both UMBRAL VEIL scripts share (veil_fx.mailbox_rva).
+    The staged scripts are the same for both installs, so their exes must agree."""
+    sys.path.insert(0, TOOLS)
+    from veil_fx import mailbox_rva
+    rvas = {install: mailbox_rva(open(os.path.join(install, EXE), "rb").read()) for install in installs}
+    if len(set(rvas.values())) != 1:
+        sys.exit(f"the installs' echovr.exe builds differ ({rvas}); pass --veil-follow-sound to skip the smoke wall")
+    return hex(next(iter(rvas.values())))
 
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
@@ -354,6 +367,9 @@ def main(argv) -> int:
     ap.add_argument("--veil-shade", default="0.9", help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
+    ap.add_argument("--veil-follow-sound", action="store_true",
+                    help="UMBRAL VEIL's sound plays on the player (follows them) instead of from an invisible "
+                         "smoke wall left where it went off")
     ap.add_argument("--veil-stock-sound", action="store_true",
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
@@ -375,7 +391,9 @@ def main(argv) -> int:
               not args.no_smoke, ("--count", args.veil_count, "--scale", args.veil_scale,
                                   "--life", args.veil_life, "--spread", args.veil_spread,
                                   "--emission", args.veil_emission, "--particle-scale", args.veil_puff,
-                                  "--alpha", args.veil_alpha, "--shade", args.veil_shade), args.fx_preview,
+                                  "--alpha", args.veil_alpha, "--shade", args.veil_shade)
+              + (() if args.veil_follow_sound else
+                 ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound)
         for install in (args.server_install, args.client_install):
             repack(install)
