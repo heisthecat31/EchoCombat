@@ -1,3 +1,4 @@
 build/
 evrtool/evrtool.exe
 __pycache__/
+.mcp.json
