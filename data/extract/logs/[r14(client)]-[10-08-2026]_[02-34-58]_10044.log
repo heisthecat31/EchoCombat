@@ -9108,3 +9108,142 @@
 [10-08-2026] [02:41:16]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"lobbyid":"2CC74741-7154-63CA-593C-321AB0D6D75F","version":1680630467,"matchtype":301069346851901302,"team":3,"lobbytype":0},"roomid":1769442614110015}
 [10-08-2026] [02:41:16]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"Social_2.0\",\"lobby_id\":\"2CC74741-7154-63CA-593C-321AB0D6D75F\",\"party_id\":1769442614110015,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
 [10-08-2026] [02:41:18]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [02:41:25]: {"message":"ovr_Notification_GetRoomInvites","category":"social","reqid":711,"n":0}
+[10-08-2026] [02:41:31]: {"category":"social","provider":"ovr","message":"ovr_Room_Leave","roomid":1769442614110015,"reason":"kicked (pull with no local member)"}
+[10-08-2026] [02:41:31]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [02:41:32]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"lobbyid":"2CC74741-7154-63CA-593C-321AB0D6D75F","version":1680630467,"matchtype":301069346851901302,"team":3,"lobbytype":0},"roomid":1109820761422199}
+[10-08-2026] [02:41:32]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"Social_2.0\",\"lobby_id\":\"2CC74741-7154-63CA-593C-321AB0D6D75F\",\"party_id\":1109820761422199,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [02:41:34]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [02:41:47]: {"category":"social","provider":"ovr","message":"ovr_Room_Leave","roomid":1109820761422199,"reason":"kicked (pull with no local member)"}
+[10-08-2026] [02:41:47]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [02:41:48]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"lobbyid":"2CC74741-7154-63CA-593C-321AB0D6D75F","version":1680630467,"matchtype":301069346851901302,"team":3,"lobbytype":0},"roomid":1121622920419945}
+[10-08-2026] [02:41:48]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"Social_2.0\",\"lobby_id\":\"2CC74741-7154-63CA-593C-321AB0D6D75F\",\"party_id\":1121622920419945,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [02:41:50]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [02:41:55]: {"message":"ovr_Notification_GetRoomInvites","category":"social","reqid":757,"n":0}
+[10-08-2026] [02:42:03]: {"category":"social","provider":"ovr","message":"ovr_Room_Leave","roomid":1121622920419945,"reason":"kicked (pull with no local member)"}
+[10-08-2026] [02:42:03]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [02:42:04]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"lobbyid":"2CC74741-7154-63CA-593C-321AB0D6D75F","version":1680630467,"matchtype":301069346851901302,"team":3,"lobbytype":0},"roomid":1633264538211181}
+[10-08-2026] [02:42:04]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"Social_2.0\",\"lobby_id\":\"2CC74741-7154-63CA-593C-321AB0D6D75F\",\"party_id\":1633264538211181,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [02:42:06]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [02:42:19]: {"category":"social","provider":"ovr","message":"ovr_Room_Leave","roomid":1633264538211181,"reason":"kicked (pull with no local member)"}
+[10-08-2026] [02:42:19]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [02:42:21]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"lobbyid":"2CC74741-7154-63CA-593C-321AB0D6D75F","version":1680630467,"matchtype":301069346851901302,"team":3,"lobbytype":0},"roomid":1515776953915958}
+[10-08-2026] [02:42:21]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"Social_2.0\",\"lobby_id\":\"2CC74741-7154-63CA-593C-321AB0D6D75F\",\"party_id\":1515776953915958,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [02:42:22]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [02:42:25]: {"message":"ovr_Notification_GetRoomInvites","category":"social","reqid":803,"n":0}
+[10-08-2026] [02:42:35]: {"category":"social","provider":"ovr","message":"ovr_Room_Leave","roomid":1515776953915958,"reason":"kicked (pull with no local member)"}
+[10-08-2026] [02:42:35]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [02:42:36]: {"category":"social","provider":"ovr","message":"ovr_Room_UpdateDataStore","data":{"seqid":0,"lobbyid":"2CC74741-7154-63CA-593C-321AB0D6D75F","version":1680630467,"matchtype":301069346851901302,"team":3,"lobbytype":0},"roomid":1649389200128458}
+[10-08-2026] [02:42:36]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set","presence":"{\"game_type\":\"Social_2.0\",\"lobby_id\":\"2CC74741-7154-63CA-593C-321AB0D6D75F\",\"party_id\":1649389200128458,\"current_capacity\":1,\"joinable\":true,\"max_capacity\":10}"}
+[10-08-2026] [02:42:38]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Set succeeded"}
+[10-08-2026] [02:42:51]: {"category":"social","provider":"ovr","message":"ovr_Room_Leave","roomid":1649389200128458,"reason":"kicked (pull with no local member)"}
+[10-08-2026] [02:42:51]: {"category":"social","provider":"ovr","message":"ovr_Room_CreateAndJoinPrivate2","ourjoinpolicy":"Everyone","ovrjoinpolicy":"EVERYONE","maxusers":10}
+[10-08-2026] [02:42:52]: Ending multiplayer
+[10-08-2026] [02:42:52]: [NETGAME] EndMultiplayer
+[10-08-2026] [02:42:52]: [NETGAME] LeaveGame
+[10-08-2026] [02:42:52]: [NETGAME] Removing all users...
+[10-08-2026] [02:42:52]: [NETGAME] User 'AccountName' disconnected
+[10-08-2026] [02:42:52]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [02:42:52]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [02:42:52]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [02:42:52]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [02:42:52]: [NETGAME] 	User Index             : 0
+[10-08-2026] [02:42:52]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [02:42:52]: [NETGAME] 	Team Slot              : 0
+[10-08-2026] [02:42:52]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [02:42:52]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [02:42:52]: [NETGAME] 	Actor                  : 0x13983255EE1DBCBE (enabled) 
+[10-08-2026] [02:42:52]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [02:42:52]: [NETGAME] 	In VR                  : true
+[10-08-2026] [02:42:52]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [02:42:52]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [02:42:52]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [02:42:52]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [02:42:52]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [02:42:52]: [NETGAME] User 'AccountName' participating
+[10-08-2026] [02:42:52]: [NETGAME] 	Name                   : AccountName
+[10-08-2026] [02:42:52]: [NETGAME] 	XPlatformID            : OVR-ORG-14387
+[10-08-2026] [02:42:52]: [NETGAME] 	UserID                 : [0, 0]
+[10-08-2026] [02:42:52]: [NETGAME] 	UserID Hex             : 0x00000000
+[10-08-2026] [02:42:52]: [NETGAME] 	User Index             : 0
+[10-08-2026] [02:42:52]: [NETGAME] 	User Slot              : 0
+[10-08-2026] [02:42:52]: [NETGAME] 	Team Slot              : 0
+[10-08-2026] [02:42:52]: [NETGAME] 	Team ID                : 3
+[10-08-2026] [02:42:52]: [NETGAME] 	Alignment              : 65535
+[10-08-2026] [02:42:52]: [NETGAME] 	Actor                  : 0x13983255EE1DBCBE (enabled) 
+[10-08-2026] [02:42:52]: [NETGAME] 	Peer                   : 18446744073709551615
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Spectator           : false
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Ghost               : false
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Bot                 : false
+[10-08-2026] [02:42:52]: [NETGAME] 	Is Placeholder         : false
+[10-08-2026] [02:42:52]: [NETGAME] 	In VR                  : true
+[10-08-2026] [02:42:52]: [NETGAME] 	Loadouts               : 1
+[10-08-2026] [02:42:52]: [NETGAME] 	Loadout Number         : 1
+[10-08-2026] [02:42:52]: [NETGAME] 	VoIP Muted (By Self)   : false
+[10-08-2026] [02:42:52]: [NETGAME] 	VoIP Muted (By Player) : false
+[10-08-2026] [02:42:52]: [NETGAME] 	VoIP Deafened          : false
+[10-08-2026] [02:42:52]: Resetting player data OVR-ORG-14387 (slot: 0)
+[10-08-2026] [02:42:52]: [NETGAME] User 'AccountName' disconnected IsServer 0, gameOver: 0
+[10-08-2026] [02:42:52]: [NETGAME] User 'AccountName' IsSocial: 1 MatchIsPrivate: 0 MatchIsAI: 0
+[10-08-2026] [02:42:52]: [NETGAME] User 'AccountName' IsHumanUser: 1 IsSpectator: 0
+[10-08-2026] [02:42:52]: [NETGAME] [LOCALCONNSTATS]: packetlossratio: 0.00 predictionoffset: 27777 (target: 16666) localtime: 470256614 servertime: 485991670 pendingserverdelta: -333, discardedframepct: 0.00%
+[10-08-2026] [02:42:52]: [NETGAME] Resetting local connection stats
+[10-08-2026] [02:42:52]: [NETGAME] [CLIENTPLAYERCONNSTATS]: entrantid: 0 packetlossratio: 0.00 peertime: 470234385 pendingpeerdelta: 343 adjforwardcount: 14232 adjbackcount: 13965 totalforwardadj: 4159603 totalbackadj: 4126278 lasttimerecvd: 470245504 discardedpingestpct: 0.00%
+[10-08-2026] [02:42:52]: [NETGAME] [PINGSTATS]: entrantid: 0 est: 16666.00 min: 16666 max: 16666 std: 0.00 med: 16666
+[10-08-2026] [02:42:52]: [NETGAME] Resetting client player connection stats 0
+[10-08-2026] [02:42:52]: [NETGAME] [SVRPLAYERCONNSTATS]: entrantid: 0 packetlossratio: 0.00 clienttime: 0 discardedpingestpct: 0.00%
+[10-08-2026] [02:42:52]: [NETGAME] [PINGSTATS]: entrantid: 0 est: 0.00 min: 0 max: 0 std: 0.00 med: 0
+[10-08-2026] [02:42:52]: [NETGAME] Resetting server player connection stats 0
+[10-08-2026] [02:42:52]: [NETGAME] 	Number of team members [0, 0, 0]
+[10-08-2026] [02:42:52]: [NETGAME] 	Number of users '0'
+[10-08-2026] [02:42:52]: [NETLOBBY] Ending session
+[10-08-2026] [02:42:52]: [NSLOBBY] ending session
+[10-08-2026] [02:42:52]: [NSLOBBY] leaving session
+[10-08-2026] [02:42:52]: [NSLOBBY] unregistering
+[10-08-2026] [02:42:52]: [LEVELLOAD] Disabling level '0xCB9977F7FC2B4526'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Disabling level '0xD09AFD15B1C75C04'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Disabling level '0x3F9915D3001DC28E'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Disabling level '0x6DAA00A6D33D44B7'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Enabling level '0xAC360E41E4EDE056'
+[10-08-2026] [02:42:52]: [R15GAME] Clearing pause mode override
+[10-08-2026] [02:42:52]: [NETGAME] NetGame switching state (from in game, to logged in)
+[10-08-2026] [02:42:52]: [NSLOBBY] leaving session
+[10-08-2026] [02:42:52]: [NSLOBBY] ending session
+[10-08-2026] [02:42:52]: [NSLOBBY] leaving session
+[10-08-2026] [02:42:52]: [NSLOBBY] unregistering
+[10-08-2026] [02:42:52]: disconnecting matchmaker
+[10-08-2026] [02:42:52]: [NETGAME] Destroying global gs
+[10-08-2026] [02:42:52]: [LEVELLOAD] Disabling level '0xAC360E41E4EDE056'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Disabling level '0x43934C379CF1E366'
+[10-08-2026] [02:42:52]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | value_true = ui_menu_splash_screen_poster_a_default_clr
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [02:42:52]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | value_false = ui_menu_splash_screen_poster_a_shutdown_clr
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [02:42:52]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | condition = 0
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [02:42:52]: [SCRIPT] 0x75041E1B64042FAA: stringcondition(c2cf3726) | value_out = ui_menu_splash_screen_poster_a_shutdown_clr
+	Actor: 0x33b5ccda495ba9b4
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0xAC360E41E4EDE056'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0x6DAA00A6D33D44B7'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0x4D82118C7C91B6BB'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0xD09AFD15B1C75C04'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0xCB9977F7FC2B4526'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0x3F9915D3001DC28E'
+[10-08-2026] [02:42:52]: [LEVELLOAD] Unloading level '0x43934C379CF1E366'
+[10-08-2026] [02:42:53]: {"category":"rich_presence","provider":"ovr","message":"ovr_RichPresence_Clear"}
+[10-08-2026] [02:42:53]: [NETGAME] LogOut
+[10-08-2026] [02:42:53]: [NSUSER] Destroying user OVR-ORG-14387
+[10-08-2026] [02:42:53]: [LOGIN] Logging OVR-ORG-1 out
+[10-08-2026] [02:42:53]: [NETGAME] NetGame switching state (from logged in, to logged out)
+[10-08-2026] [02:42:53]: [SYSNET] Clearing low latency option
+[10-08-2026] [02:42:53]: CliD3D11CompositorClient::release 2
+[10-08-2026] [02:42:53]: CliD3D11CompositorClient::release 1
+[10-08-2026] [02:42:53]: Unblocking monitored fence
+[10-08-2026] [02:42:53]: CliD3D11CompositorClient released
+[10-08-2026] [02:42:53]: ovr_Destroy_Impl called.
+[10-08-2026] [02:42:53]: ovr_Shutdown_Impl called.
+[10-08-2026] [02:42:53]: Joining enumerate thread: 00007FF767C7FA20
