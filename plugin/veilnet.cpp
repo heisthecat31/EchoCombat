@@ -3,9 +3,17 @@
 // The veil (the smoke tac mod) runs its script only on the client that used it. The
 // one networked thing it does is create a barrier wall, which every machine gets.
 // Nothing the script can send travels with the wall in a form the wall script can
-// read back, so this plugin sends the news itself, over its own UDP socket:
+// read back, so this plugin sends the news itself:
 //
 //   client that used the veil --"V id"--> server --"V id"--> every other client
+//
+// It uses the game's own connection: no ports of its own. echovr.exe talks to its
+// server with plain sendto / recvfrom on one UDP socket; VeilNet hooks both. A client
+// sends its packets from the game's socket to the server address and port the game
+// itself sends to; on every machine, recvfrom takes VeilNet's packets out before
+// the game sees them. The server answers through the socket each client's packets
+// came in on, so replies go back the way the game's own do (same port forwarding,
+// same NAT mapping).
 //
 // Every machine that hears of a veil (the user's client too) gets a "veil token" for
 // TOKEN_LIFE. The barrier wall script (tools/veil_fx.py, network_wall) waits a moment
@@ -18,17 +26,9 @@
 //   echovr.exe +0x2104f00: the veil's custom-param node (smoke script, mark_param)
 //     bumps the u32 there each time the veil is used on this machine.
 //
-// Server ("-server" on the command line): listens on the first free UDP port in
-// [veil] port .. port+7 (PowerBoost.ini-style VeilNet.ini, default 6970), remembers
-// every client that says hello, and relays each veil to all of them but the sender.
-// Several servers on one PC take one port each.
-//
-// Client: says hello to every port in that range on the server every 2 s (which also
-// keeps a NAT mapping open for the relays), and sends each use of the veil there. The
-// server's address is VeilNet.ini [veil] server=, or else the address this game
-// sends most of its UDP to (sendto / WSASendTo / connected send are watched).
-//
-// Log: VeilNet.log next to the DLL.
+// Clients say hello every 2 s; the server relays only to clients that have (so a
+// player without VeilNet never gets a packet the game would not understand).
+// "-server" on the command line picks the server role. Log: VeilNet.log next to the DLL.
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -45,8 +45,8 @@ namespace {
 constexpr uintptr_t TOKEN_RVA = 0x2104cc0;
 constexpr uintptr_t USE_COUNTER_RVA = 0x2104f00;
 constexpr ULONGLONG TOKEN_LIFE = 15000000;      // 1.5 s, in 100 ns
-constexpr int PORTS = 8;
 constexpr uint32_t MAGIC = 0x4c564345;          // "ECVL"
+constexpr uint32_t MAGIC2 = 0x4c494556;         // "VEIL"
 
 struct Shared {
     volatile LONG tokens;
@@ -60,15 +60,15 @@ struct Packet {
     uint8_t type;                               // 'H' hello, 'V' veil
     uint8_t pad[3];
     uint32_t id;
+    uint32_t magic2;
 };
 
 uint8_t *g_base;
 Shared *g_shared;
 bool g_server;
-int g_port_base = 6970;
-SOCKET g_sock = INVALID_SOCKET;
 char g_log_path[MAX_PATH];
 volatile LONG g_logged = 0;
+SRWLOCK g_lock = SRWLOCK_INIT;
 
 void Log(const char *fmt, ...) {
     if (InterlockedIncrement(&g_logged) > 2000) return;
@@ -94,6 +94,10 @@ const char *Addr(const sockaddr_in &a, char *buf, size_t n) {
     return buf;
 }
 
+bool Same(const sockaddr_in &a, const sockaddr_in &b) {
+    return a.sin_addr.s_addr == b.sin_addr.s_addr && a.sin_port == b.sin_port;
+}
+
 void AddToken() {
     ULONGLONG now = InterruptTime();
     if (now >= g_shared->expiry) InterlockedExchange(&g_shared->tokens, 0);
@@ -101,11 +105,9 @@ void AddToken() {
     g_shared->expiry = now + TOKEN_LIFE;
 }
 
-// The last ids seen, so a veil that arrives twice (several servers on one PC, a resend)
-// gives one token.
+// The last ids seen, so a veil that arrives twice (the resend) gives one token.
 uint32_t g_seen[32];
 int g_seen_next = 0;
-SRWLOCK g_lock = SRWLOCK_INIT;
 
 bool FirstTime(uint32_t id) {
     AcquireSRWLockExclusive(&g_lock);
@@ -116,135 +118,135 @@ bool FirstTime(uint32_t id) {
     return !seen;
 }
 
-// --- the server's address, as the game itself uses it -----------------------------
 using sendto_fn = int(WSAAPI *)(SOCKET, const char *, int, int, const sockaddr *, int);
-using wsasendto_fn = int(WSAAPI *)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, const sockaddr *, int,
-                                   LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE);
-using send_fn = int(WSAAPI *)(SOCKET, const char *, int, int);
-using wsasend_fn = int(WSAAPI *)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, LPWSAOVERLAPPED,
-                                 LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+using recvfrom_fn = int(WSAAPI *)(SOCKET, char *, int, int, sockaddr *, int *);
 sendto_fn Real_sendto = sendto;
-wsasendto_fn Real_WSASendTo = WSASendTo;
-send_fn Real_send = send;
-wsasend_fn Real_WSASend = WSASend;
+recvfrom_fn Real_recvfrom = recvfrom;
 
-struct Dest { uint32_t ip; volatile LONG count; };
+void Send(SOCKET s, const sockaddr_in &to, uint8_t type, uint32_t id) {
+    Packet p = { MAGIC, type, {}, id, MAGIC2 };
+    Real_sendto(s, (const char *)&p, sizeof(p), 0, (const sockaddr *)&to, sizeof(to));
+}
+
+// --- client: the game's connection to its server ------------------------------------
+// The destination (socket + address) the game sends the most packets to.
+struct Dest { SOCKET sock; sockaddr_in addr; LONG count; };
 Dest g_dests[16];
-volatile uint32_t g_server_ip = 0;              // network order; 0 = not known yet
-bool g_server_fixed = false;                    // from VeilNet.ini
+int g_best = -1;
 
-void Saw(const sockaddr *to) {
-    if (g_server_fixed || !to || to->sa_family != AF_INET) return;
-    uint32_t ip = ((const sockaddr_in *)to)->sin_addr.s_addr;
-    int free_slot = -1;
-    for (int i = 0; i < 16; ++i) {
-        if (g_dests[i].ip == ip) {
-            LONG c = InterlockedIncrement(&g_dests[i].count);
-            if (g_server_ip != ip) {
-                LONG best = 0;
-                for (const Dest &d : g_dests) if (d.ip == g_server_ip) best = d.count;
-                if (c > best + 50) g_server_ip = ip;
-            }
-            return;
-        }
-        if (!g_dests[i].ip && free_slot < 0) free_slot = i;
+void SawSend(SOCKET s, const sockaddr *to) {
+    if (!to || to->sa_family != AF_INET) return;
+    const sockaddr_in &a = *(const sockaddr_in *)to;
+    AcquireSRWLockExclusive(&g_lock);
+    int i = 0, free_slot = -1, low = 0;
+    for (; i < 16; ++i) {
+        if (g_dests[i].count && g_dests[i].sock == s && Same(g_dests[i].addr, a)) break;
+        if (!g_dests[i].count && free_slot < 0) free_slot = i;
+        if (g_dests[i].count < g_dests[low].count) low = i;
     }
-    if (free_slot >= 0) g_dests[free_slot].ip = ip;
+    if (i == 16) {                              // new destination
+        i = free_slot >= 0 ? free_slot : low;
+        if (i == g_best) g_best = -1;
+        g_dests[i] = { s, a, 0 };
+    }
+    ++g_dests[i].count;
+    if (g_best < 0 || (i != g_best && g_dests[i].count > g_dests[g_best].count + 50)) g_best = i;
+    ReleaseSRWLockExclusive(&g_lock);
 }
 
-void SawSocket(SOCKET s) {
-    if (s == g_sock) return;
-    int type = 0, n = sizeof(type);
-    if (getsockopt(s, SOL_SOCKET, SO_TYPE, (char *)&type, &n) != 0 || type != SOCK_DGRAM) return;
-    sockaddr_storage peer;
-    int len = sizeof(peer);
-    if (getpeername(s, (sockaddr *)&peer, &len) == 0) Saw((sockaddr *)&peer);
-}
-
-int WSAAPI Hooked_sendto(SOCKET s, const char *buf, int len, int flags, const sockaddr *to, int tolen) {
-    if (s != g_sock) Saw(to);
-    return Real_sendto(s, buf, len, flags, to, tolen);
-}
-int WSAAPI Hooked_WSASendTo(SOCKET s, LPWSABUF b, DWORD n, LPDWORD sent, DWORD flags, const sockaddr *to,
-                            int tolen, LPWSAOVERLAPPED o, LPWSAOVERLAPPED_COMPLETION_ROUTINE c) {
-    if (s != g_sock) Saw(to);
-    return Real_WSASendTo(s, b, n, sent, flags, to, tolen, o, c);
-}
-int WSAAPI Hooked_send(SOCKET s, const char *buf, int len, int flags) {
-    SawSocket(s);
-    return Real_send(s, buf, len, flags);
-}
-int WSAAPI Hooked_WSASend(SOCKET s, LPWSABUF b, DWORD n, LPDWORD sent, DWORD flags, LPWSAOVERLAPPED o,
-                          LPWSAOVERLAPPED_COMPLETION_ROUTINE c) {
-    SawSocket(s);
-    return Real_WSASend(s, b, n, sent, flags, o, c);
-}
-
-void Send(const sockaddr_in &to, uint8_t type, uint32_t id) {
-    Packet p = { MAGIC, type, {}, id };
-    Real_sendto(g_sock, (const char *)&p, sizeof(p), 0, (const sockaddr *)&to, sizeof(to));
+bool ServerDest(Dest &out) {
+    AcquireSRWLockShared(&g_lock);
+    bool ok = g_best >= 0;
+    if (ok) out = g_dests[g_best];
+    ReleaseSRWLockShared(&g_lock);
+    return ok;
 }
 
 void SendToServer(uint8_t type, uint32_t id) {
-    uint32_t ip = g_server_ip;
-    if (!ip) return;
-    sockaddr_in to = {};
-    to.sin_family = AF_INET;
-    to.sin_addr.s_addr = ip;
-    for (int i = 0; i < PORTS; ++i) {
-        to.sin_port = htons((u_short)(g_port_base + i));
-        Send(to, type, id);
-    }
+    Dest d;
+    if (ServerDest(d)) Send(d.sock, d.addr, type, id);
 }
 
 // --- server: the clients it relays to -----------------------------------------------
-struct Client { sockaddr_in addr; ULONGLONG last; };
+struct Client { SOCKET sock; sockaddr_in addr; ULONGLONG last; };
 Client g_clients[64];
 
-void Remember(const sockaddr_in &a) {
+void Remember(SOCKET s, const sockaddr_in &a) {
     ULONGLONG now = GetTickCount64();
+    AcquireSRWLockExclusive(&g_lock);
     int slot = -1, oldest = 0;
-    for (int i = 0; i < 64; ++i) {
+    bool known = false;
+    for (int i = 0; i < 64 && !known; ++i) {
         Client &c = g_clients[i];
-        if (c.addr.sin_addr.s_addr == a.sin_addr.s_addr && c.addr.sin_port == a.sin_port) { c.last = now; return; }
-        if (!c.last && slot < 0) slot = i;
-        if (c.last < g_clients[oldest].last) oldest = i;
+        if (c.last && Same(c.addr, a)) { c.last = now; c.sock = s; known = true; }
+        else {
+            if (!c.last && slot < 0) slot = i;
+            if (c.last < g_clients[oldest].last) oldest = i;
+        }
     }
-    if (slot < 0) slot = oldest;
-    g_clients[slot] = { a, now };
+    if (!known) g_clients[slot < 0 ? oldest : slot] = { s, a, now };
+    ReleaseSRWLockExclusive(&g_lock);
     char buf[48];
-    Log("client %s says hello", Addr(a, buf, sizeof(buf)));
+    if (!known) Log("client %s has VeilNet", Addr(a, buf, sizeof(buf)));
 }
 
-DWORD WINAPI Receive(LPVOID) {
-    for (;;) {
-        Packet p;
-        sockaddr_in from;
-        int flen = sizeof(from);
-        int n = recvfrom(g_sock, (char *)&p, sizeof(p), 0, (sockaddr *)&from, &flen);
-        if (n == SOCKET_ERROR) {
-            if (WSAGetLastError() == WSAECONNRESET) continue;    // an earlier send hit a closed port
-            Sleep(100);
-            continue;
+int Relay(const sockaddr_in &from, uint32_t id) {
+    Client list[64];
+    AcquireSRWLockShared(&g_lock);
+    memcpy(list, g_clients, sizeof(list));
+    ReleaseSRWLockShared(&g_lock);
+    ULONGLONG now = GetTickCount64();
+    int n = 0;
+    for (const Client &c : list)
+        if (c.last && now - c.last < 30000 && !Same(c.addr, from)) {
+            Send(c.sock, c.addr, 'V', id);
+            Send(c.sock, c.addr, 'V', id);                      // once more, against loss
+            ++n;
         }
-        if (n != sizeof(p) || p.magic != MAGIC) continue;
-        char buf[48];
-        if (g_server) {
-            Remember(from);
-            if (p.type != 'V' || !FirstTime(p.id)) continue;
+    return n;
+}
+
+void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
+    char buf[48];
+    if (g_server) {
+        Remember(s, from);
+        if (p.type == 'V' && FirstTime(p.id)) {
             AddToken();
-            ULONGLONG now = GetTickCount64();
-            int relayed = 0;
-            for (const Client &c : g_clients)
-                if (c.last && now - c.last < 30000 &&
-                    !(c.addr.sin_addr.s_addr == from.sin_addr.s_addr && c.addr.sin_port == from.sin_port)) {
-                    Send(c.addr, 'V', p.id);
-                    ++relayed;
-                }
-            Log("veil %08x from %s: token here, relayed to %d client(s)", p.id, Addr(from, buf, sizeof(buf)), relayed);
-        } else if (p.type == 'V' && FirstTime(p.id)) {
-            AddToken();
-            Log("veil %08x from %s: token here", p.id, Addr(from, buf, sizeof(buf)));
+            int n = Relay(from, p.id);
+            Log("veil %08x from %s: token here, relayed to %d client(s)", p.id, Addr(from, buf, sizeof(buf)), n);
+        }
+    } else if (p.type == 'V' && FirstTime(p.id)) {
+        AddToken();
+        Log("veil %08x from the server: token here", p.id);
+    }
+}
+
+// --- the hooks ----------------------------------------------------------------------
+int WSAAPI Hooked_sendto(SOCKET s, const char *buf, int len, int flags, const sockaddr *to, int tolen) {
+    if (!g_server) SawSend(s, to);
+    return Real_sendto(s, buf, len, flags, to, tolen);
+}
+
+// VeilNet's packets are taken out here; the game gets the next datagram, or "nothing
+// waiting" (WSAEWOULDBLOCK) when there is none, instead of a packet it cannot read.
+int WSAAPI Hooked_recvfrom(SOCKET s, char *buf, int len, int flags, sockaddr *from, int *fromlen) {
+    for (;;) {
+        sockaddr_storage own;
+        int own_len = sizeof(own);
+        sockaddr *f = from ? from : (sockaddr *)&own;
+        int *fl = from ? fromlen : &own_len;
+        int saved = fl ? *fl : 0;
+        int n = Real_recvfrom(s, buf, len, flags, f, fl);
+        if (n != (int)sizeof(Packet) || (flags & MSG_PEEK) || !fl) return n;
+        Packet p;
+        memcpy(&p, buf, sizeof(p));
+        if (p.magic != MAGIC || p.magic2 != MAGIC2) return n;
+        if (f->sa_family == AF_INET) Handle(s, p, *(const sockaddr_in *)f);
+        *fl = saved;
+        u_long waiting = 0;
+        if (ioctlsocket(s, FIONREAD, &waiting) != 0 || waiting == 0) {
+            WSASetLastError(WSAEWOULDBLOCK);
+            return SOCKET_ERROR;
         }
     }
 }
@@ -254,7 +256,7 @@ DWORD WINAPI Receive(LPVOID) {
 DWORD WINAPI Tick(LPVOID) {
     volatile LONG *uses = (volatile LONG *)(g_base + USE_COUNTER_RVA);
     LONG seen_uses = *uses, seen_veils = g_shared->veils, seen_barriers = g_shared->barriers;
-    uint32_t logged_server = 0;
+    sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0;
     for (;;) {
         Sleep(5);
@@ -265,22 +267,22 @@ DWORD WINAPI Tick(LPVOID) {
                 uint32_t id = GetTickCount() * 2654435761u ^ GetCurrentProcessId() << 16 ^ (uint32_t)u;
                 FirstTime(id);
                 AddToken();
+                Dest d;
+                bool ok = ServerDest(d);
                 SendToServer('V', id);
                 SendToServer('V', id);                           // once more, against loss
-                Log("veil used here: token here, veil %08x sent to the server", id);
+                Log(ok ? "veil used here: token here, veil %08x sent to the server"
+                       : "veil used here: token here (veil %08x not sent: no game server connection seen yet)", id);
             }
             ULONGLONG now = GetTickCount64();
             if (now >= next_hello) {
                 next_hello = now + 2000;
                 SendToServer('H', 0);
-                if (g_server_ip != logged_server) {
-                    logged_server = g_server_ip;
-                    char ip[32];
-                    in_addr a;
-                    a.s_addr = logged_server;
-                    inet_ntop(AF_INET, &a, ip, sizeof(ip));
-                    Log("server %s (udp %d-%d)%s", ip, g_port_base, g_port_base + PORTS - 1,
-                        g_server_fixed ? ", from VeilNet.ini" : "");
+                Dest d;
+                if (ServerDest(d) && !Same(d.addr, logged_server)) {
+                    logged_server = d.addr;
+                    char buf[48];
+                    Log("server %s (the game's own connection)", Addr(d.addr, buf, sizeof(buf)));
                 }
             }
         }
@@ -293,53 +295,15 @@ DWORD WINAPI Tick(LPVOID) {
 DWORD WINAPI Install(LPVOID) {
     g_base = (uint8_t *)GetModuleHandleW(nullptr);
     g_shared = (Shared *)(g_base + TOKEN_RVA);
-    const char *cmd = GetCommandLineA();
-    g_server = strstr(cmd, " -server") != nullptr;
-
-    char ini[MAX_PATH], server[64];
-    strcpy_s(ini, g_log_path);
-    if (char *dot = strrchr(ini, '.')) strcpy_s(dot, MAX_PATH - (dot - ini), ".ini");
-    g_port_base = GetPrivateProfileIntA("veil", "port", 6970, ini);
-    GetPrivateProfileStringA("veil", "server", "", server, sizeof(server), ini);
-
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) { Log("WSAStartup failed"); return 0; }
-    if (server[0]) {
-        in_addr a;
-        if (inet_pton(AF_INET, server, &a) == 1) { g_server_ip = a.s_addr; g_server_fixed = true; }
-        else Log("VeilNet.ini server=%s is not an IPv4 address; finding the server from the game's traffic", server);
-    }
-
-    g_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (g_sock == INVALID_SOCKET) { Log("socket failed (%d)", WSAGetLastError()); return 0; }
-    sockaddr_in me = {};
-    me.sin_family = AF_INET;
-    me.sin_addr.s_addr = INADDR_ANY;
-    int port = 0;
-    if (g_server) {
-        for (int i = 0; i < PORTS && !port; ++i) {
-            me.sin_port = htons((u_short)(g_port_base + i));
-            if (bind(g_sock, (sockaddr *)&me, sizeof(me)) == 0) port = g_port_base + i;
-        }
-        if (!port) { Log("server: no free udp port in %d-%d", g_port_base, g_port_base + PORTS - 1); return 0; }
-        Log("server: listening on udp %d", port);
-    } else if (bind(g_sock, (sockaddr *)&me, sizeof(me)) != 0) {
-        Log("bind failed (%d)", WSAGetLastError());
-        return 0;
-    }
-
-    if (!g_server) {
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        DetourAttach(&(PVOID &)Real_sendto, Hooked_sendto);
-        DetourAttach(&(PVOID &)Real_WSASendTo, Hooked_WSASendTo);
-        DetourAttach(&(PVOID &)Real_send, Hooked_send);
-        DetourAttach(&(PVOID &)Real_WSASend, Hooked_WSASend);
-        LONG rc = DetourTransactionCommit();
-        if (rc != NO_ERROR) Log("watching the game's sends failed (%ld): set [veil] server= in VeilNet.ini", rc);
-        Log("client: veil uses go to the server on udp %d-%d", g_port_base, g_port_base + PORTS - 1);
-    }
-    if (HANDLE t = CreateThread(nullptr, 0, Receive, nullptr, 0, nullptr)) CloseHandle(t);
+    g_server = strstr(GetCommandLineA(), " -server") != nullptr;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID &)Real_sendto, Hooked_sendto);
+    DetourAttach(&(PVOID &)Real_recvfrom, Hooked_recvfrom);
+    LONG rc = DetourTransactionCommit();
+    if (rc != NO_ERROR) { Log("hooking sendto / recvfrom failed (%ld): UMBRAL VEIL stays local", rc); return 0; }
+    Log(g_server ? "server: relaying UMBRAL VEIL over the game's own connection"
+                 : "client: UMBRAL VEIL goes over the game's own connection");
     if (HANDLE t = CreateThread(nullptr, 0, Tick, nullptr, 0, nullptr)) CloseHandle(t);
     return 0;
 }
@@ -351,7 +315,7 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
         DisableThreadLibraryCalls(self);
         GetModuleFileNameA(self, g_log_path, MAX_PATH);
         if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "VeilNet.log");
-        // Winsock and the hooks are set up off the loader lock.
+        // The hooks are set up off the loader lock.
         if (HANDLE t = CreateThread(nullptr, 0, Install, nullptr, 0, nullptr)) CloseHandle(t);
     }
     return TRUE;

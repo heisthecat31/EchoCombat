@@ -33,17 +33,11 @@ What it writes into the game
     bin\win10\plugins\loader.log.
 
 UMBRAL VEIL shows up as an energy barrier for other players?
-  VeilNet.dll tells the other players' games which wall is the veil, through the
-  game server, over its own UDP ports 6970-6977. On the PC that runs the game
-  server, let echovr.exe receive UDP on those ports (Windows asks the first time;
-  allow it) and, if players connect from outside your network, forward UDP
-  6970-6977 to that PC like the game's own port. bin\win10\plugins\VeilNet.log
-  on the server and on each player's PC shows what was sent and received. To use
-  other ports, or if a client cannot find the server by itself, create
-  bin\win10\plugins\VeilNet.ini on each PC:
-      [veil]
-      port=6970
-      server=203.0.113.5      (clients only: the game server's IP address)
+  VeilNet.dll tells the other players' games which wall is the veil. It goes
+  through the game's own connection to the server (no extra ports), so every
+  player and the server need it: install EchoCombat on all of them.
+  bin\win10\plugins\VeilNet.log on the server and on each player's PC shows
+  what was sent and received.
 
 Echo will not start on a PC (e.g. the server)?
   Look at bin\win10\plugins\loader.log first, then run doctor.bat there. It
