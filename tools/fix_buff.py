@@ -1,10 +1,10 @@
-"""POWER BOOST (the cut `buff` tac mod) as a sixth tac mod: Repair Matrix in dark gold.
+"""POWER BOOST (the cut `buff` tac mod) as a sixth tac mod: Repair Matrix in purplish red.
 
 The engine has no buff / damage-reduction system a script can drive, but it
 has Repair Matrix's: the heal bubble component every player carries
 (CR15NetHealBubbleCR), run from `mp_combat_ability_heal` (6a0f689e5b91c666)
 through the R15NetHealBubble* nodes. POWER BOOST is that tac mod, same
-behaviour and tuning, recoloured from green to dark gold:
+behaviour and tuning, recoloured from green to purplish red (the code still says gold):
 
 1. `buff` is registered in gear_table.tacmods as POWER BOOST.
 2. Its script, `mp_combat_ability_buff` (CSymbol64 4b65d1b0088d2682), is a
@@ -37,7 +37,7 @@ behaviour and tuning, recoloured from green to dark gold:
    fills in the bubble keys from len / init_angle / heal_amt_on_success /
    dr_duration / conn_time. PowerBoost.dll narrows the bubble's radius check to
    the init_angle cone of the owner's aim and gives each linked teammate the dr
-   buff; the bubble's tethers are the (gold) link. Next: the revive.
+   buff; the bubble's tethers are the (recoloured) link. Next: the revive.
 
     python tools/fix_buff.py --base <stage> --src <extract root> --out <dir>
 """
@@ -62,20 +62,22 @@ BUFF_SCRIPT = 0x4B65D1B0088D2682       # CSymbol64("mp_combat_ability_buff")
 BUFF = 0xC8C33E48386618B6              # CSymbol64("buff")
 BUFF_GEAR = {"name": "buff", "display_name": "POWER BOOST"}
 
-#: Dark gold. Material / light colours become max(rgb) * GOLD; the fullscreen
-#: tint becomes min + (max - min) * TINT.
-GOLD = (0.80, 0.56, 0.06)
-TINT = (1.00, 0.78, 0.25)
+#: Purplish red (it was dark gold; the names stayed). Material / light colours become
+#: max(rgb) * GOLD; the fullscreen tint becomes min + (max - min) * TINT.
+GOLD = (0.80, 0.06, 0.55)
+TINT = (1.00, 0.30, 0.75)
 
 #: Repair Matrix's particle effects have their green baked in; the buff script spawns
-#: gold copies of them instead (Repair Matrix keeps the originals).
+#: recoloured copies of them instead (Repair Matrix keeps the originals).
 #: original -> copy: the beam (one per bubble slot) and the healer's hand effect.
 PARTICLES = {0x39424707BB2DF316: 0xFA379871313745A5,    # -> CSymbol64("fx_power_boost_beam")
              0xBE696D7D300CBAF7: 0xFA3798713B334AAC}    # -> CSymbol64("fx_power_boost_hand")
 #: each effect is two assets: the effect itself (recoloured) and a companion (copied)
 PARTICLE_TYPE, PARTICLE_COMPANION = "3ae7c41914252baa", "be45c22fa8c2d3f"
-#: peak-preserving gold for the effects: rgb = max(rgb) * FX_GOLD
-FX_GOLD = (1.00, 0.70, 0.075)
+#: the effects' colour: rgb = min + (max - min) * FX_GOLD (keeps their white cores white).
+#: Red and blue are kept close, so it stays purplish red whether the effect's 8-bit
+#: colours are stored RGB or BGR.
+FX_GOLD = (1.00, 0.075, 0.69)
 
 ENTRY = bytes.fromhex("48895c2408")   # mov [rsp+8], rbx: first instruction of each Execute
 #: (Execute rva in the heal script, colour field offset in the node, mode)
@@ -138,31 +140,40 @@ def link_tuning(t: dict) -> dict:
 
 
 def gold_particles(effect: bytes, gold=FX_GOLD) -> tuple[bytes, list]:
-    """Recolour the green in a particle effect asset (format not mapped, so heuristic):
-    every float rgb triple with green clearly on top (> 1.2x red and blue, every
-    channel 0.005..4: real colours here carry a little red and blue, unlike the
-    velocities and ranges around them) becomes max(rgb) * gold, scanning forward and stepping past each one
-    changed. Direction-like triples made of 0s and 1s, and the (0.01, 1, 0.04)
-    triple both effects carry outside any colour, are left alone."""
+    """Recolour the green in a particle effect asset (format not mapped, so heuristic),
+    each colour to min + (max - min) * gold:
+
+    * float rgb triples with green clearly on top (> 1.2x red and blue, every channel
+      0.005..4: real colours here carry a little red and blue, unlike the velocities
+      and ranges around them), scanning forward and stepping past each one changed;
+      the (0.01, 1, 0.04) triple both effects carry outside any colour is left alone;
+    * 8-bit colours: 4-byte aligned words with a zero top byte (as a float that would
+      be a denormal, which no real value here is) and green clearly on top, e.g. the
+      light green 7f ff 7f."""
     out = bytearray(effect)
     changed, o = [], 0
+    span = lambda c: [min(c) + (max(c) - min(c)) * k for k in gold]
     while o + 12 <= len(out):
         r, g, b = struct.unpack_from("<3f", out, o)
         vals = (r, g, b)
         ok = (all(0.005 <= v <= 4 for v in vals) and g >= 0.05 and g > 1.2 * r and g > 1.2 * b
-              and not all(v in (0.0, 1.0) for v in vals)
               and not (abs(r - 0.01) < 1e-4 and g == 1.0 and abs(b - 0.04) < 1e-4))
         if ok:
-            struct.pack_into("<3f", out, o, *(g * c for c in gold))
+            struct.pack_into("<3f", out, o, *span(vals))
             changed.append((o, vals))
             o += 12
         else:
             o += 4
+    for o in range(0, len(out) - 3, 4):
+        c0, c1, c2, top = out[o:o + 4]
+        if top == 0 and c2 < 0x80 and c1 >= 0x40 and c1 > 1.3 * c0 and c1 > 1.3 * c2:
+            out[o:o + 3] = bytes(min(255, round(v)) for v in span((c0, c1, c2)))
+            changed.append((o, (c0 / 255, c1 / 255, c2 / 255)))
     return bytes(out), changed
 
 
 def gold_particle_refs(script: bytes) -> bytes:
-    """Point the buff script's particle spawns at the gold copies."""
+    """Point the buff script's particle spawns at the recoloured copies."""
     out = bytearray(script)
     for old, new in PARTICLES.items():
         o = struct.pack("<Q", old)
@@ -379,7 +390,7 @@ def main(argv) -> int:
                              (PARTICLE_COMPANION, open(os.path.join(args.src, PARTICLE_COMPANION, f"{old:x}"), "rb").read())):
             os.makedirs(os.path.join(args.out, folder), exist_ok=True)
             open(os.path.join(args.out, folder, f"{new:x}"), "wb").write(data)
-        print(f"particle {old:x} -> gold copy {new:x}: {len(changed)} colour(s) "
+        print(f"particle {old:x} -> recoloured copy {new:x}: {len(changed)} colour(s) "
               + ", ".join("(%.2f %.2f %.2f)" % c for _, c in changed))
     mz = heal.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
@@ -390,7 +401,7 @@ def main(argv) -> int:
           f"heal {tuning['heal_amt_on_success']} (needs PowerBoost.dll on server and clients)")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{BUFF_SCRIPT:x}"), "wb").write(bytes(4))
-    print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (Repair Matrix in gold {gold}, tint {tint})")
+    print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (Repair Matrix recoloured to {gold}, tint {tint})")
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)

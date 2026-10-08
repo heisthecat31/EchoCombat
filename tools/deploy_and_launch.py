@@ -11,7 +11,7 @@
      fix_shared_frisbee.py
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
      veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
-     fix_buff.py                             POWER BOOST tac mod: Repair Matrix in dark gold
+     fix_buff.py                             POWER BOOST tac mod: Repair Matrix in purplish red
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -174,7 +174,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
         tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()))
-        if buff:                              # POWER BOOST: Repair Matrix in dark gold, sixth tac mod
+        if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
             tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr))
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
