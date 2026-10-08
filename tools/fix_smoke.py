@@ -154,70 +154,91 @@ def rel32(src_next, target):
     return struct.pack("<i", target - src_next)
 
 
-def add_smoke_branch(pe_bytes: bytes) -> bytes:
+def add_branches(pe_bytes: bytes, branches) -> bytes:
+    """Chain new tac mods after wraith: wraith -> NEW_NODE -> NEW_NODE+1 -> ...;
+    branches = [(CSymbol64 of the tac mod's name, its script hash), ...]."""
     pe = PE(pe_bytes)
     if pe.read(EXEC_ENTRY, 9) != EXEC_ENTRY_OLD:
         if pe.read(EXEC_ENTRY, 1) == b"\xe9":
             return pe_bytes                           # already patched
         raise ValueError("unexpected execute_node entry: wrong controller build")
-    node = bytearray(pe.read(NODE_FN, NODE_LEN))
-    if hashlib.sha256(node).hexdigest() != NODE_SHA:
+    original = pe.read(NODE_FN, NODE_LEN)
+    if hashlib.sha256(original).hexdigest() != NODE_SHA:
         raise ValueError("barrier call node differs: wrong controller build")
     if pe.read(NEXT_DEFAULT, 5) != NEXT_DEFAULT_OLD:
         raise ValueError("unexpected next_node default: wrong controller build")
+    if u64(original, NODE_SCRIPT_IMM) != BARRIER_SCRIPT:
+        raise ValueError("barrier script hash not where expected")
 
     _, _, vsize, text_va, _, _ = pe.section(b".text")
-    cave = (text_va + vsize + 15) & ~15
-    # 1. "equipped == smoke"
-    expr_rva = cave
-    expr = (bytes.fromhex("488b01 488b4068 48ba") + struct.pack("<Q", SMOKE)
-            + bytes.fromhex("483990f0000000 0f94c0 c3"))
-    # 2. the copied node
-    node_rva = (expr_rva + len(expr) + 15) & ~15
-    for off, target, nxt in FIXUPS:
-        if off == FLAG_CALL:
-            target = expr_rva
-        node[off:off + 4] = rel32(node_rva + nxt, target)
-    if u64(node, NODE_SCRIPT_IMM) != BARRIER_SCRIPT:
-        raise ValueError("barrier script hash not where expected")
-    struct.pack_into("<Q", node, NODE_SCRIPT_IMM, SMOKE_SCRIPT)
-    # 3. execute_node hook
-    exec_rva = (node_rva + NODE_LEN + 15) & ~15
-    stub_a = bytearray(bytes.fromhex("488b4110 483d") + struct.pack("<I", NEW_NODE) + b"\x0f\x84\0\0\0\0"
-                       + b"\xba" + struct.pack("<I", 0x8936533F) + b"\xe9\0\0\0\0")
-    stub_a[12:16] = rel32(exec_rva + 16, node_rva)
-    stub_a[22:26] = rel32(exec_rva + 26, EXEC_RESUME)
-    # 4. next_node hook: wraith --out--> new node; everything else as before
+    at = (text_va + vsize + 15) & ~15
+    writes, nodes = [], []
+    for i, (symbol, script) in enumerate(branches):
+        # 1. "equipped == <name>"
+        expr_rva = at
+        expr = (bytes.fromhex("488b01 488b4068 48ba") + struct.pack("<Q", symbol)
+                + bytes.fromhex("483990f0000000 0f94c0 c3"))
+        # 2. the copied node, calling this tac mod's script
+        node_rva = (expr_rva + len(expr) + 15) & ~15
+        node = bytearray(original)
+        for off, target, nxt in FIXUPS:
+            node[off:off + 4] = rel32(node_rva + nxt, expr_rva if off == FLAG_CALL else target)
+        struct.pack_into("<Q", node, NODE_SCRIPT_IMM, script)
+        writes += [(expr_rva, expr), (node_rva, bytes(node))]
+        nodes.append((NEW_NODE + i, node_rva))
+        at = (node_rva + NODE_LEN + 15) & ~15
+    # 3. execute_node hook: each new node id runs its copy
+    exec_rva = at
+    stub_a = bytearray(bytes.fromhex("488b4110"))                     # mov rax, [rcx+10h]
+    for node_id, node_rva in nodes:
+        stub_a += b"\x48\x3d" + struct.pack("<I", node_id) + b"\x0f\x84"   # cmp rax, id; je copy
+        stub_a += rel32(exec_rva + len(stub_a) + 4, node_rva)
+    stub_a += b"\xba" + struct.pack("<I", 0x8936533F) + b"\xe9"            # mov edx, ...; jmp resume
+    stub_a += rel32(exec_rva + len(stub_a) + 4, EXEC_RESUME)
+    # 4. next_node hook: wraith --out--> first new node --out--> second ...
     next_rva = (exec_rva + len(stub_a) + 15) & ~15
-    stub_b = (b"\x48\x81\xf9" + struct.pack("<I", WRAITH_NODE)    # cmp rcx, wraith
-              + b"\x75\x1a"                                       # jne L
-              + b"\x48\x85\xd2" + b"\x74\x0f"                     # test rdx,rdx; je G
-              + b"\x48\xb8" + struct.pack("<Q", OUT_PORT)         # mov rax, out
-              + b"\x48\x39\xc2" + b"\x75\x06"                     # cmp rdx,rax; jne L
-              + b"\xb8" + struct.pack("<I", NEW_NODE) + b"\xc3"   # G: mov eax,new; ret
-              + b"\x48\x83\xc8\xff\xc3")                          # L: or rax,-1; ret
+    chain = [WRAITH_NODE] + [n for n, _ in nodes]
+    blocks = len(nodes) * 35
+    stub_b = bytearray()
+    for prev, new in zip(chain, chain[1:]):
+        base = len(stub_b)
+        to_l = blocks - (base + 29)                                  # from the 2nd jne to L
+        stub_b += (b"\x48\x81\xf9" + struct.pack("<I", prev)          # cmp rcx, prev
+                   + b"\x75\x1a"                                     # jne next block
+                   + b"\x48\x85\xd2" + b"\x74\x0f"                   # test rdx,rdx; je G
+                   + b"\x48\xb8" + struct.pack("<Q", OUT_PORT)       # mov rax, out
+                   + b"\x48\x39\xc2" + b"\x75" + bytes([to_l])       # cmp rdx,rax; jne L
+                   + b"\xb8" + struct.pack("<I", new) + b"\xc3")      # G: mov eax,new; ret
+        assert len(stub_b) - base == 35 and to_l < 128
+    stub_b += b"\x48\x83\xc8\xff\xc3"                              # L: or rax,-1; ret
     end = next_rva + len(stub_b)
 
     pe.grow_text(end - text_va)
-    pe.write(expr_rva, expr)
-    pe.write(node_rva, bytes(node))
+    for rva, data in writes:
+        pe.write(rva, data)
     pe.write(exec_rva, bytes(stub_a))
-    pe.write(next_rva, stub_b)
+    pe.write(next_rva, bytes(stub_b))
     pe.write(EXEC_ENTRY, b"\xe9" + rel32(EXEC_ENTRY + 5, exec_rva) + b"\x90" * 4)
     pe.write(NEXT_DEFAULT, b"\xe9" + rel32(NEXT_DEFAULT + 5, next_rva))
 
-    # 5. .pdata entry for the copied node (sorted: it is the highest address)
+    # 5. .pdata entries for the copied nodes (sorted: they are the highest addresses)
     exc_rva, exc_size = struct.unpack_from("<II", pe.d, pe.opt + 112 + 3 * 8)
     o, _, pvsize, pva, prsize, _ = pe.section(b".pdata")
-    if exc_rva != pva or exc_size + 12 > prsize:
-        raise ValueError("no room for a .pdata entry")
+    if exc_rva != pva or exc_size + 12 * len(nodes) > prsize:
+        raise ValueError("no room for .pdata entries")
     last = u32(pe.read(exc_rva + exc_size - 12, 4), 0)
-    if last >= node_rva:
+    if last >= nodes[0][1]:
         raise ValueError(".pdata would not stay sorted")
-    pe.write(exc_rva + exc_size, struct.pack("<III", node_rva, node_rva + NODE_LEN, NODE_UNWIND))
-    struct.pack_into("<I", pe.d, pe.opt + 112 + 3 * 8 + 4, exc_size + 12)
-    struct.pack_into("<I", pe.d, o + 8, max(pvsize, exc_size + 12))
+    for _, node_rva in nodes:
+        pe.write(exc_rva + exc_size, struct.pack("<III", node_rva, node_rva + NODE_LEN, NODE_UNWIND))
+        exc_size += 12
+    struct.pack_into("<I", pe.d, pe.opt + 112 + 3 * 8 + 4, exc_size)
+    struct.pack_into("<I", pe.d, o + 8, max(pvsize, exc_size))
     return bytes(pe.d)
+
+
+def add_smoke_branch(pe_bytes: bytes) -> bytes:
+    return add_branches(pe_bytes, [(SMOKE, SMOKE_SCRIPT)])
 
 
 def smoke_script(barrier_asset: bytes, det_asset: bytes, **veil) -> bytes:
@@ -227,9 +248,10 @@ def smoke_script(barrier_asset: bytes, det_asset: bytes, **veil) -> bytes:
     return barrier_asset[:mz] + add_smoke_fx(barrier_asset[mz:], det_asset[dmz:], **veil)
 
 
-def patch_controller(asset: bytes) -> bytes:
+def patch_controller(asset: bytes, extra=()) -> bytes:
+    """The fifth branch (smoke), plus any `extra` (symbol, script) tac mods after it."""
     mz = asset.find(b"MZ")
-    return asset[:mz] + add_smoke_branch(asset[mz:])
+    return asset[:mz] + add_branches(asset[mz:], [(SMOKE, SMOKE_SCRIPT), *extra])
 
 
 def attach_smoke_script(blob: bytes) -> bytes:
@@ -266,6 +288,8 @@ def main(argv) -> int:
     ap.add_argument("--base", required=True, help="dir holding the live 607d858c90268f9a/ JSON")
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--with-buff", action="store_true",
+                    help="also give the controller POWER BOOST's branch (wraith -> smoke -> buff); fix_buff.py does the rest")
     ap.add_argument("--count", type=int, default=7, help="smoke clouds per use")
     ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
     ap.add_argument("--life", type=float, default=8.0, help="how much longer the smoke lasts than the detonator's")
@@ -288,8 +312,10 @@ def main(argv) -> int:
 
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     ctrl = open(os.path.join(args.src, SCRIPTS, CONTROLLER), "rb").read()
-    open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(patch_controller(ctrl))
-    print(f"{SCRIPTS}/{CONTROLLER}: fifth tac mod branch -> mp_combat_ability_smoke")
+    extra = [(0xC8C33E48386618B6, 0x4B65D1B0088D2682)] if args.with_buff else []   # buff, its script
+    open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(patch_controller(ctrl, extra))
+    print(f"{SCRIPTS}/{CONTROLLER}: fifth tac mod branch -> mp_combat_ability_smoke"
+          + (", sixth -> mp_combat_ability_buff" if extra else ""))
 
     barrier = open(os.path.join(args.src, SCRIPTS, f"{BARRIER_SCRIPT:x}"), "rb").read()
     det = open(os.path.join(args.src, SCRIPTS, DET_SCRIPT), "rb").read()

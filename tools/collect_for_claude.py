@@ -72,10 +72,12 @@ WHOLE_FOLDERS = {
 }
 #: Actors whose every table entry is collected (barrier wall, to clone as the smoke wall).
 ACTOR_SCAN = [0x3D8B8CA4D5292926]
-#: Particle effects the ordnance scripts spawn (stun field x2, arc x2, burst):
+#: Particle effects the ordnance and tac mod scripts spawn (stun field x2, arc x2, burst, heal x2):
 #: whichever folder holds them is the particle effect asset type.
 PARTICLES = ["de22b615c9c69cdd", "4ce12ae42c1b6269", "413d710284c73629",
-             "6089d3e04ce94bb3", "bff34ce49d120472"]
+             "6089d3e04ce94bb3", "bff34ce49d120472",
+             # Repair Matrix's (green, baked in): to recolour for POWER BOOST
+             "be696d7d300cbaf7", "39424707bb2df316"]
 #: UMBRAL VEIL's sound: the unused 14 s sound 2092801294_19531070 (bank id, media id).
 #: Banks with either id, and any streamed .wem with the media id, are copied.
 SOUND_BANKS = {2092801294}

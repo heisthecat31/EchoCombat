@@ -11,6 +11,7 @@
      fix_shared_frisbee.py
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
      veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
+     fix_buff.py                             POWER BOOST tac mod: Repair Matrix in dark gold
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -84,6 +85,8 @@ SMOKE_SCRIPT = "94ba7ca09dcf7b0b"
 STUN_SCRIPT = "190ed14ff6dc4ad8"
 SOUND_BANK_TYPE, VEIL_BANK = "6d358eef7bb85a98", "3f1464db1fe49b5"
 WALL_SCRIPT = "ac4e9374a146d3a4"
+HEAL_SCRIPT = "6a0f689e5b91c666"
+BUFF_SCRIPT = "4b65d1b0088d2682"
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 SOURCE = os.path.join(ROOT, "build", "source")
 
@@ -120,6 +123,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, STUN_SCRIPT),
                                                     (SOUND_BANK_TYPE, VEIL_BANK),
                                                     (SCRIPTS_TYPE, WALL_SCRIPT),
+                                                    (SCRIPTS_TYPE, HEAL_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
@@ -147,7 +151,7 @@ def veil_mailbox(installs) -> str:
 
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
-          veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True):
+          veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -162,7 +166,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         tool("fix_drone_bullet.py", *src)
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
-        tool("fix_smoke.py", "--base", STAGE, *src, *veil)
+        tool("fix_smoke.py", "--base", STAGE, *src, *veil, *(("--with-buff",) if buff else ()))
+        if buff:                              # POWER BOOST: Repair Matrix in dark gold, sixth tac mod
+            tool("fix_buff.py", "--base", STAGE, *src)
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)
     tool("fix_dot_stick.py", *src)
@@ -199,14 +205,13 @@ def repack(install: str):
         sys.exit(f"no manifest under {data}")
     print(f"\n== repacking {install}")
     run([evrtool(), "repack", data, STAGE])
-    for script in (DOT_TRIGGER_SCRIPT,) + ((SMOKE_SCRIPT,) if os.path.isdir(
-            os.path.join(STAGE, "991421b41de58370")) and os.path.exists(
-            os.path.join(STAGE, "991421b41de58370", SMOKE_SCRIPT)) else ()):
+    for script in (DOT_TRIGGER_SCRIPT,) + tuple(s for s in (SMOKE_SCRIPT, BUFF_SCRIPT) if os.path.exists(
+            os.path.join(STAGE, "991421b41de58370", s))):
         out = subprocess.run([evrtool(), "findlive", data, script], capture_output=True, text=True).stdout
         for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
             if f"{t}/{script}" not in out:
                 sys.exit(f"script {script} ({t}) missing from {install}'s manifest after repack")
-    print("   new scripts present: DOT trigger, smoke")
+    print("   new scripts present: DOT trigger, smoke, buff")
     staged_bank = os.path.join(STAGE, SOUND_BANK_TYPE, VEIL_BANK)
     if os.path.exists(staged_bank):
         want = os.path.getsize(staged_bank)
@@ -373,6 +378,7 @@ def main(argv) -> int:
                          "placed, so the sound came ~20 s late, from the player). Default: on the player")
     ap.add_argument("--veil-stock-sound", action="store_true",
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
+    ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
@@ -395,7 +401,7 @@ def main(argv) -> int:
                                   "--alpha", args.veil_alpha, "--shade", args.veil_shade)
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
-              not args.veil_stock_sound)
+              not args.veil_stock_sound, not args.no_buff)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)
