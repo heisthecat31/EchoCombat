@@ -1,4 +1,4 @@
-"""Read and rebuild `CJsonResourceWin10` blobs.
+r"""Read and rebuild `CJsonResourceWin10` blobs.
 
 An Echo VR JSON resource is a 544-byte header followed by the raw, minified
 JSON bytes -- no compression, no terminator:

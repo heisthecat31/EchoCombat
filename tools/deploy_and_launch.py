@@ -9,6 +9,7 @@
      fix_drone_script.py, fix_drone_bullet.py
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
+     fix_smoke.py                            UMBRAL VEIL tac mod (stage 1)
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -73,6 +74,7 @@ SCRIPTS_TYPE = "6eace9f64204fd0"
 DET_SCRIPT = "190ed14fe3da5ed1"
 DOT_SCRIPT = "97d0806e6ea89130"
 SHARED_SCRIPT = "190ed14fe6c74dd3"
+TACMOD_CONTROLLER = "4b65d1b009973281"
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -102,7 +104,8 @@ def overlay(base: str, extract: str):
     """build/source: the tables the fix tools read, gun patch copy first, else the extract."""
     from_patch = set()
     wanted = [(t, lvl) for t in FIX_TYPES for lvl in LEVELS] + [(SCRIPTS_TYPE, DET_SCRIPT), (SCRIPTS_TYPE, DOT_SCRIPT),
-                                                    (SCRIPTS_TYPE, SHARED_SCRIPT)]
+                                                    (SCRIPTS_TYPE, SHARED_SCRIPT),
+                                                    (SCRIPTS_TYPE, TACMOD_CONTROLLER)]
     for t, asset in wanted:
         src = os.path.join(base, t, asset)
         if os.path.exists(src):
@@ -130,6 +133,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
         tool("fix_drone.py", "--base", STAGE, "--out", STAGE)
         tool("fix_drone_script.py", *src)
         tool("fix_drone_bullet.py", *src)
+    # UMBRAL VEIL (smoke tac mod), stage 1: registered, and enables the barrier.
+    tool("fix_smoke.py", "--base", STAGE, *src)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
