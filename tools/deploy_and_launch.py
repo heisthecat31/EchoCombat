@@ -13,7 +13,8 @@
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
    want live: anything left out goes back to stock.
 3. `evrtool findlive` checks that the new DOT trigger script made it into each
-   manifest.
+   manifest, and its DLL is written to `bin/win10/scripts/`, which is where
+   Echo actually loads script code from.
 4. Launch the headless instances from the server install, then the VR client
    from the other install.
 
@@ -158,6 +159,22 @@ def repack(install: str):
     print("   DOT trigger script present:", out.strip())
 
 
+def install_script_dll(install: str):
+    """Echo loads script code from bin/win10/scripts/<hash>.dll, not from the package:
+    put the DOT trigger script's PE there. The detonator's DLL on disk is checked
+    against its packaged asset first, to be sure the two hold the same image."""
+    folder = os.path.join(install, "bin", "win10", "scripts")
+    os.makedirs(folder, exist_ok=True)
+    det = open(os.path.join(SOURCE, SCRIPTS_TYPE, DET_SCRIPT), "rb").read()
+    det_dll = os.path.join(folder, f"{DET_SCRIPT}.dll")
+    if os.path.exists(det_dll) and open(det_dll, "rb").read() != det[det.find(b"MZ"):]:
+        print(f"   warning: {det_dll} differs from the packaged detonator script")
+    asset = open(os.path.join(STAGE, SCRIPTS_TYPE, DOT_TRIGGER_SCRIPT), "rb").read()
+    dest = os.path.join(folder, f"{DOT_TRIGGER_SCRIPT}.dll")
+    open(dest, "wb").write(asset[asset.find(b"MZ"):])
+    print(f"   wrote {dest}")
+
+
 def launch(install: str, args: str, label: str):
     exe = os.path.join(install, EXE)
     print(f"launching {label}: {exe} {args}")
@@ -190,6 +207,7 @@ def main(argv) -> int:
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone)
         for install in (args.server_install, args.client_install):
             repack(install)
+            install_script_dll(install)
 
     if args.no_launch:
         return 0
