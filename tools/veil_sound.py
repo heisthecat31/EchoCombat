@@ -47,8 +47,9 @@ RATE = 48000
 LOC_EVENT, LOC_ACTION = 2819690668, 1031878165
 #: how many copies of the sound the event starts at once: each one starts on the same
 #: sample, so they add up (2 = +6 dB, 3 = +9.5 dB, 4 = +12 dB). The sound object itself
-#: is left alone: the stun-bouncing-off-a-barrier sound plays it too.
-LOC_COPIES = 2
+#: is left alone: the stun-bouncing-off-a-barrier sound plays it too. 6 = three times the
+#: earlier 2 (+15.6 dB over one copy).
+LOC_COPIES = 6
 LOC_SOUND, LOC_SOUND_BANK = 159312186, 3901061564
 #: RIFF header of the game's mono 48 kHz PCM wems, up to the data chunk's size.
 FMT = bytes.fromhex("666d742018000000feff010080bb0000007701000200100006000000014100004a554e4b0400000000000000")

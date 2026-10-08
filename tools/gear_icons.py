@@ -85,11 +85,20 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_DIRS = [os.path.join(ROOT_DIR, "ICONS", "hd"), os.path.join(ROOT_DIR, "ICONS")]
 #: element clones for items a canvas has no element for: (new, copied from)
 CLONES = [("GRENADE_DRONE", "GRENADE_DOT"), ("ABILITY_POINT", "ABILITY_SMOKE")]
-#: in the station's selection grid (the canvas with LOCK) an added element did not show
-#: (POINT's slot stayed empty, while the HUD showed its added one), so there an unused
-#: element of the canvas's own -- GRENADE_MINE, a cut item -- becomes the item's
-#: instead: (new name, element to copy, spare element it replaces)
+#: an unused element of a canvas's own -- GRENADE_MINE, a cut item -- becomes the item's
+#: instead of an added one wherever there is one: the equipment station only finds the
+#: elements its index lists (INDEX_CANVAS), and that index lists GRENADE_MINE's place.
+#: (new name, element to copy, spare element it replaces)
 REUSE = [("ABILITY_POINT", "ABILITY_SMOKE", "GRENADE_MINE")]
+#: The equipment station (canvas 72e4349798ae3ea1) holds 39 instances of the gear
+#: canvases (36 grid slots of 1e5d2a97184cad81, the 3 big boxes of 6083f456d52ef5f1)
+#: and, at its end, an index of every element in them: 24-byte records (key, slot,
+#: element name), key = CSymbol64 of "<slot path>.<element name>" (the slot's symbol
+#: continued with "." + the name), sorted by key as a signed number; the record count
+#: is the dword at +1A0h. An element the index does not list is never shown there,
+#: which is why POINT's slot and TAC-MOD box stayed empty. Its REUSE spares' records
+#: are renamed to the new element.
+INDEX_CANVAS, INDEX_COUNT = "72e4349798ae3ea1", 0x1A0
 GRID = 5                                 # cells per row / column of the right half
 EMPTY_CELL = GRID * GRID - 1             # never painted: fully transparent
 
@@ -302,20 +311,19 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
     report.append(f"{mine} element(s) and {len(atlas_sprites)} sprite(s) moved to the new texture")
 
     names = {element(d, j, E_NAME)[0]: j for j in range(n)}
-    if symbol64("LOCK") in names:
-        for new_name, from_name, spare_name in REUSE:
-            new, src_name, spare = symbol64(new_name), symbol64(from_name), symbol64(spare_name)
-            if new in names or src_name not in names or spare not in names:
-                continue
-            j = names.pop(spare)
-            at = ELEMENTS + j * ELEMENT_SIZE
-            keep = d[at + E_INDEX:at + E_INDEX + 16]                  # its own index and parent
-            src = ELEMENTS + names[src_name] * ELEMENT_SIZE
-            d[at:at + ELEMENT_SIZE] = d[src:src + ELEMENT_SIZE]
-            d[at + E_INDEX:at + E_INDEX + 16] = keep
-            struct.pack_into("<Q", d, at + E_NAME, new)
-            names[new] = j
-            report.append(f"{new_name} replaces {spare_name} (e{j}, a copy of {from_name})")
+    for new_name, from_name, spare_name in REUSE:
+        new, src_name, spare = symbol64(new_name), symbol64(from_name), symbol64(spare_name)
+        if new in names or src_name not in names or spare not in names:
+            continue
+        j = names.pop(spare)
+        at = ELEMENTS + j * ELEMENT_SIZE
+        keep = d[at + E_INDEX:at + E_INDEX + 16]                      # its own index and parent
+        src = ELEMENTS + names[src_name] * ELEMENT_SIZE
+        d[at:at + ELEMENT_SIZE] = d[src:src + ELEMENT_SIZE]
+        d[at + E_INDEX:at + E_INDEX + 16] = keep
+        struct.pack_into("<Q", d, at + E_NAME, new)
+        names[new] = j
+        report.append(f"{new_name} replaces {spare_name} (e{j}, a copy of {from_name})")
     # items a canvas has no element for: a copy of a sibling (same place) becomes theirs
     for new_name, from_name in CLONES:
         new, src_name = symbol64(new_name), symbol64(from_name)
@@ -384,6 +392,45 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
     return bytes(d), report
 
 
+def symbol64_from(seed: int, text: str) -> int:
+    """CSymbol64 of (the text `seed` hashes) + `text`: the hash carried on from `seed`."""
+    from le_symbol_names import SEEDS
+    r = seed
+    for byte in text.encode():
+        if 0x41 <= byte <= 0x5A:
+            byte += 0x20
+        r = ((r << 8) & 0xFFFFFFFFFFFFFFFF) ^ SEEDS[(r >> 56) & 0xFF] ^ byte
+    return r
+
+
+def patch_index(d: bytes) -> tuple:
+    """The station's element index (see INDEX_CANVAS): each REUSE spare's records
+    renamed to the element that took its place. Returns (bytes, report)."""
+    d = bytearray(d)
+    count = struct.unpack_from("<I", d, INDEX_COUNT)[0]
+    start = len(d) - count * RECORD
+    recs = [list(struct.unpack_from("<qQQ", d, start + k * RECORD)) for k in range(count)]
+    if start <= ELEMENTS or [r[0] for r in recs] != sorted(r[0] for r in recs) \
+            or any(symbol64_from(b, ".ABILITY_HEAL") != a & 0xFFFFFFFFFFFFFFFF
+                   for a, b, c in recs if c == symbol64("ABILITY_HEAL")):
+        raise ValueError(f"no element index of {count} records at the end of the station canvas")
+    report = []
+    for new_name, _, spare_name in REUSE:
+        new, spare = symbol64(new_name), symbol64(spare_name)
+        if any(c == new for _, _, c in recs):
+            continue
+        k = 0
+        for r in recs:
+            if r[2] == spare:
+                key = symbol64_from(r[1], "." + new_name)
+                r[0], r[2] = key - (1 << 64) if key >> 63 else key, new
+                k += 1
+        report.append(f"{spare_name} -> {new_name} in {k} slot(s)")
+    recs.sort(key=lambda r: r[0])
+    d[start:] = b"".join(struct.pack("<qQQ", *r) for r in recs)
+    return bytes(d), report or ["already renamed"]
+
+
 def read(src: str, t: str, asset: str, fallback: str = "") -> bytes:
     for p in (os.path.join(src, t, asset), os.path.join(fallback, t, asset) if fallback else "",
               os.path.join(fallback, asset) if fallback else ""):
@@ -437,6 +484,10 @@ def main(argv) -> int:
             os.makedirs(os.path.join(args.out, CANVAS), exist_ok=True)
             open(os.path.join(args.out, CANVAS, c), "wb").write(out)
             print(f"   canvas {c}: " + "; ".join(report))
+    d = read(args.src, CANVAS, INDEX_CANVAS, os.path.join(fb, "canvases"))
+    out, report = patch_index(d)
+    open(os.path.join(args.out, CANVAS, INDEX_CANVAS), "wb").write(out)
+    print(f"gear icons: station index {INDEX_CANVAS}: " + "; ".join(report))
     return 0
 
 
