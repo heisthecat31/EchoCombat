@@ -28,13 +28,15 @@ What it writes into the game
   * bin\win10\plugins\PowerBoost.dll, DroneFix.dll
   * bin\win10\dbgcore.dll: the plugin loader, which loads bin\win10\plugins\.
     A dbgcore.dll that was already there (another mod) is moved into plugins\
-    so it still loads. The loader needs the Visual C++ 2015-2022 x64 runtime.
+    so it still loads; an older plugin loader is replaced (kept as .bak). The
+    loader logs every plugin it loads, or why it could not, to
+    bin\win10\plugins\loader.log.
 
 Echo will not start on a PC (e.g. the server)?
-  Run doctor.bat there. It checks that the plugin loader and plugins can load on
-  that PC (the loader needs the Visual C++ 2015-2022 x64 runtime:
-  https://aka.ms/vs/17/release/vc_redist.x64.exe), that echovr.exe is the build
-  they were made for, what is in bin\win10\plugins\, and shows the plugin logs.
+  Look at bin\win10\plugins\loader.log first, then run doctor.bat there. It
+  checks that the plugin loader and plugins can load on that PC, that echovr.exe
+  is the build they were made for, what is in bin\win10\plugins\, and shows the
+  plugin logs.
 
 Notes
   * The drone's bullet effects are patched at install time from your own game

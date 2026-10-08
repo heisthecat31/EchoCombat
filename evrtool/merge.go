@@ -428,3 +428,47 @@ func install(dataDir, stageDir string) {
 		}
 	}
 }
+
+// checkPackage reads every staged file back through the live manifest, as the
+// game does, and counts the ones missing or different.
+func checkPackage(dataDir, stage string) int {
+	files := scan(stage)
+	m, err := manifest.ReadFile(manifestPath(dataDir))
+	if err != nil {
+		fmt.Println("  cannot read the manifest:", err)
+		return 1
+	}
+	pk, err := manifest.OpenPackage(m, filepath.Join(dataDir, "packages", pkg))
+	if err != nil {
+		fmt.Println("  cannot open the package:", err)
+		return 1
+	}
+	defer pk.Close()
+	where := map[[2]int64]manifest.FrameContent{}
+	for _, fc := range m.FrameContents {
+		where[[2]int64{fc.TypeSymbol, fc.FileSymbol}] = fc
+	}
+	bad := 0
+	for _, g := range files {
+		for _, f := range g {
+			want, _ := os.ReadFile(f.Path)
+			fc, ok := where[[2]int64{f.TypeSymbol, f.FileSymbol}]
+			if !ok {
+				fmt.Printf("  %016x/%016x: NOT IN THE PACKAGE\n", uint64(f.TypeSymbol), uint64(f.FileSymbol))
+				bad++
+				continue
+			}
+			got, err := pk.ReadContent(&fc)
+			if err != nil || !bytes.Equal(got, want) {
+				fmt.Printf("  %016x/%016x: the package holds a different version\n", uint64(f.TypeSymbol), uint64(f.FileSymbol))
+				bad++
+			}
+		}
+	}
+	if bad == 0 {
+		fmt.Println("  every patched file is in the package")
+	} else {
+		fmt.Printf("  %d file(s) not installed -- run install.bat again (server and every client need the same install)\n", bad)
+	}
+	return bad
+}

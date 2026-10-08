@@ -5,7 +5,7 @@ step) first:
 
 * build/stage/                    every patched package file  -> stage/
 * out/PowerBoost.dll, out/DroneFix.dll                        -> bin/win10/plugins/
-* out/dbgcore.dll, the plugin loader (loads plugins/)          -> bin/win10/dbgcore.dll
+* out/dbgcore.dll, the plugin loader (plugin/loader.cpp)        -> bin/win10/dbgcore.dll
 * evrtool, cross-built for Windows                            -> evrtool.exe
 * release/install.bat, uninstall.bat, README.txt
 

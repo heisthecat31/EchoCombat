@@ -169,12 +169,39 @@ func doctor(game, bundleDir string) {
 	}
 
 	fmt.Println("== logs")
+	tail(filepath.Join(plugins, "loader.log"), 12)
 	tail(filepath.Join(plugins, "PowerBoost.log"), 8)
 	tail(filepath.Join(plugins, "DroneFix.log"), 4)
 
-	fmt.Println("== scripts")
-	created := readCreated(filepath.Join(bin, "scripts"))
-	fmt.Printf("  %d script DLL(s) added by EchoCombat\n", len(created))
+	fmt.Println("== scripts (Echo loads script code from bin\\win10\\scripts, not the package)")
+	if bundleDir == "" {
+		fmt.Println("  (run from the EchoCombat folder to check them)")
+	} else {
+		stage := filepath.Join(bundleDir, "stage")
+		entries, _ := os.ReadDir(filepath.Join(stage, scriptsType))
+		for _, e := range entries {
+			asset, _ := os.ReadFile(filepath.Join(stage, scriptsType, e.Name()))
+			want := asset
+			if mz := bytes.Index(asset, []byte("MZ")); mz >= 0 && mz <= 64 {
+				want = asset[mz:]
+			}
+			got, err := os.ReadFile(filepath.Join(bin, "scripts", e.Name()+".dll"))
+			switch {
+			case err != nil:
+				fmt.Printf("  %s.dll: MISSING -- levels that use it hang while loading; run install.bat again\n", e.Name())
+				problems++
+			case !bytes.Equal(got, want):
+				fmt.Printf("  %s.dll: NOT EchoCombat's version (another install?) -- run install.bat again\n", e.Name())
+				problems++
+			}
+		}
+		if len(entries) > 0 {
+			fmt.Printf("  %d script DLL(s) checked\n", len(entries))
+		}
+
+		fmt.Println("== package (does the install hold every patched file?)")
+		problems += checkPackage(gameDataDir(game), stage)
+	}
 
 	fmt.Println()
 	if problems == 0 {
