@@ -85,7 +85,7 @@ using object_fn = uint8_t *(__fastcall *)(void *handle);
 handle_fn OwnerHandle = nullptr;
 object_fn OwnerObject = nullptr;
 
-volatile float g_dr = 0.15f;              // from the latest marker
+volatile float g_dr = 0.09f;               // from the latest marker
 volatile unsigned g_dr_seconds = 10;
 volatile ULONGLONG g_used_at = 0;         // when this client last used POWER BOOST
 float g_axis[3] = { 0, 0, 1 };            // owner-local aim axis (PowerBoost.ini [cone] axis=)

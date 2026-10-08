@@ -349,7 +349,7 @@ def main(argv) -> int:
     ap.add_argument("--src", required=True, help="extract root")
     ap.add_argument("--out", required=True)
     ap.add_argument("--gold", default=",".join(map(str, GOLD)), help="r,g,b for colours (x their brightness)")
-    ap.add_argument("--dr", type=float, default=0.15,
+    ap.add_argument("--dr", type=float, default=0.09,
                     help="damage reduction while boosted (written into ability_properties.buff.dr)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
     args = ap.parse_args(argv[1:])

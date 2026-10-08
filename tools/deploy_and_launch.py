@@ -158,7 +158,7 @@ def veil_mailbox(installs) -> str:
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
-          buff_dr: float = 0.15):
+          buff_dr: float = 0.09):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -398,8 +398,8 @@ def main(argv) -> int:
     ap.add_argument("--veil-stock-sound", action="store_true",
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out")
-    ap.add_argument("--buff-dr", type=float, default=0.15,
-                    help="POWER BOOST damage reduction (0.15 = 15%% less damage taken)")
+    ap.add_argument("--buff-dr", type=float, default=0.09,
+                    help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
