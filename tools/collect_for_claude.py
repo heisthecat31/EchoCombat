@@ -80,6 +80,75 @@ SEARCH = {
     b"R15MAGAZINEPOUCHLASTCREATED": "uses the pouch's last-thrown magazine",
     b"R15TRIGGEREXPRESSION": "reads trigger input",
     b"delegate_ontriggered": "handles OnTriggered",
+    # Tac mods: every script that reads a smoke (the next item), heal, buff or
+    # point tuning key. Scripts read balance values by CSymbol64 of the full path.
+    0xE0A5D4E07E125408: "smoke key duration",
+    0xEB6A5949EBBF26CD: "smoke key required_charge",
+    0xCF782A65BD268122: "smoke key opacity_max",
+    0xCF782A65BD268934: "smoke key opacity_min",
+    0x7D5019A0B00ED2E0: "smoke key enable_voxel_wall",
+    0xBA97872710CBF6ED: "smoke key enable_voxel_wall_particles",
+    0xD5F2D1275FE11807: "smoke key enable_thin_cube_walls",
+    0xA237E866446C4227: "smoke key voxel_wall_particle_delay_time",
+    0xC718F5C7B6F5E7EC: "smoke key voxel_wall_particle_play_speed",
+    0x65D21C5794D7C5C9: "smoke key voxel_wall_particle_scale",
+    0x942C4299FE1C5714: "smoke key voxel_wall_particle_scale_per_effect",
+    0xCCF1F958DA26026B: "smoke key enable_debug_voxels",
+    0x16AA5ECD68827C78: "smoke key voxel_wall_extra_start_dist_z",
+    0x494744EEE7CD09B5: "smoke key voxel_wall_velocity",
+    0x3CCEE454E59755D0: "smoke key voxel_wall_accel",
+    0x48AF46257140459E: "smoke key voxel_wall_grid_size_x",
+    0x48AF46257140459F: "smoke key voxel_wall_grid_size_y",
+    0x48AF46257140459C: "smoke key voxel_wall_grid_size_z",
+    0xB8CE4EC92B987478: "smoke key voxel_wall_cell_size_x",
+    0xB8CE4EC92B987479: "smoke key voxel_wall_cell_size_y",
+    0xB8CE4EC92B98747A: "smoke key voxel_wall_cell_size_z",
+    0x562823130AF1A1C2: "smoke key voxel_wall_radius_max",
+    0xB5E61C4B2FB31C7F: "smoke key voxel_wall_intro_fade_time",
+    0xD2D522BAC5CFCCD2: "smoke key voxel_wall_intro_fade_dist_start",
+    0x4F0176CD1E7B6AA5: "smoke key enable_drone_mode",
+    0x59C5806668F45B87: "smoke key enable_drone_hand_follow",
+    0xE3BBD89198448F88: "smoke key drone_suction_dist",
+    0x612D0F9E9B5926A4: "smoke key suction_palm_x_offset",
+    0x632D0F9E9B5926A4: "smoke key suction_palm_z_offset",
+    0xAEBDF6CB3AFAB3A8: "smoke key accel_amount",
+    0x6B5BDAF38DC11280: "smoke key follow_left_hand",
+    0x60C8493DC433CB7D: "smoke key do_electrocuter_mode",
+    0x127B685EDAAC6259: "heal key required_charge",
+    0xDD8CD57B551E67B5: "heal key primeable",
+    0x73FEC7CB04EC185F: "heal key cancellable",
+    0x58180B6FA3A5209C: "heal key cancel_buffer",
+    0xFF018C3FC0E229AE: "heal key activate_while_stunned",
+    0xD3CF9A4313DDFCFD: "heal key unique_healing_only",
+    0x504604720DB4493E: "heal key heal_amt",
+    0x5467C631C5C04CF6: "heal key heal_duration",
+    0x129F9D08D35E8A47: "heal key heal_radius",
+    0x5B7E4C829753DCD1: "heal key cap_healing",
+    0xD18485051396EC5F: "heal key max_healing",
+    0x0EC007F1EB9C6E21: "heal key scale_healing",
+    0x7EE3249A18B5C786: "heal key min_heal_mult",
+    0xD27E8CFDAFCFB5C2: "heal key time_to_max_heal",
+    0x2F7DF6C982C7E34C: "heal key self_heal_mult",
+    0x66F2F92DE13128AF: "heal key disable_weapons",
+    0xAC2EF020F6009E18: "heal key can_interrupt",
+    0xB63A88F5022867BA: "heal key raycast_head_to_head",
+    0xB63A88F5082262A7: "heal key raycast_head_to_body",
+    0x6275F7F360D5455C: "heal key raycast_body_to_head",
+    0x6275F7F36ADF4041: "heal key raycast_body_to_body",
+    0x556516F2FADF93ED: "buff key required_charge",
+    0xF7D711639F2E4460: "buff key dr",
+    0x22421E89E4B1D0F6: "buff key dr_duration",
+    0x69A8F7F8890378B3: "buff key conn_time",
+    0x586F9F6B841B5549: "buff key activate_on_release",
+    0x9BF7A1A11645258D: "buff key heal_amt_on_success",
+    0xA3F28203500CBB18: "buff key len",
+    0xC49A0319C287C40D: "buff key init_angle",
+    0x640AB2E8AF4F059F: "buff key conn_angle",
+    0x9E47EDB455E35404: "buff key do_rez_buff",
+    0xFDD646C844D70277: "point key radius",
+    0x9D10FF0A22272176: "point key charge_required",
+    0xCD3C2BE1F5B2600B: "point key charge_up_time",
+    0x608FA57E4B219FE2: "point key stun_duration",
 }
 
 SCRIPTS_TYPE = "6eace9f64204fd0"         # StreamingScriptWin10: the compiled DLL
@@ -93,6 +162,9 @@ SCRIPTS = {
     "cad33e1bc81ffbee": "mp_combat_grenade_burst",
     "9398a165c004a9c0": "mp_combat_grenade_translocator",
     "3a678375df604b4f": "script on the only R15Trigger actor (26b939fcac9fbff8)",
+    "b87ba2039b049d5e": "mp_combat_ability_barrier",
+    "0e1975416e8dcf7a": "mp_combat_ability_sensor",
+    "0e1971566197d460": "mp_combat_ability_wraith",
 }
 LOG_COUNT = 3
 
@@ -219,7 +291,7 @@ def main(argv) -> int:
         c.copied.append("components.txt  (component inventory per ordnance actor)")
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
-    report = [f"{asset}  {', '.join(SEARCH[h] for h in hits)}" for asset, hits in found]
+    report = [f"{asset}  {', '.join(sorted(set(SEARCH[h] for h in hits)))}" for asset, hits in found]
     for asset, _ in found:
         if asset not in SCRIPTS:
             c.copy(os.path.join(extract, SCRIPTS_TYPE, asset), f"{SCRIPTS_TYPE}/{asset}", "matches search")
