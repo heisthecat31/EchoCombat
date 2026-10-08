@@ -485,6 +485,17 @@ def main(argv) -> int:
     c = Collector(args.dry_run)
     if args.sound_only:
         print(wem_scan(extract, c, args.dry_run))
+        # Every package and manifest the game has: a second copy of the veil's
+        # bank in another package would be loaded instead of the patched one.
+        lines = []
+        for d in sorted(glob.glob(os.path.join(args.game, "_data", "*", "rad15", "win10", "*"))):
+            for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+                path = os.path.join(d, f)
+                lines.append(f"{os.path.relpath(path, args.game)}  {os.path.getsize(path)}")
+        if not args.dry_run:
+            with open(os.path.join(OUT, "packages.txt"), "w", newline="\n") as fh:
+                fh.write("\n".join(lines) + "\n")
+        print(f"packages.txt  ({len(lines)} package/manifest files)")
         return 0 if args.dry_run else commit_and_push(not args.no_push)
 
     for type_hash, name in LEVEL_TABLES.items():
