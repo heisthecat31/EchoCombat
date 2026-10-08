@@ -300,7 +300,10 @@ def main(argv) -> int:
     ap.add_argument("--with-point", action="store_true",
                     help="also give the controller POINT's branch (... -> buff -> point) and the wall script "
                          "POINT's stun field mode (needs --with-buff); fix_point.py does the rest")
-    ap.add_argument("--point-event", type=int, default=None, help="POINT's sound event (default: the stun field's)")
+    ap.add_argument("--point-event", type=lambda v: int(v, 0), default=None,
+                    help="POINT's sound event (default: veil_fx.POINT_EVENT, an arc mine sound)")
+    ap.add_argument("--point-sound-preview", action="store_true",
+                    help="each POINT use plays the next of the arc mine's sounds (veil_fx.ARC_EVENTS), to pick one")
     ap.add_argument("--point-scale", type=float, default=2.0, help="size of POINT's burst effect")
     ap.add_argument("--count", type=int, default=7, help="smoke clouds per use")
     ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
@@ -343,7 +346,8 @@ def main(argv) -> int:
         t = settings["ability_properties"]["point"]
         point = {"charge_up_time": t["charge_up_time"], "stun_duration": t["stun_duration"],
                  "scale": args.point_scale,
-                 "event": POINT_EVENT if args.point_event is None else args.point_event}
+                 "event": POINT_EVENT if args.point_event is None else args.point_event,
+                 "preview": args.point_sound_preview}
         stun = open(os.path.join(args.src, SCRIPTS, STUN_SCRIPT), "rb").read()
         stun = stun[stun.find(b"MZ"):]
 
@@ -367,8 +371,10 @@ def main(argv) -> int:
               f"(VeilNet.dll) hides, has no collision, and spawns the smoke and sound -- on every machine")
         if point:
             print(f"{SCRIPTS}/{WALL_SCRIPT}: ... and one that takes a point token goes off as POINT after "
-                  f"{point['charge_up_time']} s: burst x{point['scale']}, sound {point['event']}, "
-                  f"stun explosion ({point['stun_duration']} s)")
+                  f"{point['charge_up_time']} s: burst x{point['scale']}, "
+                  + ("sound PREVIEW (the next arc mine sound each use), " if point["preview"]
+                     else f"sound {point['event']:#x}, ")
+                  + f"stun explosion ({point['stun_duration']} s)")
     else:
         open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(smoke_script(
             barrier, det, count=args.count, scale=args.scale, life=args.life, spread=args.spread,

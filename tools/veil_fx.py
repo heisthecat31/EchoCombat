@@ -534,10 +534,15 @@ ACTIVATE_EXPLOSION = {
 }
 #: the stun mine's explosion component (its name on the stun mine, and on the wall)
 STUN_EXPLOSION = 0x25905B54E61D3F10
-#: the stun mine's burst (execute_node_8ff76ff9) and the stun field going off (event in
-#: bank c823e2c9bc0168ad, played by its execute_node_4cf23d1e)
+#: the stun mine's burst (execute_node_8ff76ff9)
 POINT_FX = 0x4CE12AE42C1B6269
-POINT_EVENT = 2000808251
+#: the arc mine's sounds (mp_combat_grenade_arc's PLAYSOUND nodes, bank c823e2c9bc0168ad),
+#: in the order --point-sound-preview plays them; POINT_EVENT is the one it plays
+ARC_EVENTS = [0x9BA74430, 0x84545E9B, 0xDA4D002D, 0xD19CD68D, 0xD5D7FDC7, 0x7F295300, 0xB1C3DEA9,
+              0xE9ECEA06, 0x9B54488D]
+POINT_EVENT = ARC_EVENTS[0]
+#: --point-sound-preview's counter (per machine): after POINT's tokens
+POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
 #: gives "POIN" / eax 3. 0x22334455 marks POINT_TOKEN_RVA, 0x11223344 TOKEN_RVA.
 POINT_DECIDE = bytes.fromhex(
@@ -564,6 +569,59 @@ def explosion_stub(at: int, ctor: int, execute: int, component: int, stun_length
     return bytes(b)
 
 
+def preview_sound_stub(at: int, ctor: int, execute: int, table: int, n: int) -> bytes:
+    """sound_stub, but each new sound is the next of the `n` events at `table` (a counter
+    at POINT_PREVIEW_RVA, bumped on a node's first run only)."""
+    b = bytearray(bytes.fromhex("53 4881ecb0000000 4889cb 80bbdb00000000 740c 48c7c0ffffffff e9"))
+    done = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("488d4c2420 e8") + rel32(at + len(b) + 10, ctor)
+    b += b"\x48\xb8" + struct.pack("<Q", SELF) + bytes.fromhex("4889442438")       # node+18 actor
+    b += bytes.fromhex("6548a16000000000000000 488b4010 4805") + struct.pack("<I", POINT_PREVIEW_RVA)
+    b += bytes.fromhex("48837b1800 750b ba01000000 f00fc110 eb04 8b10 ffca")    # first run: xadd; else count-1
+    b += bytes.fromhex("89d0 31d2 b9") + struct.pack("<I", n) + bytes.fromhex("f7f1")
+    b += bytes.fromhex("488d05") + rel32(at + len(b) + 7, table)
+    b += bytes.fromhex("8b0490 89442448")                                     # node+28 = table[count % n]
+    b += bytes.fromhex("488d4c2420 4889da e8") + rel32(at + len(b) + 13, execute)
+    b[done:done + 4] = struct.pack("<i", len(b) - (done + 4))
+    b += bytes.fromhex("4881c4b0000000 5b c3")
+    return bytes(b)
+
+
+#: the wall's PLAYSOUNDNODE::Execute(rcx = node, rdx = ctx): mov [rsp+8], rbx; push rdi
+WALL_SOUND_ENTRY = bytes.fromhex("48895c2408")
+
+
+def mute_stub(at: int) -> bytes:
+    """PLAYSOUNDNODE::Execute's entry: a POINT wall's own sounds (the barrier's) are done
+    at once, silently; POINT's sound comes through the trampoline instead."""
+    b = bytearray(bytes.fromhex("488b02 488b4068 81b858010000") + struct.pack("<I", POINT_MARKER))
+    b += bytes.fromhex("7503 31c0 c3") + WALL_SOUND_ENTRY + b"\xe9"
+    b += rel32(at + len(b) + 4, WALL_SOUND_EXEC + len(WALL_SOUND_ENTRY))
+    return bytes(b)
+
+
+def show_dispatch(at: int, decide: int, show_tramp: int, point: int) -> bytes:
+    """The wall's ShowModel node (rcx = ctx), after its gate: a POINT wall runs the node
+    once (hidden: decide is 3), then goes on as POINT (point_block, which keeps the node
+    running through the charge-up and the sound); any other wall is the node as before."""
+    b = bytearray(bytes.fromhex("53 4883ec20 4889cb 31d2 4889d9 e8"))
+    b += rel32(at + len(b) + 4, decide)
+    b += bytes.fromhex("3c03 0f85")
+    normal = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("488b03 488b4068 83b85c01000000 0f85")
+    started = len(b)
+    b += bytes(4)
+    b += bytes.fromhex("4889d9 e8") + rel32(at + len(b) + 8, show_tramp)
+    b += bytes.fromhex("48c7431800000000")
+    b[started:started + 4] = struct.pack("<i", len(b) - (started + 4))
+    b += b"\xe9" + rel32(at + len(b) + 5, point)
+    b[normal:normal + 4] = struct.pack("<i", len(b) - (normal + 4))
+    b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, show_tramp)
+    return bytes(b)
+
+
 def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> bytes:
     """The wall's EnablePhysics node for a POINT wall (rbx = ctx; push rbx; sub rsp, 20h
     done): wait `delay` (100 ns) from the first run, then the burst, the explosion and
@@ -578,8 +636,14 @@ def point_block(at: int, delay: int, spawn: int, explode: int, sound: int) -> by
     b += bytes.fromhex("c7805c01000001000000")                       # gone off
     for stub in (spawn, explode):
         b += bytes.fromhex("48c7431800000000 4889d9 e8") + rel32(at + len(b) + 16, stub)
-    b += bytes.fromhex("48c7431800000000")
+    b += bytes.fromhex("48c7431800000000 eb")
+    fire = len(b)
+    b += b"\0"
+    # gone off already: carry on with a sound still playing (ctx+18h its state); a fresh
+    # run of the node (state 0) just finishes, so the sound never plays twice
     b[cont:cont + 4] = struct.pack("<i", len(b) - (cont + 4))
+    b += bytes.fromhex("48837b1800 750a 31c0 4883c420 5b c3 90 90")
+    b[fire] = len(b) - (fire + 1)
     b += bytes.fromhex("4889d9 4883c420 5b e9") + rel32(at + len(b) + 13, sound)
     b[wait:wait + 4] = struct.pack("<i", len(b) - (wait + 4))
     # still charging: busy (ctx+18h below the gate's 4000...h, so the gate lets it straight back in)
@@ -652,7 +716,8 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
              "gate_show": 256, "gate_phys": 256}
     if point:
         sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
-                      "point_sound": 128})
+                      "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
+                      "events": 4 * len(ARC_EVENTS)})
     for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
@@ -712,9 +777,19 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     p += bytes.fromhex("4889d9 4883c420 5b e9")
     p += rel32(at["phys"] + len(p) + 4, at["sound"])
     if point:
-        p[to_point:to_point + 4] = rel32(at["phys"] + to_point + 4, at["point"])
+        # POINT goes off from the ShowModel node, which runs as the wall appears (the
+        # EnablePhysics node only runs once the wall turns solid, seconds later): a
+        # POINT wall's EnablePhysics node just finishes.
+        skip = len(p)
+        p += bytes.fromhex("31c0 4883c420 5b c3")
+        p[to_point:to_point + 4] = struct.pack("<i", skip - (to_point + 4))
         put("point", point_block(at["point"], int(point["charge_up_time"] * 1e7), at["point_spawn"],
                                  at["point_boom"], at["point_sound"]))
+        put("show_tramp", WALL_SHOW_NODE_OLD + b"\xe9" + rel32(at["show_tramp"] + 11, WALL_SHOW_NODE + 6))
+        put("show_disp", show_dispatch(at["show_disp"], at["decide"], at["show_tramp"], at["point"]))
+        put("mute", mute_stub(at["mute"]))
+        put("snd_tramp", WALL_SOUND_ENTRY + b"\xe9" + rel32(at["snd_tramp"] + 10,
+                                                          WALL_SOUND_EXEC + len(WALL_SOUND_ENTRY)))
         fx_scale = point.get("scale", 2.0)
         pf = {EMISSION_RATE: 1.0, LIFE: point.get("life", 1.0), ALPHA: 1.0, COLOR_R: 1.0, COLOR_G: 1.0,
               COLOR_B: 1.0}
@@ -724,12 +799,20 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
                                       pf, asset=point.get("fx", POINT_FX), duration=point.get("time", 2.5)))
         put("point_boom", explosion_stub(at["point_boom"], va + exp["ctor"], va + exp["exec"], STUN_EXPLOSION,
                                          point["stun_duration"]))
-        put("point_sound", sound_stub(at["point_sound"], WALL_SOUND_CTOR, WALL_SOUND_EXEC,
-                                      point.get("event", POINT_EVENT)))
+        if point.get("preview"):
+            put("events", b"".join(struct.pack("<I", e) for e in ARC_EVENTS))
+            put("point_sound", preview_sound_stub(at["point_sound"], WALL_SOUND_CTOR, at["snd_tramp"],
+                                                  at["events"], len(ARC_EVENTS)))
+        else:
+            put("point_sound", sound_stub(at["point_sound"], WALL_SOUND_CTOR, at["snd_tramp"],
+                                          point.get("event", POINT_EVENT)))
     put("phys", bytes(p))
 
     # Both spawn nodes first wait a moment for a token (see GATE).
-    put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
+    if point:
+        put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, at["show_disp"]))
+    else:
+        put("gate_show", gate_stub(at["gate_show"], at["decide"], 1, WALL_SHOW_NODE + 6, WALL_SHOW_NODE_OLD))
     put("gate_phys", gate_stub(at["gate_phys"], at["decide"], 2, at["phys"]))
 
     pe.write(va, bytes(blob))
@@ -738,4 +821,8 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     pe.write(WALL_SHOW, b"\xe8" + rel32(WALL_SHOW + 5, at["show"]))
     pe.write(WALL_SHOW_NODE, b"\xe9" + rel32(WALL_SHOW_NODE + 5, at["gate_show"]) + b"\x90")
     pe.write(WALL_PHYS, b"\xe9" + rel32(WALL_PHYS + 5, at["gate_phys"]) + b"\x90" * 3)
+    if point:
+        if pe.read(WALL_SOUND_EXEC, 5) != WALL_SOUND_ENTRY:
+            raise ValueError("unexpected wall PLAYSOUNDNODE::Execute")
+        pe.write(WALL_SOUND_EXEC, b"\xe9" + rel32(WALL_SOUND_EXEC + 5, at["mute"]))
     return bytes(pe.d)

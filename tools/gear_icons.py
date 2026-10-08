@@ -85,6 +85,11 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_DIRS = [os.path.join(ROOT_DIR, "ICONS", "hd"), os.path.join(ROOT_DIR, "ICONS")]
 #: element clones for items a canvas has no element for: (new, copied from)
 CLONES = [("GRENADE_DRONE", "GRENADE_DOT"), ("ABILITY_POINT", "ABILITY_SMOKE")]
+#: in the station's selection grid (the canvas with LOCK) an added element did not show
+#: (POINT's slot stayed empty, while the HUD showed its added one), so there an unused
+#: element of the canvas's own -- GRENADE_MINE, a cut item -- becomes the item's
+#: instead: (new name, element to copy, spare element it replaces)
+REUSE = [("ABILITY_POINT", "ABILITY_SMOKE", "GRENADE_MINE")]
 GRID = 5                                 # cells per row / column of the right half
 EMPTY_CELL = GRID * GRID - 1             # never painted: fully transparent
 
@@ -297,6 +302,20 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
     report.append(f"{mine} element(s) and {len(atlas_sprites)} sprite(s) moved to the new texture")
 
     names = {element(d, j, E_NAME)[0]: j for j in range(n)}
+    if symbol64("LOCK") in names:
+        for new_name, from_name, spare_name in REUSE:
+            new, src_name, spare = symbol64(new_name), symbol64(from_name), symbol64(spare_name)
+            if new in names or src_name not in names or spare not in names:
+                continue
+            j = names.pop(spare)
+            at = ELEMENTS + j * ELEMENT_SIZE
+            keep = d[at + E_INDEX:at + E_INDEX + 16]                  # its own index and parent
+            src = ELEMENTS + names[src_name] * ELEMENT_SIZE
+            d[at:at + ELEMENT_SIZE] = d[src:src + ELEMENT_SIZE]
+            d[at + E_INDEX:at + E_INDEX + 16] = keep
+            struct.pack_into("<Q", d, at + E_NAME, new)
+            names[new] = j
+            report.append(f"{new_name} replaces {spare_name} (e{j}, a copy of {from_name})")
     # items a canvas has no element for: a copy of a sibling (same place) becomes theirs
     for new_name, from_name in CLONES:
         new, src_name = symbol64(new_name), symbol64(from_name)
