@@ -541,6 +541,10 @@ POINT_FX = 0x4CE12AE42C1B6269
 ARC_EVENTS = [0x9BA74430, 0x84545E9B, 0xDA4D002D, 0xD19CD68D, 0xD5D7FDC7, 0x7F295300, 0xB1C3DEA9,
               0xE9ECEA06, 0x9B54488D]
 POINT_EVENT = ARC_EVENTS[0]
+#: what --point-sound-preview cycles through: the stun field's sound first (heard in an
+#: earlier build, so a silent #1 means the sound path, not the event, is at fault), then
+#: the arc mine's
+PREVIEW_EVENTS = [0x7741E93B] + ARC_EVENTS
 #: --point-sound-preview's counter (per machine): after POINT's tokens
 POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
@@ -717,7 +721,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     if point:
         sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
-                      "events": 4 * len(ARC_EVENTS)})
+                      "events": 4 * len(ARC_EVENTS) + 4})
     for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)
@@ -800,9 +804,9 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         put("point_boom", explosion_stub(at["point_boom"], va + exp["ctor"], va + exp["exec"], STUN_EXPLOSION,
                                          point["stun_duration"]))
         if point.get("preview"):
-            put("events", b"".join(struct.pack("<I", e) for e in ARC_EVENTS))
+            put("events", b"".join(struct.pack("<I", e) for e in PREVIEW_EVENTS))
             put("point_sound", preview_sound_stub(at["point_sound"], WALL_SOUND_CTOR, at["snd_tramp"],
-                                                  at["events"], len(ARC_EVENTS)))
+                                                  at["events"], len(PREVIEW_EVENTS)))
         else:
             put("point_sound", sound_stub(at["point_sound"], WALL_SOUND_CTOR, at["snd_tramp"],
                                           point.get("event", POINT_EVENT)))

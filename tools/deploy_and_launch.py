@@ -481,7 +481,7 @@ def main(argv) -> int:
     ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out (and POINT, whose branch follows it)")
     ap.add_argument("--no-point", action="store_true", help="leave POINT out")
     ap.add_argument("--point-sound-preview", action="store_true",
-                    help="each POINT use plays the next arc mine sound (1st use: sound 1, ...), to pick POINT's")
+                    help="each POINT use plays the next sound: 1st the stun field's (a check), then the arc mine's 9, to pick POINT's")
     ap.add_argument("--buff-dr", type=float, default=0.09,
                     help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
     ap.add_argument("--buff-charge", type=float, default=40, help="POWER BOOST recharge time in seconds")
