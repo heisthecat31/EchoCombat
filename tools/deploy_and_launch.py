@@ -7,8 +7,7 @@
    they edit when it has one, otherwise the extract's.
      fix_drone.py                            drone registry / damage / cooldown, on that JSON
      fix_drone_script.py, fix_drone_bullet.py
-     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_frisbee.py,
-     fix_dot_sound.py
+     fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_sound.py
      fix_dot_trigger.py                      stacks onto the drone's script table
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
@@ -66,7 +65,6 @@ DOT_TRIGGER_SCRIPT = "4e8af51fe7d6af8c"
 FIX_TYPES = [
     "5b723f040a3778ee", "dde8fffc5b4d7ad4", "f2676c58c07bab0c", "2b292830e51c4fd2",
     "92abd3e1432bf5e8", "d99f6bbd8009c92c", "4fd65c8d2b63d470", "21a09c2016d8f3e6",
-    "1875febbeab23f44",
 ]
 LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",
           "cb9977f7fc2b4526", "df5ca7b7dfa383d4"]
@@ -132,7 +130,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float)
     tool("fix_dot_stick.py", *src)
     tool("fix_dot_constraints.py", *src)
     tool("fix_dot_dampener.py", *src, "--damping", str(damping))
-    tool("fix_dot_frisbee.py", *src)
+    # fix_dot_frisbee.py is deliberately not run: with the frisbee component the
+    # DOT glides on instead of slowing to a stop like the arc mine. The shared
+    # script then logs "can't find component 0x84C65832F0B8B181", which is harmless.
     tool("fix_dot_sound.py", *src)
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
 

@@ -12,6 +12,9 @@ appends a copy of the stun's record with the DOT as its actor. Records bind to
 their actor by nodeid (+0x08) and the table has no heap, so only the header
 counts change.
 
+Not part of the default deploy: in game the frisbee made the DOT glide on
+instead of slowing to a stop like the arc mine, which was preferred.
+
     python tools/fix_dot_frisbee.py --src <extract root> --out <dir>
 """
 
