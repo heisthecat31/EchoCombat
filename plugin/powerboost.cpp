@@ -40,8 +40,8 @@
 // target along all six axes so the right one can be picked.
 //
 // Cheat death (do_rez_buff): a linked teammate whose buff carries the rez cannot die
-// while the buff runs: every hit that would kill them leaves them at 1 health.
-// (grace_ms in PowerBoost.ini is no longer used by it.)
+// for [rez] seconds (PowerBoost.ini, default 5) from the OVERCHARGE use: every hit that
+// would kill them then leaves them at 1 health. The damage reduction runs its full time.
 // ProcessDamageServer keeps
 // each damageable in a 0xB8-byte record (cs+100h, slot from the u16 table at
 // cs+D0h): flags at +02h (4 = dead, 2 = shield down), shield at +1Ch, health at +20h.
@@ -111,7 +111,9 @@ object_fn OwnerObject = nullptr;
 volatile float g_dr = 0.09f;               // from the latest marker
 volatile unsigned g_dr_seconds = 10;
 volatile bool g_rez = false;              // the latest marker's buff carries a rez
-unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms
+unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms (unused)
+unsigned g_rez_window_ms = 5000;          // PowerBoost.ini [rez] seconds: cheat death lasts this long
+volatile ULONGLONG g_last_use = 0;        // server: when OVERCHARGE was last used
 volatile ULONGLONG g_used_at = 0;         // when this client last used POWER BOOST
 float g_axis[3] = { 0, 0, 1 };            // owner-local aim axis (PowerBoost.ini [cone] axis=)
 
@@ -121,7 +123,7 @@ struct Buff {
     ULONGLONG until;      // GetTickCount64
     float mult;           // 1 - dr
     bool rez;             // cheat death still available
-    ULONGLONG grace;      // no damage until then (after a rez)
+    ULONGLONG grace;      // cheat death holds until then (the use + [rez] seconds)
 };
 constexpr int MAX_BUFFS = 64;
 Buff g_buffs[MAX_BUFFS];
@@ -158,7 +160,8 @@ void AddBuff(void *cs, uint16_t index, float dr, unsigned seconds, bool rez, boo
         }
         if (slot < 0 && (g_buffs[i].cs == nullptr || g_buffs[i].until <= now)) slot = i;
     }
-    if (slot >= 0) g_buffs[slot] = { cs, index, until, 1.0f - dr, rez, 0 };
+    ULONGLONG rez_until = (g_last_use && now - g_last_use < 60000 ? g_last_use : now) + g_rez_window_ms;
+    if (slot >= 0) g_buffs[slot] = { cs, index, until, 1.0f - dr, rez, rez_until };
     ReleaseSRWLockExclusive(&g_lock);
     Log("buff: damageable %p/%u takes x%.3f damage for %u s%s%s", cs, index, 1.0f - dr, seconds,
         rez ? ", cheats death once" : "", slot < 0 ? " -- NO FREE SLOT, ignored" : "");
@@ -190,6 +193,7 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
             SendDamageDealt(cs, index, -amount, 0, 0);
             return;
         }
+        g_last_use = GetTickCount64();
         Log("POWER BOOST used by %p/%u: links give x%.3f damage for %u s%s", cs, index & 0xffff,
             1.0f - g_dr, (unsigned)g_dr_seconds, rez ? " and cheat death" : "");
         return;                                   // a marker, not a heal
@@ -245,8 +249,7 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
     AcquireSRWLockExclusive(&g_lock);
     for (int i = 0; i < MAX_BUFFS; ++i)
         if (g_buffs[i].cs == cs && g_buffs[i].index == (uint16_t)index) {
-            if (g_buffs[i].grace > now) grace = true;
-            if (g_buffs[i].until > now) { mult = g_buffs[i].mult; rez = g_buffs[i].rez; slot = i; }
+            if (g_buffs[i].until > now) { mult = g_buffs[i].mult; rez = g_buffs[i].rez && now < g_buffs[i].grace; slot = i; }
             break;
         }
     if (grace) {
@@ -258,8 +261,8 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
         Log("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
         damage *= mult;
     }
-    // Cheat death holds for as long as the buff runs: every hit that would kill a linked
-    // teammate leaves them at 1 health instead (it used to be the first such hit only).
+    // Cheat death holds for [rez] seconds from the use: every hit that would kill a linked
+    // teammate leaves them at 1 health instead.
     if (rez && slot >= 0) {
         uint8_t *rec = Record(cs, index);
         if (WouldKill(rec, damage)) {
@@ -426,10 +429,12 @@ void ReadIni() {
     g_axis[0] = g_axis[1] = g_axis[2] = 0;
     g_axis[i] = axis[0] == '-' ? -1.0f : 1.0f;
     g_rez_grace_ms = GetPrivateProfileIntA("rez", "grace_ms", 1500, ini);
+    g_rez_window_ms = GetPrivateProfileIntA("rez", "seconds", 5, ini) * 1000u;
     char bonus[32];
     GetPrivateProfileStringA("buff", "damage_bonus", "0.25", bonus, sizeof(bonus), ini);
     g_damage_bonus = (float)atof(bonus);
-    Log("cone aim axis %s; cheat death grace %u ms; damage bonus x%.2f", axis, g_rez_grace_ms, 1.0f + g_damage_bonus);
+    Log("cone aim axis %s; cheat death for %u s from each use; damage bonus x%.2f", axis, g_rez_window_ms / 1000,
+        1.0f + g_damage_bonus);
 }
 
 // True when the command line has `flag` as a whole argument (any case).
