@@ -72,6 +72,26 @@ constexpr uintptr_t HEAL_RVA = 0xcecc40;
 constexpr uint8_t HEAL_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x18, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xec, 0x70 };
 constexpr uintptr_t DAMAGE_RVA = 0xd29770;
 constexpr uint8_t DAMAGE_BYTES[] = { 0x4c, 0x8b, 0xdc, 0x4d, 0x89, 0x4b, 0x20, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54 };
+// CR15NetDamageableCS::ApplyDamageAndNotify (server): (cs, handle, damage, shooter, hit pos *,
+// hit dir *, body part (u8), gun symbol, ...) -- it calls ProcessDamageServer with the hit.
+constexpr uintptr_t APPLY_RVA = 0xcc10b0;
+constexpr uint8_t APPLY_BYTES[] = { 0xf3, 0x0f, 0x11, 0x54, 0x24, 0x18, 0x89, 0x54, 0x24, 0x10, 0x53, 0x55, 0x56 };
+// The game's shooter -> player slot (what ApplyDamageAndNotify stores as "last hit shooter"):
+// (game = damageable cs + B8h, u32 *out, shooter) -> out.
+constexpr uintptr_t SHOOTER_SLOT_RVA = 0x1c9520;
+constexpr uint8_t SHOOTER_SLOT_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x40, 0x49, 0x8b, 0xc0, 0x48, 0x8b, 0xfa };
+using shooter_slot_fn = uint32_t *(__fastcall *)(void *game, uint32_t *out, uint64_t shooter);
+shooter_slot_fn ShooterSlotFn = nullptr;
+// Player slot -> damageable, the way the damage message handlers do it (0x140cb5d50):
+// check the slot against the game's table (+138h value, +13Ah generation), turn the
+// table value into the player's actor with CPlayerSlot::GetPosition (0x1401c76b0), then
+// the damageable system's virtual +1B0h (dcs, &out, {actor, symbol at +16D9A58h}).
+constexpr uintptr_t SLOT_ACTOR_RVA = 0x1c76b0;
+constexpr uint8_t SLOT_ACTOR_BYTES[] = { 0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x41, 0x0f, 0xb7, 0xc0, 0x48, 0x8b, 0xda };
+constexpr uintptr_t PLAYER_SYMBOL_RVA = 0x16d9a58;
+using slot_actor_fn = uint8_t *(__fastcall *)(void *game, uint8_t *out, uint32_t value);
+slot_actor_fn SlotActorFn = nullptr;
+uint64_t *g_player_symbol = nullptr;
 constexpr uintptr_t SEND_RVA = 0xcc0670;
 constexpr uint8_t SEND_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x60, 0x33, 0xc0 };
 
@@ -115,6 +135,80 @@ volatile bool g_rez = false;              // the latest marker's buff carries a 
 unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms (unused)
 unsigned g_rez_window_ms = 5000;          // PowerBoost.ini [rez] seconds: cheat death lasts this long
 volatile ULONGLONG g_last_use = 0;        // server: when OVERCHARGE was last used
+// Damage boost (server): while boosted -- the OVERCHARGE user, and every teammate it links,
+// for the buff's seconds -- each hit they land deals +body_bonus, or +head_bonus on the
+// head (PowerBoost.ini [buff]). A hit's shooter is the victim's record +04h (the shooter's
+// player slot, as each damageable's own record holds at +0Ch); its body part is +03h.
+float g_body_bonus = 1.0f, g_head_bonus = 2.0f;
+// the hit being applied (set by Hooked_Apply around ProcessDamageServer, same thread)
+thread_local uint64_t t_shooter = ~0ull, t_gun = 0;
+thread_local int t_part = -1;
+thread_local bool t_in_apply = false;
+int g_head_part = 5;
+struct Boost { void *cs; uint32_t index; ULONGLONG until; uint64_t shooter; };   // shooter: ~0 unknown
+constexpr int MAX_BOOSTS = 16;
+Boost g_boosts[MAX_BOOSTS];
+
+uint8_t *Record(void *cs, uint32_t index);
+
+// A damageable's own player slot (+0Ch), or ~0 if its record can't be read (stale system).
+uint32_t PlayerSlot(void *cs, uint16_t index) {
+    __try {
+        return *(uint32_t *)(Record(cs, index) + 0x0c);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0xffffffffu;
+    }
+}
+
+void Log(const char *fmt, ...);
+
+// The damageable's actor id, through its system's virtual +1E0h (cs, &out, handle) -- the
+// same call component systems use to name their entity for WorldTeleport.
+uint64_t ActorId(void *cs, uint32_t handle) {
+    __try {
+        using actor_of_fn = uint64_t *(__fastcall *)(void *cs, uint64_t *out, uint32_t handle);
+        uint64_t out = ~0ull;
+        uint64_t *a = ((actor_of_fn)(*(void ***)cs)[0x1e0 / 8])(cs, &out, handle);
+        return a ? *a : ~0ull;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return ~0ull;
+    }
+}
+
+// The damageable handle of the player in `slot` (index | generation << 16), or ~0.
+uint32_t SlotDamageable(void *dcs, uint32_t slot) {
+    if (!SlotActorFn || !g_player_symbol) return 0xffffffffu;
+    __try {
+        uint8_t *game = *(uint8_t **)((uint8_t *)dcs + 0xb8);
+        uint32_t idx = slot & 0xffff, gen = slot >> 16;
+        if (!game || idx >= 16 || gen == 0xffff || *(uint16_t *)(game + 0x13a + idx * 4) != gen) return 0xffffffffu;
+        uint16_t value = *(uint16_t *)(game + 0x138 + idx * 4);
+        if (value == 0xffff) return 0xffffffffu;
+        alignas(16) uint8_t tmp[64] = {};
+        uint8_t *r = SlotActorFn(game, tmp, value);
+        alignas(16) uint64_t key[2] = { *(uint64_t *)(r + 8), *g_player_symbol };
+        alignas(16) uint8_t out[64] = {};
+        using find_fn = uint32_t *(__fastcall *)(void *dcs, void *out, void *key);
+        uint32_t *h = ((find_fn)(*(void ***)dcs)[0x1b0 / 8])(dcs, out, key);
+        return h ? *h : 0xffffffffu;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0xffffffffu;
+    }
+}
+
+void AddBoost(void *cs, uint32_t index, unsigned seconds, uint64_t shooter = ~0ull) {
+    ULONGLONG now = GetTickCount64();
+    int slot = -1;
+    for (int i = 0; i < MAX_BOOSTS; ++i) {
+        if (g_boosts[i].cs == cs && (g_boosts[i].index & 0xffff) == (index & 0xffff)) { slot = i; break; }
+        if (slot < 0 && (!g_boosts[i].cs || g_boosts[i].until <= now)) slot = i;
+    }
+    if (slot < 0) return;
+    if (shooter == ~0ull && g_boosts[slot].cs == cs) shooter = g_boosts[slot].shooter;
+    g_boosts[slot] = { cs, index, now + seconds * 1000ull, shooter };
+    Log("damage boost: %p/%u for %u s (shooter id %016llx, actor %016llx)", cs, index & 0xffff, seconds,
+        (unsigned long long)shooter, (unsigned long long)ActorId(cs, index));
+}
 volatile ULONGLONG g_used_at = 0;         // when this client last used POWER BOOST
 float g_axis[3] = { 0, 0, 1 };            // owner-local aim axis (PowerBoost.ini [cone] axis=)
 
@@ -195,13 +289,20 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
             return;
         }
         g_last_use = GetTickCount64();
+        AcquireSRWLockExclusive(&g_lock);
+        AddBoost(cs, index, g_dr_seconds, t_in_apply ? t_shooter : ~0ull);
+        ReleaseSRWLockExclusive(&g_lock);
         Log("POWER BOOST used by %p/%u: links give x%.3f damage for %u s%s", cs, index & 0xffff,
             1.0f - g_dr, (unsigned)g_dr_seconds, rez ? " and cheat death" : "");
         return;                                   // a marker, not a heal
     }
     if (kind == 2) {
-        if (g_server)                             // a client linked this damageable
+        if (g_server) {                           // a client linked this damageable
             AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000, rez, false);
+            AcquireSRWLockExclusive(&g_lock);
+            AddBoost(cs, index, v % 1000);
+            ReleaseSRWLockExclusive(&g_lock);
+        }
         return;
     }
     Real_Heal(cs, index, amount, a4, a5);
@@ -259,6 +360,33 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
         Real_Damage(cs, index, 0.0f, info, a5, a6);
         return;
     }
+    // the shooter boosted: +body_bonus / +head_bonus (before the target's own reduction)
+    if (damage > 0) {
+        uint32_t shooter = 0xffffffffu;
+        int part = t_part;
+        if (t_in_apply && ShooterSlotFn && t_shooter != ~0ull) {
+            __try {
+                ShooterSlotFn(*(void **)((uint8_t *)cs + 0xb8), &shooter, t_shooter);
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                shooter = 0xffffffffu;
+            }
+        }
+        uint32_t from = shooter != 0xffffffffu ? SlotDamageable(cs, shooter) : 0xffffffffu;   // shooter's damageable
+        bool boosted = false;
+        for (int i = 0; i < MAX_BOOSTS && !boosted; ++i)
+            if (g_boosts[i].cs == cs && g_boosts[i].until > now && from != 0xffffffffu &&
+                (g_boosts[i].index & 0xffff) == (from & 0xffff))
+                boosted = true;
+        bool gun = t_in_apply && t_gun != ~0ull && t_gun != 0;          // guns only, not the drone etc.
+        float add = boosted && gun ? (part == g_head_part ? g_head_bonus : g_body_bonus) : 0.0f;
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 200)
+            Log("hit %p/%u: %.2f, shooter %016llx (slot %08x, damageable %u), body part %d, gun %016llx%s", cs,
+                index & 0xffff, damage, (unsigned long long)t_shooter, shooter, from & 0xffff, part,
+                (unsigned long long)t_gun,
+                add > 0 ? (part == g_head_part ? " BOOSTED (head)" : " BOOSTED (body)") : boosted ? " (boosted, not a gun)" : "");
+        damage += add;
+    }
     if (mult != 1.0f) {
         Log("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
         damage *= mult;
@@ -305,7 +433,13 @@ void LinkMade(void *dcs, uint32_t index) {
     ULONGLONG now = GetTickCount64();
     if (!g_server && dcs == g_self_cs && (index & 0xffff) == g_self_index)   // someone linked us
         g_boosted_until = now + g_dr_seconds * 1000ull;
-    if (g_server) { AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false); return; }
+    if (g_server) {
+        AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false);
+        AcquireSRWLockExclusive(&g_lock);
+        AddBoost(dcs, index, g_dr_seconds);
+        ReleaseSRWLockExclusive(&g_lock);
+        return;
+    }
     if (g_used_at == 0 || now - g_used_at > 30000) return;
     static struct { void *cs; uint16_t index; ULONGLONG at; } sent[16];
     int slot = 0;
@@ -321,10 +455,28 @@ void LinkMade(void *dcs, uint32_t index) {
     SendDamageDealt(dcs, index, -marker, 0, 0);
 }
 
+using apply_fn = void(__fastcall *)(void *cs, uint64_t handle, float damage, uint64_t shooter, uint64_t a5,
+                                    uint64_t a6, uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10);
+apply_fn Real_Apply = nullptr;
+
+void __fastcall Hooked_Apply(void *cs, uint64_t handle, float damage, uint64_t shooter, uint64_t a5, uint64_t a6,
+                             uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10) {
+    bool outer = !t_in_apply;
+    uint64_t s0 = t_shooter, g0 = t_gun;
+    int p0 = t_part;
+    t_shooter = shooter;
+    t_part = (int)(uint8_t)a7;
+    t_gun = a8;
+    t_in_apply = true;
+    Real_Apply(cs, handle, damage, shooter, a5, a6, a7, a8, a9, a10);
+    t_shooter = s0, t_part = p0, t_gun = g0;
+    if (outer) t_in_apply = false;
+}
+
 // This client's hits on their way to the server: boosted, they deal x(1 + damage_bonus).
 // Negative amounts are markers / heals, passed through untouched.
 void __fastcall Hooked_Send(void *cs, uint32_t index, float amount, uint8_t type, uint64_t info) {
-    if (amount > 0 && amount < MARKER_BASE && GetTickCount64() < g_boosted_until) {
+    if (g_damage_bonus > 0 && amount > 0 && amount < MARKER_BASE && GetTickCount64() < g_boosted_until) {
         static volatile LONG logged = 0;
         if (InterlockedIncrement(&logged) <= 50)
             Log("boosted hit on %p/%u: %.2f -> %.2f", cs, index & 0xffff, amount, amount * (1.0f + g_damage_bonus));
@@ -433,10 +585,15 @@ void ReadIni() {
     g_rez_grace_ms = GetPrivateProfileIntA("rez", "grace_ms", 1500, ini);
     g_rez_window_ms = GetPrivateProfileIntA("rez", "seconds", 5, ini) * 1000u;
     char bonus[32];
-    GetPrivateProfileStringA("buff", "damage_bonus", "0.25", bonus, sizeof(bonus), ini);
+    GetPrivateProfileStringA("buff", "damage_bonus", "0", bonus, sizeof(bonus), ini);
     g_damage_bonus = (float)atof(bonus);
-    Log("cone aim axis %s; cheat death for %u s from each use; damage bonus x%.2f", axis, g_rez_window_ms / 1000,
-        1.0f + g_damage_bonus);
+    GetPrivateProfileStringA("buff", "body_bonus", "1", bonus, sizeof(bonus), ini);
+    g_body_bonus = (float)atof(bonus);
+    GetPrivateProfileStringA("buff", "head_bonus", "2", bonus, sizeof(bonus), ini);
+    g_head_bonus = (float)atof(bonus);
+    g_head_part = GetPrivateProfileIntA("buff", "head_part", 5, ini);
+    Log("cone aim axis %s; cheat death for %u s from each use; boosted hits +%.1f body / +%.1f head (part %d)",
+        axis, g_rez_window_ms / 1000, g_body_bonus, g_head_bonus, g_head_part);
 }
 
 // True when the command line has `flag` as a whole argument (any case).
@@ -480,6 +637,16 @@ void Install() {
     DetourAttach(&(PVOID &)Real_Heal, Hooked_Heal);
     DetourAttach(&(PVOID &)Real_Damage, Hooked_Damage);
     if (!g_server) DetourAttach(&(PVOID &)Real_Send, Hooked_Send);
+    if (g_server && Check(base + APPLY_RVA, APPLY_BYTES, sizeof(APPLY_BYTES), "ApplyDamageAndNotify")) {
+        Real_Apply = (apply_fn)(base + APPLY_RVA);
+        DetourAttach(&(PVOID &)Real_Apply, Hooked_Apply);
+        if (Check(base + SHOOTER_SLOT_RVA, SHOOTER_SLOT_BYTES, sizeof(SHOOTER_SLOT_BYTES), "shooter slot"))
+            ShooterSlotFn = (shooter_slot_fn)(base + SHOOTER_SLOT_RVA);
+        if (Check(base + SLOT_ACTOR_RVA, SLOT_ACTOR_BYTES, sizeof(SLOT_ACTOR_BYTES), "player slot actor")) {
+            SlotActorFn = (slot_actor_fn)(base + SLOT_ACTOR_RVA);
+            g_player_symbol = (uint64_t *)(base + PLAYER_SYMBOL_RVA);
+        }
+    }
     LONG rc = DetourTransactionCommit();
     if (rc == NO_ERROR) Log("hooked HealServer and ProcessDamageServer (%s)", g_server ? "server" : "client");
     else Log("hook failed (%ld)", rc);

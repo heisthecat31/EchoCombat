@@ -343,7 +343,7 @@
    "growth_exponent": 3
   },
   "dot": {
-   "radius": 2.25,
+   "radius": 3.5,
    "lifetime": 8,
    "ticks_per_second": 3,
    "damage_per_tick": 4,

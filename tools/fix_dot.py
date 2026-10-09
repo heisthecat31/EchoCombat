@@ -93,7 +93,7 @@ DOT_COOLDOWN = 30
 #: through an Energy Barrier at face value -- set it to 0 if barriers should stop
 #: it outright.
 #: the field's reach: 2.25 m as shipped, twice that now (wanted: a higher range)
-DOT_RADIUS = 4.5
+DOT_RADIUS = 3.5
 DOT_DAMAGE = {"head": 1, "arm": 1, "leg": 1, "torso": 1,
               "ordnance": 1, "barrier": 1, "ssi": 1}
 DRONE_DAMAGE = {"head": 1.5, "arm": 1, "leg": 0.75, "torso": 1,

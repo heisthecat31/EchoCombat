@@ -45,7 +45,7 @@ DRONE_COOLDOWN = 30
 #: build, libr15.so 0x210b8c4) adds the frame time to a timer and fires when it reaches
 #: fire_rate, so fire_rate is SECONDS BETWEEN SHOTS (lower = faster); the bullet's
 #: velocity is its aim direction * bullet_speed.
-DRONE_TUNING = {"fire_rate": 0.1, "bullet_speed": 120, "bullet_damage": 5}
+DRONE_TUNING = {"fire_rate": 0.15, "bullet_speed": 120, "bullet_damage": 5}
 
 
 def load(base: str, name: str):
