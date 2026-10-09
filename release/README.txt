@@ -2,7 +2,9 @@ EchoCombat
 ==========
 
 DOT FIELD, DRONE, the UMBRAL VEIL, OVERCHARGE (was POWER BOOST) and POINT tac mods,
-TRANSLOCATOR's teleport effect and sound, and gear icons for the new items.
+TRANSLOCATOR's teleport effect and sound, gear icons for the new items, and a fix
+for the STARBURST's divide-by-zero log spam (a stock bug that wrote ~120 log lines
+a second while the gun was out).
 Everything is prebuilt: the patched package files and script code (stage\),
 the plugins (bin\win10\plugins\) and the plugin loader (bin\win10\dbgcore.dll).
 
