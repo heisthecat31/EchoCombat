@@ -38,12 +38,13 @@ func gameDataDir(game string) string {
 	return filepath.Join(game, "_data", "5932408047", "rad15", "win10")
 }
 
-// plugins lists the bundle's plugin DLLs.
+// plugins lists the bundle's plugin files: the DLLs and their .ini settings
+// (PowerBoost.ini, written from config/mp_weapon_settings.json).
 func (b bundle) plugins() []string {
 	entries, _ := os.ReadDir(b.bin("plugins"))
 	var out []string
 	for _, e := range entries {
-		if strings.EqualFold(filepath.Ext(e.Name()), ".dll") {
+		if ext := filepath.Ext(e.Name()); strings.EqualFold(ext, ".dll") || strings.EqualFold(ext, ".ini") {
 			out = append(out, e.Name())
 		}
 	}

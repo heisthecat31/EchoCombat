@@ -46,6 +46,13 @@ def main() -> int:
         if not os.path.exists(src):
             sys.exit(f"out/{dll} not built")
         shutil.copy2(src, plugins)
+    # PowerBoost.ini from config/mp_weapon_settings.json (install copies it with the DLLs)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from echocombat_config import powerboost_ini
+    with open(os.path.join(plugins, "PowerBoost.ini"), "w", encoding="ascii", newline="\r\n") as fh:
+        fh.write(powerboost_ini())
+    shutil.copy2(os.path.join(ROOT, "config", "mp_weapon_settings.json"),
+                 os.path.join(OUT, "mp_weapon_settings.json"))   # what this release was built with
     loader = os.path.join(ROOT, "out", "dbgcore.dll")
     if not os.path.exists(loader):
         sys.exit("out/dbgcore.dll (the plugin loader) missing")

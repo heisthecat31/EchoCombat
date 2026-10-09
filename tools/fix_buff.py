@@ -59,6 +59,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
+from echocombat_config import section
 from fix_smoke import PE, rel32, u64, SCRIPTS, SCRIPT_RESOURCE, SCRIPT_CR, GLOBAL_LEVEL, PLAYER_ACTORS
 from veil_fx import SELF, add_section, transplant
 
@@ -128,8 +129,14 @@ HEAL_UNIQUE = 0xD3CF9A4313DDFCFD          # CSymbol64("ability_properties|heal|u
 BUFF_UNIQUE = 0x8870DFA9A8731203          # CSymbol64("ability_properties|buff|unique_healing_only")
 
 
+#: OVERCHARGE's values: config/mp_weapon_settings.json (ability_properties.buff)
+CONFIG = section("ability_properties", "buff")
 #: OVERCHARGE's heal, as a fraction of ability_properties.buff.heal_amt_on_success
-HEAL_SCALE = 0.05
+HEAL_SCALE = CONFIG.get("heal_fraction", 0.05)
+#: keys only EchoCombat uses (PowerBoost.dll reads them through PowerBoost.ini); packed
+#: into the game's settings too, so the whole OVERCHARGE tuning sits in one place
+PLUGIN_KEYS = ("heal_fraction", "damage_bonus_body", "damage_bonus_head", "head_body_part",
+               "cheat_death_seconds", "cheat_death_grace_ms", "link_window_ms")
 
 
 def link_tuning(t: dict) -> dict:
@@ -426,9 +433,9 @@ def main(argv) -> int:
     ap.add_argument("--gold", default=",".join(map(str, GOLD)), help="r,g,b for colours (x their brightness)")
     ap.add_argument("--fx-test", action="store_true",
                     help="test: the beam copy becomes the stun mine's field effect (shows whether the copy is used)")
-    ap.add_argument("--charge", type=float, default=40,
+    ap.add_argument("--charge", type=float, default=CONFIG.get("required_charge", 40),
                     help="recharge time in seconds (ability_properties.buff.required_charge)")
-    ap.add_argument("--dr", type=float, default=0.09,
+    ap.add_argument("--dr", type=float, default=CONFIG.get("dr", 0.09),
                     help="damage reduction while boosted (written into ability_properties.buff.dr)")
     ap.add_argument("--no-rez", action="store_true",
                     help="linked teammates do not cheat death (sets ability_properties.buff.do_rez_buff to 0)")
@@ -454,10 +461,13 @@ def main(argv) -> int:
     tuning = settings["ability_properties"]["buff"]
     tuning["dr"] = args.dr
     tuning["required_charge"] = args.charge
-    tuning.update(link_tuning(tuning))
-    print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
+    if "do_rez_buff" in CONFIG:
+        tuning["do_rez_buff"] = CONFIG["do_rez_buff"]
     if args.no_rez:
         tuning["do_rez_buff"] = 0
+    tuning.update(link_tuning(tuning))
+    tuning.update({k: CONFIG[k] for k in PLUGIN_KEYS if k in CONFIG})
+    print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
     rez = bool(tuning.get("do_rez_buff"))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"], rez)
     # The particle effects a player sees come from the tac mod script that is NOT the one

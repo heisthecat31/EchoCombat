@@ -186,7 +186,7 @@ def veil_mailbox(installs) -> str:
 
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
-          buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False,
+          buff_dr: float = None, buff_charge: float = None, buff_fx_test: bool = False,
           buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
           point_event: str = None):
     base = gunpatch_root(gunpatch)
@@ -209,7 +209,9 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
              *(("--point-sound-preview",) if point and point_sound_preview else ()),
              *(("--point-event", point_event) if point and point_event else ()))
         if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
-            tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr), "--charge", str(buff_charge),
+            tool("fix_buff.py", "--base", STAGE, *src,
+                 *(("--dr", str(buff_dr)) if buff_dr is not None else ()),
+                 *(("--charge", str(buff_charge)) if buff_charge is not None else ()),
                  *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
         if point:                             # POINT: a stun field where its wall lands, seventh tac mod
             tool("fix_point.py", "--base", STAGE, *src)
@@ -422,6 +424,12 @@ def install_dlls(install: str):
         if open(dst, "rb").read() != src:
             sys.exit(f"{dst} did not keep what was written (antivirus? Echo running?)")
         print(f"   wrote {dst}")
+    # PowerBoost.ini from config/mp_weapon_settings.json (OVERCHARGE's plugin-side values)
+    from echocombat_config import powerboost_ini
+    ini = os.path.join(plugins, "PowerBoost.ini")
+    with open(ini, "w", encoding="ascii", newline="\r\n") as fh:
+        fh.write(powerboost_ini())
+    print(f"   wrote {ini}")
     # CombatBots' per-map war room orbs and routes (tools/record_nav.py)
     nav_dir = os.path.join(ROOT, "data", "nav")
     for name in sorted(os.listdir(nav_dir)) if os.path.isdir(nav_dir) else []:
@@ -502,9 +510,10 @@ def main(argv) -> int:
     ap.add_argument("--point-event", help="POINT plays this sound event instead (a number), e.g. the translocator's 2819690668 to test POINT's sound path")
     ap.add_argument("--point-sound-preview", action="store_true",
                     help="each POINT use plays the next sound: 1st the stun field's (a check), then the arc mine's 9, to pick POINT's")
-    ap.add_argument("--buff-dr", type=float, default=0.09,
-                    help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
-    ap.add_argument("--buff-charge", type=float, default=40, help="POWER BOOST recharge time in seconds")
+    ap.add_argument("--buff-dr", type=float, default=None,
+                    help="OVERCHARGE damage reduction (0.09 = 9%% less damage taken); default: config/mp_weapon_settings.json")
+    ap.add_argument("--buff-charge", type=float, default=None,
+                    help="OVERCHARGE recharge time in seconds; default: config/mp_weapon_settings.json")
     ap.add_argument("--no-buff-rez", action="store_true",
                     help="POWER BOOST without cheat death for linked teammates")
     ap.add_argument("--buff-fx-test", action="store_true",

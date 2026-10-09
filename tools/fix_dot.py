@@ -66,6 +66,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from json_resource import build, minify, read
+from echocombat_config import section
 
 ROOT = os.path.dirname(_HERE)
 
@@ -86,14 +87,14 @@ DISPLAY_NAMES = {"dot": "DOT FIELD", "drone": "DRONE"}
 
 #: The shipped spread is arc 25, burst 30, det/stun/loc 35.  DOT is persistent
 #: area denial, so it sits with burst rather than the instant-effect ordnances.
-DOT_COOLDOWN = 30
+DOT_COOLDOWN = section("grenade_properties", "dot").get("cooldown", 30)   # config/mp_weapon_settings.json
 
 #: Flat multipliers: a damage-over-time field has no headshot, and line of sight
 #: is already handled by `use_occlusion`.  `barrier` at 1 means the field chews
 #: through an Energy Barrier at face value -- set it to 0 if barriers should stop
 #: it outright.
-#: the field's reach: 2.25 m as shipped, twice that now (wanted: a higher range)
-DOT_RADIUS = 3.5
+#: the field's reach: 2.25 m as shipped (config/mp_weapon_settings.json)
+DOT_RADIUS = section("grenade_properties", "dot").get("radius", 2.25)
 DOT_DAMAGE = {"head": 1, "arm": 1, "leg": 1, "torso": 1,
               "ordnance": 1, "barrier": 1, "ssi": 1}
 DRONE_DAMAGE = {"head": 1.5, "arm": 1, "leg": 0.75, "torso": 1,

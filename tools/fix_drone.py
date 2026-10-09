@@ -30,6 +30,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from json_resource import build, minify, read
+from echocombat_config import section
 
 JSON_TYPE = "607d858c90268f9a"         # CSymbol64("CJsonResourceWin10")
 EQUIPMENT = "f8d40525c88885d8"         # CSymbol64("mp_equipment")
@@ -39,13 +40,14 @@ DRONE_GEAR = {"name": "drone", "display_name": "DRONE"}
 #: Same spread as the shipped bullet weapons: full body, light on barriers.
 DRONE_DAMAGE = {"head": 1, "arm": 1, "leg": 1, "torso": 1, "ordnance": 1,
                 "barrier": 1, "ssi": 1}
-DRONE_COOLDOWN = 30
+DRONE_COOLDOWN = section("grenade_properties", "drone").get("cooldown", 30)
 #: The cut data had the drone weak and slow: 2 damage, a shot every 0.33 s, bullets at
 #: 30 m/s that moving players simply outran. CR15NetAutoTargetCS::AttackTarget (Quest
 #: build, libr15.so 0x210b8c4) adds the frame time to a timer and fires when it reaches
 #: fire_rate, so fire_rate is SECONDS BETWEEN SHOTS (lower = faster); the bullet's
 #: velocity is its aim direction * bullet_speed.
-DRONE_TUNING = {"fire_rate": 0.15, "bullet_speed": 120, "bullet_damage": 5}
+#: from config/mp_weapon_settings.json (grenade_properties.drone)
+DRONE_TUNING = {k: v for k, v in section("grenade_properties", "drone").items() if k != "cooldown"}
 
 
 def load(base: str, name: str):

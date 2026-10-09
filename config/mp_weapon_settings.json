@@ -1,0 +1,29 @@
+{
+ "_about": "EchoCombat's values, in the shape of the game's mp_weapon_settings.json. Every deploy / release merges them into the game's own mp_weapon_settings (packed with the rest of the game data, so change a value here, then deploy or make the release again). The OVERCHARGE keys the game itself does not use (damage_bonus_*, head_body_part, cheat_death_*, link_window_ms, heal_fraction) are also written into PowerBoost.ini for the plugin.",
+ "grenade_properties": {
+  "drone": {
+   "fire_rate": 0.15,
+   "bullet_speed": 120,
+   "bullet_damage": 5,
+   "cooldown": 30
+  },
+  "dot": {
+   "radius": 3.5,
+   "cooldown": 30
+  }
+ },
+ "ability_properties": {
+  "buff": {
+   "dr": 0.09,
+   "required_charge": 40,
+   "do_rez_buff": 1,
+   "heal_fraction": 0.05,
+   "damage_bonus_body": 1,
+   "damage_bonus_head": 2,
+   "head_body_part": 5,
+   "cheat_death_seconds": 5,
+   "cheat_death_grace_ms": 1500,
+   "link_window_ms": 500
+  }
+ }
+}
