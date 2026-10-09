@@ -90,6 +90,7 @@ send_fn SendDamageDealt = nullptr;
 send_fn Real_Send = nullptr;              // the hooked original (SendDamageDealt stays the plain call)
 float g_damage_bonus = 0.25f;             // PowerBoost.ini [buff] damage_bonus
 void *volatile g_self_cs = nullptr;       // this client's own damageable (from its use marker)
+void *volatile g_damage_cs = nullptr;     // the damageable system, from the first hit (CombatBots reads it)
 volatile uint32_t g_self_index = 0xffffffff;
 volatile ULONGLONG g_boosted_until = 0;   // this client's player deals more damage until then
 bool g_server = false;
@@ -242,6 +243,7 @@ float Survivable(const uint8_t *rec, float damage) {
 }
 
 void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6) {
+    g_damage_cs = cs;
     ULONGLONG now = GetTickCount64();
     float mult = 1.0f;
     bool rez = false, grace = false;
@@ -484,6 +486,9 @@ void Install() {
 }
 
 } // namespace
+
+// CombatBots.dll finds the damageable system here (dead / respawn of its bots).
+extern "C" __declspec(dllexport) void *PowerBoost_DamageableCS() { return g_damage_cs; }
 
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {

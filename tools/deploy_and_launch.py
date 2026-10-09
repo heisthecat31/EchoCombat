@@ -417,6 +417,13 @@ def install_dlls(install: str):
         if open(dst, "rb").read() != src:
             sys.exit(f"{dst} did not keep what was written (antivirus? Echo running?)")
         print(f"   wrote {dst}")
+    # CombatBots' per-map war room orbs and routes (tools/record_nav.py)
+    nav_dir = os.path.join(ROOT, "data", "nav")
+    for name in sorted(os.listdir(nav_dir)) if os.path.isdir(nav_dir) else []:
+        if name.endswith(".json"):
+            dst = os.path.join(plugins, f"CombatBots_{name}")
+            shutil.copy2(os.path.join(nav_dir, name), dst)
+            print(f"   wrote {dst}")
 
 
 def install_script_dlls(install: str):
@@ -542,7 +549,10 @@ def main(argv) -> int:
     if args.bots:
         headless_args += ("" if "-noovr" in headless_args.split() else " -noovr") + f" -bots {args.bots}"
     for i in range(args.headless):
-        launch(args.server_install, headless_args, f"headless {i + 1}")
+        # each server its own session API port (they all default to 6719, so only the
+        # first got one): CombatBots.dll reads the bots' world from it
+        extra = "" if "-httpport" in headless_args else f" -httpport {6730 + i}"
+        launch(args.server_install, headless_args + extra, f"headless {i + 1}")
         time.sleep(5)
     time.sleep(5)
     launch(args.client_install, args.client_args, "VR client")
