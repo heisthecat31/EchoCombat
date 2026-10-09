@@ -129,7 +129,7 @@ BUFF_UNIQUE = 0x8870DFA9A8731203          # CSymbol64("ability_properties|buff|u
 
 
 #: OVERCHARGE's heal, as a fraction of ability_properties.buff.heal_amt_on_success
-HEAL_SCALE = 0.2
+HEAL_SCALE = 0.05
 
 
 def link_tuning(t: dict) -> dict:
@@ -145,7 +145,7 @@ def link_tuning(t: dict) -> dict:
     length, angle = round(t["len"]), round(t["init_angle"])
     if not (1 <= length <= 100 and 1 <= angle <= 180):
         raise ValueError(f"len {t['len']} / init_angle {t['init_angle']} out of range")
-    # OVERCHARGE heals 80% less than the config's heal_amt_on_success (60 -> 12), so
+    # OVERCHARGE heals 5% of the config's heal_amt_on_success (60 -> 3), so
     # Repair Matrix stays the healing tac mod
     heal = t["heal_amt_on_success"] * HEAL_SCALE
     return {
