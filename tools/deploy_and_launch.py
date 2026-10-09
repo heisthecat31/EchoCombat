@@ -16,6 +16,7 @@
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
      fix_dot_trigger.py                      stacks onto the drone's script table
+     fix_starburst_div.py                    STARBURST: no divide-by-zero log every frame
 2. `evrtool repack` each install. QuickRepack always starts from the stock
    manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
    want live: anything left out goes back to stock.
@@ -104,6 +105,7 @@ BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's be
                   "de22b615c9c69cdd")                       # the stun field (fix_buff --fx-test)
 WRAITH_SCRIPT = "e1971566197d460"
 LOC_SCRIPT = "9398a165c004a9c0"          # TRANSLOCATOR (fix_loc_fx.py: teleport effect + sound)
+STARBURST_SCRIPT = "a9db89899292a98f"    # STARBURST gun (fix_starburst_div.py: divide-by-zero log)
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 #: gear icons (gear_icons.py): the stock icon atlases (descriptor + DDS) -- the HUD's
 #: gear sheet and the shared UI sheet the equipment station uses -- and their canvases
@@ -152,6 +154,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, HEAL_SCRIPT),
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     (SCRIPTS_TYPE, LOC_SCRIPT),
+                                                    (SCRIPTS_TYPE, STARBURST_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
@@ -227,6 +230,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     tool("fix_shared_frisbee.py", *src)
     tool("fix_dot_script.py", *src)
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
+    # STARBURST: its script's divide-by-zero log, written every frame while the gun is out.
+    tool("fix_starburst_div.py", *src)
     # Particle effect preview: each stun mine shows the next effect (for UMBRAL VEIL's smoke).
     if fx_preview:
         tool("fx_preview.py", *src, "--start", str(fx_preview))

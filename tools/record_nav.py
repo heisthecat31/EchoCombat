@@ -109,10 +109,20 @@ def save(map_name: str, orbs: list, routes: list, quiet: bool = False) -> None:
     if map_name not in _base:
         _base[map_name] = json.loads(out.read_text()) if out.exists() else {"map": map_name, "orbs": [], "routes": []}
     base = _base[map_name]
-    data = {"map": map_name, "orbs": base["orbs"] + orbs, "routes": base["routes"] + routes}
+    data = {**base, "orbs": base["orbs"] + orbs, "routes": base["routes"] + routes}
+    text = json.dumps(data, indent=1)
+    if out.exists() and out.read_text() == text:
+        return
     tmp = out.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1))
+    tmp.write_text(text)
     tmp.replace(out)
+    # and straight to the running server: CombatBots reloads it when it changes
+    from deploy_and_launch import SERVER_INSTALL
+    live = Path(SERVER_INSTALL) / "bin" / "win10" / "plugins" / f"CombatBots_{map_name}.json"
+    if live.parent.is_dir():
+        tmp = live.with_suffix(".tmp")
+        tmp.write_text(text)
+        tmp.replace(live)
     if not quiet:
         print(f"saved {out}: {len(data['orbs'])} orb use(s), {len(data['routes'])} route(s), "
               f"{sum(len(r) for r in data['routes'])} samples")

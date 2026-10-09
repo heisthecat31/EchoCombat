@@ -96,6 +96,7 @@ struct Settings {
     float orb_reach = 1.2f;              // this close to an orb takes it
     float node_reach = 1.5f;             // this close to a route node moves on to the next
     float link_distance = 1.75f;         // route nodes this close join different routes
+    float off_route = 3.0f;              // further than this from every route node: don't move
     unsigned log_every_ms = 5000;
 } g_cfg;
 
@@ -123,6 +124,7 @@ void ReadIni() {
     g_cfg.orb_reach = IniFloat("bots", "orb_reach", 1.2f);
     g_cfg.node_reach = IniFloat("bots", "node_reach", 1.5f);
     g_cfg.link_distance = IniFloat("bots", "link_distance", 1.75f);
+    g_cfg.off_route = IniFloat("bots", "off_route", 3.0f);
     g_cfg.log_every_ms = GetPrivateProfileIntA("bots", "log_every_ms", 5000, g_ini_path);
     Log("settings: brain=%d forward=%s keep_distance=%.1f fire_range=%.1f turn_rate=%.2f aim_up=%.2f bullet_speed=%.0f",
         g_cfg.brain, axis, g_cfg.keep_distance, g_cfg.fire_range, g_cfg.turn_rate, g_cfg.aim_up, g_cfg.bullet_speed);
@@ -488,6 +490,7 @@ struct Orb {
 };
 struct Nav {
     std::string map;
+    FILETIME written = {};                       // the file's last write, to reload when it changes
     std::vector<Orb> orbs;
     std::vector<std::array<float, 3>> nodes;
     std::vector<std::vector<int>> links;
@@ -515,6 +518,8 @@ void LoadNav(const std::string &map) {
     g_nav.map = map;
     std::string path = g_ini_path;
     path = path.substr(0, path.size() - 4) + "_" + map + ".json";     // CombatBots.ini -> CombatBots_<map>.json
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa)) g_nav.written = fa.ftLastWriteTime;
     FILE *f = nullptr;
     if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) {
         Log("no nav for %s (%s): bots stay in the war room", map.c_str(), path.c_str());
@@ -550,6 +555,42 @@ void LoadNav(const std::string &map) {
                 prev = at;
             }
         }
+    // A map whose two halves are the same turned half round (Dyson): "mirror_center": [x, z]
+    // gives the other team the orbs and routes recorded on one side, unless it has its own.
+    float mc[2];
+    const Json *m = root.get("mirror_center");
+    if (m && m->kind == Json::Arr && m->items.size() >= 2) {
+        mc[0] = (float)m->items[0].num;
+        mc[1] = (float)m->items[1].num;
+        auto turn = [&](const float *p, float *out) { out[0] = 2 * mc[0] - p[0]; out[1] = p[1]; out[2] = 2 * mc[1] - p[2]; };
+        auto has = [&](const std::string &team) {
+            for (const Orb &o : g_nav.orbs) if (o.team == team) return true;
+            return false;
+        };
+        bool blue = has("BLUE TEAM"), orange = has("ORANGE TEAM");
+        size_t recorded = g_nav.orbs.size();
+        for (size_t k = 0; k < recorded; ++k) {
+            Orb o = g_nav.orbs[k];
+            std::string other = o.team == "BLUE TEAM" ? "ORANGE TEAM" : "BLUE TEAM";
+            if (other == "BLUE TEAM" ? blue : orange) continue;
+            Orb m2;
+            m2.team = other;
+            turn(o.at, m2.at);
+            turn(o.to, m2.to);
+            g_nav.orbs.push_back(m2);
+        }
+        size_t nodes = g_nav.nodes.size();
+        std::vector<std::vector<int>> links = g_nav.links;
+        for (size_t k = 0; k < nodes; ++k) {
+            std::array<float, 3> p;
+            turn(g_nav.nodes[k].data(), p.data());
+            g_nav.nodes.push_back(p);
+            g_nav.links.emplace_back();
+        }
+        for (size_t k = 0; k < nodes; ++k)
+            for (int nb : links[k]) Link((int)(k + nodes), nb + (int)nodes);
+        Log("nav %s: mirrored about %.1f %.1f", map.c_str(), mc[0], mc[1]);
+    }
     // routes that pass close by each other join up
     for (size_t a = 0; a < g_nav.nodes.size(); ++a)
         for (size_t b = a + 1; b < g_nav.nodes.size(); ++b)
@@ -599,20 +640,45 @@ bool FindPath(int from, int to, std::vector<int> &out) {
 }
 
 // --- the bot's body: its transform (CTransformCS at bot cs + 138h; Quest
-// CR15NetBotCS::Transform -> CTransformCS::ComputeLocalToWorldTransfQ). Records of 118h,
-// slot from the u32 table at +C8h; with no parent (+08h) the world position is at +F8h.
-float *BodyPos(uint8_t *cs, uint32_t actor) {
+// CR15NetBotCS::Transform -> CTransformCS::ComputeLocalToWorldTransfQ). On PC the
+// transforms are 140h-byte records from tcs+40h (count at tcs+118h): rotation +A0h,
+// inverse position +B0h, rotation +D0h, world position +E0h. The actor -> record table
+// isn't found yet, so a bot's record is the one whose position is exactly where the
+// session API says the bot is (the API reports this very value). That only works while
+// the bot stands still (the API lags a moving bot), so it is found while the bot waits in
+// the war room and cached; the cache holds while the record stays within 3 m of the API.
+constexpr size_t T_RECORD = 0x140, T_POS = 0xe0, T_INV_POS = 0xb0;
+uint8_t *g_body_rec[64];
+
+uint8_t *FindBody(uint8_t *cs, unsigned bot, const float *api_pos) {
     uint8_t *tcs = *(uint8_t **)(cs + 0x138);
-    if (!tcs) return nullptr;
-    uint16_t *slots = *(uint16_t **)(tcs + 0xc8);
-    uint8_t *recs = *(uint8_t **)(tcs + 0xf8);
-    if (!slots || !recs) return nullptr;
-    uint8_t *r = recs + slots[(actor & 0xffff) * 2] * 0x118ull;
-    if (*(void **)(r + 8)) return nullptr;
-    return (float *)(r + 0xf8);
+    if (!tcs || bot >= 64) return nullptr;
+    uint8_t *recs = *(uint8_t **)(tcs + 0x40);
+    uint32_t count = *(uint32_t *)(tcs + 0x118);
+    if (!recs || !count || count > 8192) return nullptr;
+    uint8_t *cached = g_body_rec[bot];
+    if (cached && cached >= recs && cached < recs + count * T_RECORD && Dist((float *)(cached + T_POS), api_pos) < 3.0f)
+        return cached;
+    g_body_rec[bot] = nullptr;
+    for (uint32_t k = 0; k < count; ++k) {
+        uint8_t *r = recs + k * T_RECORD;
+        if (Dist((float *)(r + T_POS), api_pos) < 0.02f) return g_body_rec[bot] = r;
+    }
+    return nullptr;
 }
-volatile LONG g_body_checks = 0;
-bool g_body_ok = false;                          // BodyPos matched the API position: teleports allowed
+
+// Move the body: world position, and the inverse transform's position -(q^-1 * p).
+void SetBody(uint8_t *rec, const float *p) {
+    const float *q = (const float *)(rec + 0xd0);              // x y z w
+    float *pos = (float *)(rec + T_POS), *inv = (float *)(rec + T_INV_POS);
+    // v' = v + 2w(u x v) + 2u x (u x v), with u = -q.xyz (the inverse rotation)
+    float u[3] = { -q[0], -q[1], -q[2] }, w = q[3];
+    float t[3] = { 2 * (u[1] * p[2] - u[2] * p[1]), 2 * (u[2] * p[0] - u[0] * p[2]), 2 * (u[0] * p[1] - u[1] * p[0]) };
+    float r[3] = { p[0] + w * t[0] + (u[1] * t[2] - u[2] * t[1]),
+                   p[1] + w * t[1] + (u[2] * t[0] - u[0] * t[2]),
+                   p[2] + w * t[2] + (u[0] * t[1] - u[1] * t[0]) };
+    for (int k = 0; k < 3; ++k) { pos[k] = p[k]; inv[k] = -r[k]; }
+}
 
 struct BotState {
     int orb = -1;                                // the orb this bot is heading for
@@ -620,6 +686,9 @@ struct BotState {
     size_t step = 0;
     int goal = -1;
     ULONGLONG path_at = 0;
+    float landed[3] = {};                        // where the last teleport put it (checked once)
+    ULONGLONG landed_at = 0;
+    ULONGLONG tried_at = 0;
 } g_bot[64];
 
 const Player *FindBotPlayer(const std::vector<Player> &players, uint32_t user) {
@@ -637,7 +706,17 @@ void Think(uint8_t *cs) {
     ULONGLONG age = GetTickCount64() - g_world_at;
     std::string map = g_map;
     ReleaseSRWLockShared(&g_world_lock);
-    if (!map.empty() && map != g_nav.map) {
+    static ULONGLONG next_nav_check = 0;
+    bool reload = !map.empty() && map != g_nav.map;
+    if (!reload && !map.empty() && GetTickCount64() >= next_nav_check) {   // recorded more: pick it up
+        next_nav_check = GetTickCount64() + 3000;
+        std::string path = std::string(g_ini_path).substr(0, strlen(g_ini_path) - 4) + "_" + map + ".json";
+        WIN32_FILE_ATTRIBUTE_DATA fa;
+        if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fa) &&
+            CompareFileTime(&fa.ftLastWriteTime, &g_nav.written) != 0)
+            reload = true;
+    }
+    if (reload) {
         LoadNav(map);
         for (BotState &b : g_bot) b = BotState();
     }
@@ -673,13 +752,13 @@ void Think(uint8_t *cs) {
         if (!me || !me->has_pos || i >= 64) continue;
         BotState &st = g_bot[i];
         uint32_t actor = *(uint32_t *)(r + R_ACTOR);
-        float *body = BodyPos(cs, actor);
-        if (body && !g_body_ok && g_body_checks < 20) {
-            float d = Dist(body, me->pos);
-            InterlockedIncrement(&g_body_checks);
-            Log("bot %u body %.2f %.2f %.2f vs API %.2f %.2f %.2f (%.2f m)%s", i, body[0], body[1], body[2],
-                me->pos[0], me->pos[1], me->pos[2], d, d < 1.5f ? ": body found, teleports on" : "");
-            if (d < 1.5f) g_body_ok = true;
+        (void)actor;
+        FindBody(cs, i, me->pos);                           // find / keep its transform record
+        if (st.landed_at && now - st.landed_at > 1500) {       // did the last teleport hold?
+            float d = Dist(me->pos, st.landed);
+            Log("bot %u teleport %s: now at %.1f %.1f %.1f (%.1f m from where it landed)", i,
+                d < 4.0f ? "HELD" : "DID NOT HOLD", me->pos[0], me->pos[1], me->pos[2], d);
+            st.landed_at = 0;
         }
 
         // war room: nothing until the orbs work, then walk to an orb and take it
@@ -700,7 +779,7 @@ void Think(uint8_t *cs) {
             const Orb &o = g_nav.orbs[st.orb];
             float *t = (float *)(r + R_TARGET);
             if (FlatDist(me->pos, o.at) > g_cfg.orb_reach) {
-                memcpy(t, o.at, sizeof(o.at));
+                t[0] = o.at[0], t[1] = me->pos[1], t[2] = o.at[2];   // the orb hangs below the floor
                 *(uint32_t *)(r + R_MOVING) = 1;
                 float dir[3] = { o.at[0] - me->pos[0], 0, o.at[2] - me->pos[2] }, q[4];
                 Normalize(dir);
@@ -711,14 +790,19 @@ void Think(uint8_t *cs) {
             }
             // at the orb: land where it lands (spread a little so bots don't stack)
             *(uint32_t *)(r + R_MOVING) = 0;
-            if (!g_body_ok || !body) {
+            if (now - st.tried_at < 5000) continue;          // one try every 5 s, not every frame
+            st.tried_at = now;
+            uint8_t *body = FindBody(cs, i, me->pos);
+            if (!body) {
                 static ULONGLONG warned = 0;
-                if (now > warned) { warned = now + 10000; Log("bot %u at its orb, but its body isn't found: can't teleport", i); }
+                if (now > warned) { warned = now + 10000; Log("bot %u at its orb, but its body isn't found yet", i); }
                 continue;
             }
             float land[3] = { o.to[0] + (rand() % 200 - 100) / 100.0f, o.to[1], o.to[2] + (rand() % 200 - 100) / 100.0f };
-            memcpy(body, land, sizeof(land));
+            SetBody(body, land);
             memcpy(t, land, sizeof(land));
+            memcpy(st.landed, land, sizeof(land));
+            st.landed_at = now;
             Log("bot %u took the %s orb at %.1f %.1f %.1f -> %.1f %.1f %.1f", i, me->team.c_str(), o.at[0], o.at[1], o.at[2],
                 land[0], land[1], land[2]);
             st.orb = -1;
@@ -746,11 +830,17 @@ void Think(uint8_t *cs) {
         if (best <= g_cfg.keep_distance) {
             *(uint32_t *)(r + R_MOVING) = 0;
         } else {
+            int here = NearestNode(me->pos);
             int goal = NearestNode(target->pos);
-            if (goal != st.goal || now - st.path_at > 1000 || st.step >= st.path.size()) {
+            if (here < 0 || Dist(me->pos, g_nav.nodes[here].data()) > g_cfg.off_route) {
+                // not on any recorded route: a straight line could go through anything, so stay
+                st.path.clear();
+                st.step = 0;
+                st.goal = -1;
+            } else if (goal != st.goal || now - st.path_at > 1000 || st.step >= st.path.size()) {
                 st.goal = goal;
                 st.path_at = now;
-                FindPath(NearestNode(me->pos), goal, st.path);
+                FindPath(here, goal, st.path);
                 st.step = 0;
             }
             while (st.step < st.path.size() && Dist(me->pos, g_nav.nodes[st.path[st.step]].data()) < g_cfg.node_reach)
