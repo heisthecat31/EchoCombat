@@ -44,14 +44,12 @@ Because the gear patch and this fix touch the same two resources, ALWAYS rebase
 rather than overwrite: point `--base` at the patch tree and its changes carry
 through untouched.
 
-    python tools/fix_dot.py --base <patch_dir>                     # preview
-    python tools/fix_dot.py --base <patch_dir> --deploy            # stage
-    python tools/fix_dot.py --base <patch_dir> --preset impact --deploy
+    python tools/fix_dot.py --base data/gunpatch                          # preview
+    python tools/fix_dot.py --base data/gunpatch --stage build/stage      # stage
 
-`--deploy` writes `<pcvr_input_folder>/<resource_type_hash>/<asset_hash>`, the
-layout evrfiletools packages from, reading the path from its own
-`Settings/config.json`.  `--stage <dir>` does the same into `<dir>` instead.  Every other type folder in the base tree is copied
-verbatim.  Run evrfiletools afterwards; this only stages files.
+`--stage <dir>` writes `<dir>/<resource_type_hash>/<asset_hash>`, the layout evrtool
+packs from (deploy_and_launch.py runs this for you). Every other type folder in the
+base tree is copied verbatim. This only stages files.
 """
 
 from __future__ import annotations
@@ -70,18 +68,14 @@ from echocombat_config import section
 
 ROOT = os.path.dirname(_HERE)
 
-#: Pristine PC extract, used when no `--base` is given.
-EXTRACT = r"H:\pcvr-extracted\607d858c90268f9a"
+#: The game's JSON tables, used when no `--base` is given: the repo's data/extract.
+EXTRACT = os.path.join(ROOT, "data", "extract", "607d858c90268f9a")
 
 EQUIPMENT = "f8d40525c88885d8"        # CSymbol64("mp_equipment")
 WEAPON_SETTINGS = "11a8523ed4724ca7"  # CSymbol64("mp_weapon_settings")
 
 #: CSymbol64("CJsonResourceWin10") -- the type folder both resources live under.
 JSON_RESOURCE_WIN10 = "607d858c90268f9a"
-
-#: evrfiletools' own settings, which owns the staging paths.
-TOOLS_CONFIG = ("C:/Oculus/Games/Software/Software/ready-at-dawn-echo-arena"
-                "/bin/win10/Tools/Tools/Settings/config.json")
 
 DISPLAY_NAMES = {"dot": "DOT FIELD", "drone": "DRONE"}
 
@@ -129,15 +123,6 @@ PRESETS = {
               "stick_to_geo": True},
 }
 DEFAULT_PRESET = "trigger"
-
-
-def pcvr_input_folder(config_path: str = TOOLS_CONFIG) -> str:
-    """The `input-pcvr` staging folder, per evrfiletools' config."""
-    with open(config_path, "r", encoding="utf-8") as fh:
-        folder = json.load(fh).get("pcvr_input_folder")
-    if not folder:
-        raise RuntimeError(f"no pcvr_input_folder in {config_path}")
-    return folder
 
 
 def load(base_dir: str, name: str):
@@ -208,7 +193,7 @@ def main(argv: list[str]) -> int:
             settings["damage_table"]["drone"] = dict(DRONE_DAMAGE)
             changes.append("damage_table.drone added")
 
-    out = os.path.join(ROOT, "data", "patched")
+    out = os.path.join(ROOT, "build", "patched")
     os.makedirs(out, exist_ok=True)
     for fname, obj in [("mp_equipment.json", gear),
                        ("mp_weapon_settings.json", settings)]:
@@ -226,7 +211,9 @@ def main(argv: list[str]) -> int:
     print(f"{len(changes)} change(s) -> {out}")
 
     if do_deploy:
-        root = stage_dir or pcvr_input_folder()
+        if not stage_dir:
+            raise SystemExit("--deploy needs --stage DIR (the folder to stage into)")
+        root = stage_dir
         staging = os.path.join(root, JSON_RESOURCE_WIN10)
         os.makedirs(staging, exist_ok=True)
         print(f"\nstaging into {root}")

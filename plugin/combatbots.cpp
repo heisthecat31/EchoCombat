@@ -97,6 +97,8 @@ struct Settings {
     float node_reach = 1.5f;             // this close to a route node moves on to the next
     float link_distance = 1.75f;         // route nodes this close join different routes
     float off_route = 3.0f;              // further than this from every route node: don't move
+    float lost_distance = 15.0f;         // further than this (outside the war room): teleport back
+    float walk_speed = 5.0f;             // m/s along the routes
     unsigned log_every_ms = 5000;
 } g_cfg;
 
@@ -125,6 +127,8 @@ void ReadIni() {
     g_cfg.node_reach = IniFloat("bots", "node_reach", 1.5f);
     g_cfg.link_distance = IniFloat("bots", "link_distance", 1.75f);
     g_cfg.off_route = IniFloat("bots", "off_route", 3.0f);
+    g_cfg.lost_distance = IniFloat("bots", "lost_distance", 15.0f);
+    g_cfg.walk_speed = IniFloat("bots", "walk_speed", 5.0f);
     g_cfg.log_every_ms = GetPrivateProfileIntA("bots", "log_every_ms", 5000, g_ini_path);
     Log("settings: brain=%d forward=%s keep_distance=%.1f fire_range=%.1f turn_rate=%.2f aim_up=%.2f bullet_speed=%.0f",
         g_cfg.brain, axis, g_cfg.keep_distance, g_cfg.fire_range, g_cfg.turn_rate, g_cfg.aim_up, g_cfg.bullet_speed);
@@ -439,9 +443,41 @@ ULONGLONG g_dead_since[64];
 ULONGLONG g_respawn_tried[64];
 
 // The players' damageable system: the one PowerBoost saw that shares the bots' game space.
+// The game space's component lookup by type symbol (PC 0x140105510, EchoTrainer's
+// ResolveComponentBySymbol). Symbols: CSymbol64 of the type name ("R14RemotePlayer" is
+// what the game stores at +16D9E40h).
+constexpr uintptr_t LOOKUP_RVA = 0x105510;
+constexpr uint8_t LOOKUP_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0xda, 0x48, 0x8b, 0xf9 };
+constexpr uint64_t SYM_DAMAGEABLE = 0x23cd0a4deecd7431ull;   // R15NetDamageable
+constexpr uint64_t SYM_BOT = 0x7a814a0a9b2a499cull;          // R15NetBot (self-check)
+
+// The game space's own table (+420h: {symbol, system} pairs, count +450h). The stored
+// symbols differ from CSymbol64(name) in bit 48 (R15NetBot is stored as 7a804a0a...), so
+// the table is searched with that bit ignored rather than through the lookup call.
+uint8_t *FindSystem(void *space, uint64_t sym) {
+    uint8_t *table = *(uint8_t **)((uint8_t *)space + 0x420);
+    uint64_t count = *(uint64_t *)((uint8_t *)space + 0x450);
+    for (uint64_t k = 0; table && k < count && k < 1024; ++k)
+        if (((*(uint64_t *)(table + k * 16) ^ sym) & ~(1ull << 48)) == 0)
+            return *(uint8_t **)(table + k * 16 + 8);
+    return nullptr;
+}
+using lookup_fn = uint8_t *(__fastcall *)(void *space, uint64_t symbol);
+lookup_fn g_lookup = nullptr;
+
 uint8_t *PlayerDamageables(uint8_t *cs) {
     void *space = *(void **)(cs + 0x80);
     if (g_player_space != space) { g_player_dcs = nullptr; g_player_space = space; }
+    if (!g_player_dcs && space) {
+        uint8_t *bots = FindSystem(space, SYM_BOT), *d = FindSystem(space, SYM_DAMAGEABLE);
+        if (bots == cs && d) {
+            g_player_dcs = d;
+            Log("players' damageable system %p (looked up in game space %p)", d, space);
+        } else {
+            static int warned = 0;
+            if (warned++ < 3) Log("component lookup: bots %p (expected %p), damageable %p: not used", bots, cs, d);
+        }
+    }
     if (!g_player_dcs)
         if (uint8_t *d = DamageableCS())
             if (*(void **)(d + 0x80) == space) {
@@ -703,7 +739,27 @@ struct BotState {
     float landed[3] = {};                        // where the last teleport put it (checked once)
     ULONGLONG landed_at = 0;
     ULONGLONG tried_at = 0;
+    ULONGLONG grace_until = 0;                   // after a teleport: hold, ignore the stale API
+    float at[3] = {};                            // where we have put it (the API lags)
+    bool has_at = false;
+    ULONGLONG step_at = 0;
 } g_bot[64];
+
+// Each bot keeps its own place around a shared point (landing spot, route node): bodies in
+// exactly the same spot are what the server and its clients froze on.
+void Spread(unsigned i, const float *p, float radius, float *out) {
+    float a = (float)i * 2.39996f;                 // golden angle: no two bots line up
+    out[0] = p[0] + radius * cosf(a);
+    out[1] = p[1];
+    out[2] = p[2] + radius * sinf(a);
+}
+
+// Stop a bot: the mover keeps heading for its target whatever +60h says, so the target
+// becomes where the bot is.
+void Stop(uint8_t *r, const float *pos) {
+    *(uint32_t *)(r + R_MOVING) = 0;
+    memcpy(r + R_TARGET, pos, 3 * sizeof(float));
+}
 
 const Player *FindBotPlayer(const std::vector<Player> &players, uint32_t user) {
     for (const Player &p : players)
@@ -760,6 +816,8 @@ void Think(uint8_t *cs) {
         if (is_dead((int)*(uint32_t *)(r + R_USER))) {      // dead: no moving, no shooting
             *(uint32_t *)(r + R_FIRE) = 0;
             *(uint32_t *)(r + R_MOVING) = 0;
+            if (const Player *dead = FindBotPlayer(players, *(uint32_t *)(r + R_USER))) Stop(r, dead->pos);
+            if (i < 64) g_bot[i].has_at = false;
             continue;
         }
         const Player *me = FindBotPlayer(players, *(uint32_t *)(r + R_USER));
@@ -772,6 +830,15 @@ void Think(uint8_t *cs) {
             st.landed_at = 0;
         }
 
+        if (st.has_at && now - st.step_at > 500 && Dist(me->pos, st.at) > 4.0f)
+            st.has_at = false;                              // somewhere else now (respawned...)
+        if (now < st.grace_until) {                          // just teleported: the API still shows
+            *(uint32_t *)(r + R_MOVING) = 0;                // the old place for a moment, so hold
+            memcpy(r + R_TARGET, st.landed, sizeof(st.landed));   // at the landing spot
+            *(uint32_t *)(r + R_FIRE) = 0;
+            continue;
+        }
+
         // war room: nothing until the orbs work, then walk to an orb and take it
         bool in_war_room = false;
         for (const Orb &o : g_nav.orbs)
@@ -782,7 +849,7 @@ void Think(uint8_t *cs) {
             for (size_t k = 0; k < g_nav.orbs.size(); ++k)
                 if (g_nav.orbs[k].team == me->team) mine.push_back((int)k);
             if (!g_orbs_live || mine.empty() || !in_war_room) {
-                *(uint32_t *)(r + R_MOVING) = 0;
+                Stop(r, me->pos);
                 st.orb = -1;
                 continue;
             }
@@ -800,16 +867,21 @@ void Think(uint8_t *cs) {
                 continue;
             }
             // at the orb: land where it lands (spread a little so bots don't stack)
-            *(uint32_t *)(r + R_MOVING) = 0;
+            Stop(r, me->pos);
             if (now - st.tried_at < 5000) continue;          // one try every 5 s, not every frame
             st.tried_at = now;
-            float land[3] = { o.to[0] + (rand() % 200 - 100) / 100.0f, o.to[1], o.to[2] + (rand() % 200 - 100) / 100.0f };
+            float land[3];
+            Spread(i, o.to, 1.5f, land);
             // face the middle of the map on landing
             float yaw = atan2f(-land[0], -land[2]);
             if (!TeleportBot(cs, r, i, land, yaw)) continue;
             memcpy(t, land, sizeof(land));
             memcpy(st.landed, land, sizeof(land));
             st.landed_at = now;
+            st.grace_until = now + 2000;
+            memcpy(st.at, land, sizeof(st.at));
+            st.has_at = true;
+            st.step_at = now + 2000;
             Log("bot %u took the %s orb at %.1f %.1f %.1f -> %.1f %.1f %.1f", i, me->team.c_str(), o.at[0], o.at[1], o.at[2],
                 land[0], land[1], land[2]);
             st.orb = -1;
@@ -817,6 +889,27 @@ void Think(uint8_t *cs) {
             continue;
         }
         st.orb = -1;
+
+        // lost (off the map / far from every route): put it back on the nearest route point.
+        // A bot loose outside the level has frozen the server and its clients.
+        if (!g_nav.nodes.empty()) {
+            int nn = NearestNode(me->pos);
+            if (Dist(me->pos, g_nav.nodes[nn].data()) > g_cfg.lost_distance && now - st.tried_at > 3000) {
+                st.tried_at = now;
+                const float *back = g_nav.nodes[nn].data();
+                if (TeleportBot(cs, r, i, back, atan2f(-back[0], -back[2]))) {
+                    memcpy(st.landed, back, sizeof(st.landed));
+                    st.grace_until = now + 2000;
+                    memcpy(st.at, back, sizeof(st.at));
+                    st.has_at = true;
+                    st.step_at = now + 2000;
+                    Stop(r, back);
+                    Log("bot %u was lost at %.1f %.1f %.1f: put back on the route at %.1f %.1f %.1f", i,
+                        me->pos[0], me->pos[1], me->pos[2], back[0], back[1], back[2]);
+                    continue;
+                }
+            }
+        }
 
         const Player *target = nullptr;
         float best = 1e9f;
@@ -832,31 +925,40 @@ void Think(uint8_t *cs) {
         }
         float dir[3] = { target->pos[0] - me->pos[0], target->pos[1] - me->pos[1], target->pos[2] - me->pos[2] };
         Normalize(dir);
-        // move along the recorded routes towards the target, stopping keep_distance short
-        float *t = (float *)(r + R_TARGET);
-        if (best <= g_cfg.keep_distance) {
-            *(uint32_t *)(r + R_MOVING) = 0;
-        } else {
-            int here = NearestNode(me->pos);
+        // move: step along the recorded routes ourselves, by small engine teleports. The
+        // bot's own mover flies (zero-g, keeps its momentum, no collision), so it stays idle.
+        if (!st.has_at) { memcpy(st.at, me->pos, sizeof(st.at)); st.has_at = true; }
+        Stop(r, st.at);
+        if (best > g_cfg.keep_distance && now - st.step_at >= 33) {
+            float dt = fminf((now - st.step_at) / 1000.0f, 0.1f);
+            st.step_at = now;
+            int here = NearestNode(st.at);
             int goal = NearestNode(target->pos);
-            if (here < 0 || Dist(me->pos, g_nav.nodes[here].data()) > g_cfg.off_route) {
-                // not on any recorded route: a straight line could go through anything, so stay
-                st.path.clear();
-                st.step = 0;
-                st.goal = -1;
-            } else if (goal != st.goal || now - st.path_at > 1000 || st.step >= st.path.size()) {
+            if (here >= 0 && (goal != st.goal || now - st.path_at > 1000 || st.step >= st.path.size())) {
                 st.goal = goal;
                 st.path_at = now;
                 FindPath(here, goal, st.path);
                 st.step = 0;
             }
-            while (st.step < st.path.size() && Dist(me->pos, g_nav.nodes[st.path[st.step]].data()) < g_cfg.node_reach)
-                ++st.step;
-            if (st.step < st.path.size()) {
-                memcpy(t, g_nav.nodes[st.path[st.step]].data(), 3 * sizeof(float));
-                *(uint32_t *)(r + R_MOVING) = 1;
-            } else {
-                *(uint32_t *)(r + R_MOVING) = 0;           // no route to them: hold and shoot if in range
+            float left = g_cfg.walk_speed * dt, pos[3];
+            memcpy(pos, st.at, sizeof(pos));
+            while (left > 0 && st.step < st.path.size()) {
+                float next[3];
+                Spread(i, g_nav.nodes[st.path[st.step]].data(), 0.6f, next);
+                float d = Dist(pos, next);
+                if (d <= left) {
+                    memcpy(pos, next, sizeof(pos));
+                    left -= d;
+                    ++st.step;
+                } else {
+                    for (int k = 0; k < 3; ++k) pos[k] += (next[k] - pos[k]) * left / d;
+                    left = 0;
+                }
+            }
+            if (Dist(pos, st.at) > 0.001f &&
+                TeleportBot(cs, r, i, pos, atan2f(pos[0] - st.at[0], pos[2] - st.at[2]))) {
+                memcpy(st.at, pos, sizeof(st.at));
+                Stop(r, pos);
             }
         }
         // look and fire: from the gun hand to the target's head (raised by aim_up), led by its velocity
@@ -990,6 +1092,8 @@ DWORD WINAPI Install(LPVOID) {
         Log("prologue mismatch at CR15NetBotCS::Update -- wrong echovr build, not hooking");
         return 0;
     }
+    if (memcmp(base + LOOKUP_RVA, LOOKUP_BYTES, sizeof(LOOKUP_BYTES)) == 0) g_lookup = (lookup_fn)(base + LOOKUP_RVA);
+    else Log("prologue mismatch at the component lookup: dead bots found through PowerBoost only");
     if (memcmp(base + RESPAWN_RVA, RESPAWN_BYTES, sizeof(RESPAWN_BYTES)) == 0) g_respawn = (respawn_fn)(base + RESPAWN_RVA);
     else Log("prologue mismatch at NetworkRespawn: bots won't respawn");
     if (memcmp(base + WORLD_TELEPORT_RVA, WORLD_TELEPORT_BYTES, sizeof(WORLD_TELEPORT_BYTES)) == 0)

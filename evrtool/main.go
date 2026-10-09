@@ -1,4 +1,4 @@
-// evrtool: the package operations the ArenaColours app needs, over the EvrFile library.
+// evrtool: packs EchoCombat's stage into Echo VR's packages and installs the release, over the EvrFile library.
 //
 //	evrtool get     <dataDir> <listFile> <outDir>   dump <type>/<file> resources from the STOCK manifest
 //	evrtool list    <dataDir> <typeHex>             print every <type>/<file> of one type (stock manifest)

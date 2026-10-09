@@ -117,9 +117,10 @@ def save(map_name: str, orbs: list, routes: list, quiet: bool = False) -> None:
     tmp.write_text(text)
     tmp.replace(out)
     # and straight to the running server: CombatBots reloads it when it changes
-    from deploy_and_launch import SERVER_INSTALL
-    live = Path(SERVER_INSTALL) / "bin" / "win10" / "plugins" / f"CombatBots_{map_name}.json"
-    if live.parent.is_dir():
+    from echocombat_config import local
+    server = local()["server_install"]
+    live = Path(server or ".") / "bin" / "win10" / "plugins" / f"CombatBots_{map_name}.json"
+    if server and live.parent.is_dir():
         tmp = live.with_suffix(".tmp")
         tmp.write_text(text)
         tmp.replace(live)

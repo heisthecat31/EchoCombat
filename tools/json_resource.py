@@ -32,10 +32,8 @@ PATH_OFFSET = 0x20
 PATH_SIZE = 0x200
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SYMBOL_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(_HERE)), "lone_echo_blender", "scripts")
-if _SYMBOL_DIR not in sys.path:
-    sys.path.insert(0, _SYMBOL_DIR)
+if _HERE not in sys.path:                       # le_symbol_names.py sits next to this file
+    sys.path.insert(0, _HERE)
 
 
 class JsonResourceError(ValueError):

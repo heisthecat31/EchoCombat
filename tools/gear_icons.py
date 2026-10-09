@@ -456,9 +456,8 @@ def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--src", required=True, help="where the stock assets are (<type>/<asset>)")
     ap.add_argument("--out", required=True, help="stage directory")
-    ap.add_argument("--fallback", default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                                       "data", "extract", "weapon_icons"),
-                    help="collected copies (find_weapon_icons.py) used when --src lacks them")
+    ap.add_argument("--fallback", default="",
+                    help="optional folder of extra copies used when --src lacks an asset")
     args = ap.parse_args(argv[1:])
     fb = args.fallback
     for atlas, (tex_name, canvases) in ATLASES.items():
@@ -492,6 +491,4 @@ def main(argv) -> int:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "data", "extract", "tools"))
     sys.exit(main(sys.argv))

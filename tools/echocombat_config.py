@@ -45,3 +45,23 @@ def powerboost_ini() -> str:
         "axis=+z\n"
         f"link_window_ms={b.get('link_window_ms', 500)}\n"
     )
+
+
+# --- this machine's paths: local.json (gitignored; copy local.example.json) -------------
+LOCAL = os.path.join(ROOT, "local.json")
+
+
+def local() -> dict:
+    """Paths for this machine. extract / gunpatch default to the repo's data/ folders;
+    server_install / client_install (the Echo VR installs to deploy into) have no
+    default and are None until set in local.json or passed on the command line."""
+    cfg = {}
+    if os.path.exists(LOCAL):
+        with open(LOCAL, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    return {
+        "extract": cfg.get("extract") or os.path.join(ROOT, "data", "extract"),
+        "gunpatch": cfg.get("gunpatch") or os.path.join(ROOT, "data", "gunpatch"),
+        "server_install": cfg.get("server_install"),
+        "client_install": cfg.get("client_install"),
+    }

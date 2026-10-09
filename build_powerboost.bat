@@ -13,7 +13,7 @@ if not defined VARS_BAT (
 )
 if not defined VSCMD_ARG_TGT_ARCH call "%VARS_BAT%" >nul
 cd /d "%~dp0"
-set "DETOURS=..\ArenaColours\third_party"
+set "DETOURS=third_party\detours"
 if not exist out mkdir out
 if not exist obj mkdir obj
 rem /MT: the C runtime is linked in, so players need no Visual C++ redistributable.

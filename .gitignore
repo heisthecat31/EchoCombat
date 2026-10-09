@@ -1,4 +1,16 @@
+# build outputs (build_*.bat, deploy_and_launch.py, make_release.py)
 build/
+obj/
+out/
 evrtool/evrtool.exe
+release/EchoCombat/
+release/EchoCombat.zip
 __pycache__/
+
+# this machine's paths (copy local.example.json)
+local.json
+
+# local tooling / scratch
 .mcp.json
+sound_candidates/
+overcharge_textures/

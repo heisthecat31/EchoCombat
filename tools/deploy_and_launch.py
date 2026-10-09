@@ -24,15 +24,18 @@
    manifest, and its DLL is written to `bin/win10/scripts/`, which is where
    Echo actually loads script code from.
 4. The DLLs (build_powerboost.bat, build_dronefix.bat, build_loader.bat, with
-   MSVC; --no-build installs the committed out/ copies) go into each install:
+   MSVC; --no-build installs the ones already built in out/) go into each install:
    PowerBoost.dll, DroneFix.dll and VeilNet.dll in bin/win10/plugins/, the plugin loader as
    bin/win10/dbgcore.dll.
 5. Launch the headless instances from the server install, then the VR client
    from the other install.
 
-    python tools/deploy_and_launch.py                                 # gun patch from GUNPATCH
-    python tools/deploy_and_launch.py --gunpatch <dir> --no-launch    # patch only
+    python tools/deploy_and_launch.py                                 # build, deploy, launch
+    python tools/deploy_and_launch.py --no-launch                     # build and deploy only
     python tools/deploy_and_launch.py --launch-only                   # skip patching
+
+The installs come from local.json (copy local.example.json) or --server-install /
+--client-install; the game files from data/extract and data/gunpatch.
 
 Echo must not be running in either install while repacking; `--kill` closes it.
 """
@@ -53,10 +56,14 @@ STAGE = os.path.join(ROOT, "build", "stage")
 EVRTOOL_DIR = os.path.join(ROOT, "evrtool")
 EVRTOOL = os.path.join(EVRTOOL_DIR, "evrtool.exe")
 
-EXTRACT = r"H:\pcvr-extracted"
-GUNPATCH = r"J:\combatGunPatchFiles"
-SERVER_INSTALL = r"H:\ready-at-dawn-echo-arena"
-CLIENT_INSTALL = r"C:\Oculus\Games\Software\Software\ready-at-dawn-echo-arena"
+sys.path.insert(0, TOOLS)
+from echocombat_config import local  # noqa: E402
+
+LOCAL = local()                       # local.json: this machine's paths (see local.example.json)
+EXTRACT = LOCAL["extract"]            # the game files the build reads (default: data/extract)
+GUNPATCH = LOCAL["gunpatch"]          # the combat gun patch tree (default: data/gunpatch)
+SERVER_INSTALL = LOCAL["server_install"]   # Echo VR install the headless servers run from
+CLIENT_INSTALL = LOCAL["client_install"]   # Echo VR install the VR client runs from
 DATA_DIR = os.path.join("_data", "5932408047", "rad15", "win10")
 EXE = os.path.join("bin", "win10", "echovr.exe")
 PACKAGE = "48037dc70b0ecab2"
@@ -113,7 +120,8 @@ GEAR_ICON_ATLASES = ("d8b84ca5707d3bd2", "9ec57c5df16fef80")
 GEAR_ICON_TEXTURE_TYPES = ("4a4c32c49300b8a0", "beac1969cb7b8861")
 GEAR_ICON_CANVAS_TYPE = "59a9bd6e4525ecc4"
 GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1",
-                      "13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b")
+                      "13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b",
+                      "72e4349798ae3ea1")    # the last: the station's element index (gear_icons.INDEX_CANVAS)
 SOURCE = os.path.join(ROOT, "build", "source")
 
 
@@ -387,7 +395,7 @@ def build_dlls():
         r = subprocess.run(["cmd", "/c", os.path.join(ROOT, bat)], cwd=ROOT, capture_output=True, text=True)
         out = (r.stdout + r.stderr).strip()
         if r.returncode:
-            print(f"   {bat} FAILED ({r.returncode}); using the committed out/{dll}\n      "
+            print(f"   {bat} FAILED ({r.returncode}); using the previous out/{dll}\n      "
                   + out.replace("\n", "\n      "))
         else:
             print(f"   built out/{dll}")
@@ -522,7 +530,7 @@ def main(argv) -> int:
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
     ap.add_argument("--no-build", action="store_true",
-                    help="do not build the DLLs with MSVC; install the committed ones in out/")
+                    help="do not build the DLLs with MSVC; install the ones already built in out/")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)
     ap.add_argument("--headless-args", default=HEADLESS_ARGS)
     ap.add_argument("--bots", type=int, metavar="N",
@@ -533,6 +541,10 @@ def main(argv) -> int:
     ap.add_argument("--no-launch", action="store_true")
     ap.add_argument("--launch-only", action="store_true")
     args = ap.parse_args(argv[1:])
+    missing = [f"--{k.replace('_', '-')}" for k in ("server_install", "client_install") if not getattr(args, k)]
+    if missing:
+        sys.exit(f"no Echo VR install given ({', '.join(missing)}): copy local.example.json to "
+                 "local.json and set server_install / client_install, or pass them on the command line")
 
     if not args.launch_only:
         if echo_running():
