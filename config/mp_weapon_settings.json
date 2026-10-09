@@ -1,5 +1,5 @@
 {
- "_about": "EchoCombat's values, in the shape of the game's mp_weapon_settings.json. Every deploy / release merges them into the game's own mp_weapon_settings (packed with the rest of the game data, so change a value here, then deploy or make the release again). The OVERCHARGE keys the game itself does not use (damage_bonus_*, head_body_part, cheat_death_*, link_window_ms, heal_fraction) are also written into PowerBoost.ini for the plugin.",
+ "_about": "EchoCombat's values, in the shape of the game's mp_weapon_settings.json. Every deploy / release merges them into the game's own mp_weapon_settings (packed with the rest of the game data, so change a value here, then deploy or make the release again). Keys the game itself does not use (OVERCHARGE's damage_bonus_* / head_body_part / cheat_death_* / link_window_ms / heal_fraction, the veil_* smoke look, POINT's and the translocator's effect_* / sound_copies) are read by the build tools, and OVERCHARGE's by PowerBoost.dll through PowerBoost.ini.",
  "grenade_properties": {
   "drone": {
    "fire_rate": 0.15,
@@ -10,6 +10,12 @@
   "dot": {
    "radius": 3.5,
    "cooldown": 30
+  },
+  "loc": {
+   "effect_size": 2.0,
+   "effect_lifetime": 2.5,
+   "effect_time": 2.5,
+   "sound_copies": 16
   }
  },
  "ability_properties": {
@@ -24,6 +30,27 @@
    "cheat_death_seconds": 5,
    "cheat_death_grace_ms": 1500,
    "link_window_ms": 500
+  },
+  "smoke": {
+   "veil_cloud_count": 4,
+   "veil_cloud_size": 6.0,
+   "veil_cloud_lifetime": 5.0,
+   "veil_cloud_spread": 1.5,
+   "veil_cloud_emission": 4.0,
+   "veil_puff_size": 3.5,
+   "veil_opacity": 35.0,
+   "veil_shade": 0.6
+  },
+  "point": {
+   "radius": 2.5,
+   "charge_required": 45,
+   "charge_up_time": 1.25,
+   "stun_duration": 1.25,
+   "effect_size": 4.0,
+   "effect_lifetime": 3.0,
+   "effect_time": 5.0,
+   "charge_indicator_repeat": 0.4,
+   "sound_copies": 2
   }
  }
 }

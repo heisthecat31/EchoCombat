@@ -234,6 +234,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
     # STARBURST: its script's divide-by-zero log, written every frame while the gun is out.
     tool("fix_starburst_div.py", *src)
+    # last: every value in config/mp_weapon_settings.json into the packed settings
+    tool("apply_config.py", "--base", STAGE, "--out", STAGE)
     # Particle effect preview: each stun mine shows the next effect (for UMBRAL VEIL's smoke).
     if fx_preview:
         tool("fx_preview.py", *src, "--start", str(fx_preview))
@@ -489,14 +491,14 @@ def main(argv) -> int:
                     help="leave UMBRAL VEIL out (stock tac mod controller), e.g. to A/B a tac mod")
     # UMBRAL VEIL's particle load is clouds x emission x life (7 x 8 x 8 cost ~45 fps);
     # fewer, bigger, more opaque puffs keep the cover at about 1/7 of the particles.
-    ap.add_argument("--veil-count", default="4", help="UMBRAL VEIL smoke clouds per use")
-    ap.add_argument("--veil-scale", default="6", help="UMBRAL VEIL cloud size (detonator's is about 2)")
-    ap.add_argument("--veil-life", default="5", help="UMBRAL VEIL smoke lifetime, x the detonator's")
-    ap.add_argument("--veil-spread", default="1.5", help="UMBRAL VEIL metres between clouds")
-    ap.add_argument("--veil-emission", default="4", help="UMBRAL VEIL particles per cloud, x the detonator's")
-    ap.add_argument("--veil-puff", default="3.5", help="UMBRAL VEIL size of each smoke puff")
-    ap.add_argument("--veil-alpha", default="35", help="UMBRAL VEIL opacity multiplier")
-    ap.add_argument("--veil-shade", default="0.6", help="UMBRAL VEIL colour multiplier (lower = darker)")
+    ap.add_argument("--veil-count", default=None, help="UMBRAL VEIL smoke clouds per use")
+    ap.add_argument("--veil-scale", default=None, help="UMBRAL VEIL cloud size (detonator's is about 2)")
+    ap.add_argument("--veil-life", default=None, help="UMBRAL VEIL smoke lifetime, x the detonator's")
+    ap.add_argument("--veil-spread", default=None, help="UMBRAL VEIL metres between clouds")
+    ap.add_argument("--veil-emission", default=None, help="UMBRAL VEIL particles per cloud, x the detonator's")
+    ap.add_argument("--veil-puff", default=None, help="UMBRAL VEIL size of each smoke puff")
+    ap.add_argument("--veil-alpha", default=None, help="UMBRAL VEIL opacity multiplier")
+    ap.add_argument("--veil-shade", default=None, help="UMBRAL VEIL colour multiplier (lower = darker)")
     ap.add_argument("--fx-preview", type=int, default=0, metavar="N",
                     help="stun mines show particle effects N, N+1, ... one per mine (see fx_preview.py --list)")
     ap.add_argument("--veil-anchor-sound", action="store_true",
@@ -541,10 +543,11 @@ def main(argv) -> int:
         if not args.no_build:
             build_dlls()
         stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
-              not args.no_smoke, ("--count", args.veil_count, "--scale", args.veil_scale,
-                                  "--life", args.veil_life, "--spread", args.veil_spread,
-                                  "--emission", args.veil_emission, "--particle-scale", args.veil_puff,
-                                  "--alpha", args.veil_alpha, "--shade", args.veil_shade)
+              not args.no_smoke, tuple(a for flag, v in (
+                  ("--count", args.veil_count), ("--scale", args.veil_scale), ("--life", args.veil_life),
+                  ("--spread", args.veil_spread), ("--emission", args.veil_emission),
+                  ("--particle-scale", args.veil_puff), ("--alpha", args.veil_alpha),
+                  ("--shade", args.veil_shade)) if v is not None for a in (flag, v))  # default: the config
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,

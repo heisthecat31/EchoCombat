@@ -60,6 +60,10 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
+from echocombat_config import section
+
+VEIL = section("ability_properties", "smoke")       # config/mp_weapon_settings.json
+POINT_LOOK = section("ability_properties", "point")
 
 SCRIPTS = "6eace9f64204fd0"            # CSymbol64("StreamingScriptWin10")
 SCRIPT_RESOURCE = "991421b41de58370"   # CSymbol64("CScriptResourceWin10")
@@ -304,17 +308,17 @@ def main(argv) -> int:
                     help="POINT's sound event (default: veil_fx.POINT_EVENT, an arc mine sound)")
     ap.add_argument("--point-sound-preview", action="store_true",
                     help="each POINT use plays the next of the arc mine's sounds (veil_fx.ARC_EVENTS), to pick one")
-    ap.add_argument("--point-scale", type=float, default=4.0, help="size of POINT's burst effect")
-    ap.add_argument("--point-life", type=float, default=3.0, help="POINT's burst particle lifetime, x the stun mine's")
-    ap.add_argument("--point-time", type=float, default=5.0, help="seconds before POINT's burst is removed")
-    ap.add_argument("--count", type=int, default=4, help="smoke clouds per use")
-    ap.add_argument("--scale", type=float, default=6.0, help="cloud size (the detonator's is about 2)")
-    ap.add_argument("--life", type=float, default=5.0, help="how much longer the smoke lasts than the detonator's")
-    ap.add_argument("--spread", type=float, default=1.5, help="metres between the clouds")
-    ap.add_argument("--emission", type=float, default=4.0, help="particles per cloud, x the detonator's")
-    ap.add_argument("--particle-scale", type=float, default=3.5, help="size of each smoke puff")
-    ap.add_argument("--alpha", type=float, default=35.0, help="opacity multiplier")
-    ap.add_argument("--shade", type=float, default=0.6, help="colour multiplier (lower = darker)")
+    ap.add_argument("--point-scale", type=float, default=POINT_LOOK.get("effect_size", 4.0), help="size of POINT's burst effect")
+    ap.add_argument("--point-life", type=float, default=POINT_LOOK.get("effect_lifetime", 3.0), help="POINT's burst particle lifetime, x the stun mine's")
+    ap.add_argument("--point-time", type=float, default=POINT_LOOK.get("effect_time", 5.0), help="seconds before POINT's burst is removed")
+    ap.add_argument("--count", type=int, default=VEIL.get("veil_cloud_count", 4), help="smoke clouds per use")
+    ap.add_argument("--scale", type=float, default=VEIL.get("veil_cloud_size", 6.0), help="cloud size (the detonator's is about 2)")
+    ap.add_argument("--life", type=float, default=VEIL.get("veil_cloud_lifetime", 5.0), help="how much longer the smoke lasts than the detonator's")
+    ap.add_argument("--spread", type=float, default=VEIL.get("veil_cloud_spread", 1.5), help="metres between the clouds")
+    ap.add_argument("--emission", type=float, default=VEIL.get("veil_cloud_emission", 4.0), help="particles per cloud, x the detonator's")
+    ap.add_argument("--particle-scale", type=float, default=VEIL.get("veil_puff_size", 3.5), help="size of each smoke puff")
+    ap.add_argument("--alpha", type=float, default=VEIL.get("veil_opacity", 35.0), help="opacity multiplier")
+    ap.add_argument("--shade", type=float, default=VEIL.get("veil_shade", 0.6), help="colour multiplier (lower = darker)")
     ap.add_argument("--local", action="store_true",
                     help="the old, client-only veil: clouds and sound spawned by the smoke script itself, so only "
                          "the user sees and hears them. Default: networked through the barrier wall (veil_fx.network_wall)")

@@ -55,7 +55,8 @@ Notes
     files, so they always match your install.
 
 Tuning
-  Every value EchoCombat changes (drone, DOT FIELD, OVERCHARGE: damage reduction,
+  Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, POINT, TRANSLOCATOR,
+  OVERCHARGE: damage reduction,
   heal, recharge, damage bonus, cheat death, link window) comes from one file,
   config/mp_weapon_settings.json in the EchoCombat source, shaped like the game's own
   mp_weapon_settings.json. It is merged into the game's settings and packed when the

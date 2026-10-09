@@ -555,7 +555,8 @@ POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
 #: went away.)
 POINT_CHARGE_FX = POINT_FX
 #: the indicator is shown again this often during the charge-up (100 ns)
-CHARGE_REPEAT = 4_000_000                     # 0.4 s
+from echocombat_config import section                             # noqa: E402
+CHARGE_REPEAT = int(section("ability_properties", "point").get("charge_indicator_repeat", 0.4) * 10_000_000)
 #: POINTs that went off (fired the stun) on this machine: VeilNet.dll logs it
 POINT_FIRED_RVA = 0x2104D44
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and

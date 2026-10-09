@@ -41,9 +41,11 @@ LOC_SCRIPT = "9398a165c004a9c0"
 DET_SCRIPT = "190ed14fe3da5ed1"
 #: the stun field's burst (stun script, execute_node_8ff76ff9)
 LOC_FX = 0x4CE12AE42C1B6269
-LOC_FX_TIME = 2.5
-LOC_FX_SCALE = 2.0          # the emitter's size and each particle's size
-LOC_FX_LIFE = 2.5           # particle lifetime multiplier: how slowly it fades
+from echocombat_config import section                                # noqa: E402
+LOC = section("grenade_properties", "loc")                          # config/mp_weapon_settings.json
+LOC_FX_TIME = LOC.get("effect_time", 2.5)
+LOC_FX_SCALE = LOC.get("effect_size", 2.0)  # the emitter's size and each particle's size
+LOC_FX_LIFE = LOC.get("effect_lifetime", 2.5)  # particle lifetime multiplier: how slowly it fades
 
 TELEPORT_NODE = 0x7040                    # execute_node_3c80a3d4: R15TELEPORTPLAYERNODE
 TELEPORT_OLD = bytes.fromhex("4c8bdc 49895b08 57")   # mov r11,rsp; mov [r11+8],rbx; push rdi

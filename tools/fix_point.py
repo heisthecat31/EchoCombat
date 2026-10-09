@@ -36,6 +36,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
+from echocombat_config import section
 from fix_smoke import BARRIER_SCRIPT, GLOBAL_LEVEL, PLAYER_ACTORS, SCRIPT_CR, SCRIPT_RESOURCE, SCRIPTS, u64
 from veil_fx import POINT_MARKER, POINT_RECORD, STUN_EXPLOSION, mark_param
 
@@ -120,6 +121,8 @@ def main(argv) -> int:
 
     ws_path, settings = load(args.base, WEAPON_SETTINGS)
     tuning = settings["ability_properties"]["point"]
+    cfg = section("ability_properties", "point")                 # config/mp_weapon_settings.json
+    tuning.update({k: cfg[k] for k in ("radius", "charge_required", "charge_up_time", "stun_duration") if k in cfg})
     tuning["required_charge"] = tuning["charge_required"]
     print(save(args.out, WEAPON_SETTINGS, ws_path, settings))
 
