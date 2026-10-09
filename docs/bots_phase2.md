@@ -29,6 +29,38 @@ PostGame, PostRound, PreGame, Punch, RandomMove, Stunned, Throw, TravelToPass,
 TravelToScore, TravelToTunnel, TubeEscape, TubeLaunch. Nothing for combat -- which
 is why combat bots stand still.
 
+## Findings so far (step 1)
+
+The bot "methods" are plain writes into each bot's record, so `CombatBots.dll` can
+drive a bot by writing the record itself -- no engine calls needed. Same layout in
+both builds (checked on PC through CycleGun / CycleOrdnance, below):
+
+    record = *(cs + 0x100) + slot * 0x1B0,  slot = ((u16 *)*(cs + 0xD0))[handle & 0xFFFF] (u32 entries)
+    cs + 0x168   u32  "authority": fire setters only act when non-zero (set by Update)
+    cs + 0xFC    u16  enabled component count
+
+| field | meaning | written by (Quest, libr15.so) |
+|---|---|---|
+| +0x28 u16 | ordnance cycle counter | CycleOrdnance (PC 0x140cbfed0) |
+| +0x2A u16 | gun cycle counter | CycleGun (PC 0x140cc00b0) |
+| +0x60 u32 | moving (1) / stopped (0) | MoveToPoint, BoostToTransform, StopMovement |
+| +0x64..+0x83 | target transform (CTransfQ, 32 bytes) | BoostToTransform |
+| +0x74/+0x78/+0x7C f32 | target point | MoveToPoint |
+| +0xC8 u32 | fire held | HoldFire (1) / ReleaseFire (0) |
+| +0x12C u32 | boost | BoostToTransform (1), StopMovement (0) |
+
+Quest addresses: MoveToPoint 0x211dcf4, MoveToTransform 0x211dd24, BoostToTransform
+0x211dd5c, FireHeld 0x211dcbc, HoldFire 0x211cae4, ReleaseFire 0x211cb14,
+StopMovement 0x211deb8, IsMoving 0x211dee0, Transform 0x2118ee4, TriggerGrenade
+0x211db28, CycleGun 0x211cdb4, SetLookDir 0x211dda0 / 0x211de10 / 0x211de84 (three
+overloads), Update 0x211b60c. PC: CR15NetBotCS vtable 0x141ca8178 (95 slots),
+ctor 0x140c90810, SetOrdnance 0x140d47170, ThrowGrenade 0x140d5e620.
+
+Still to find on PC: the bot system instance at runtime (capture it from a bot
+method's `this`, e.g. SetOrdnance on spawn), a per-frame hook on the game thread to
+run the brain from, the look-direction fields (SetLookDir), and where players'
+positions / teams are read.
+
 ## Plan
 
 A server-side plugin, `CombatBots.dll` (loaded by the plugin loader like
