@@ -39,10 +39,10 @@
 // axis= in PowerBoost.ini ([cone], default +z); the log shows the angle to each
 // target along all six axes so the right one can be picked.
 //
-// Cheat death (do_rez_buff): a linked teammate whose buff carries the rez survives
-// the first hit that would kill them, at 1 health, and takes no damage for the
-// next rez grace (PowerBoost.ini [rez] grace_ms, default 1500). Once per buff: a
-// fresh link while the buff runs does not give it back. ProcessDamageServer keeps
+// Cheat death (do_rez_buff): a linked teammate whose buff carries the rez cannot die
+// while the buff runs: every hit that would kill them leaves them at 1 health.
+// (grace_ms in PowerBoost.ini is no longer used by it.)
+// ProcessDamageServer keeps
 // each damageable in a 0xB8-byte record (cs+100h, slot from the u16 table at
 // cs+D0h): flags at +02h (4 = dead, 2 = shield down), shield at +1Ch, health at +20h.
 // Damage only reaches health once the shield is down or the hit is at least twice
@@ -258,14 +258,16 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
         Log("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
         damage *= mult;
     }
+    // Cheat death holds for as long as the buff runs: every hit that would kill a linked
+    // teammate leaves them at 1 health instead (it used to be the first such hit only).
     if (rez && slot >= 0) {
         uint8_t *rec = Record(cs, index);
         if (WouldKill(rec, damage)) {
             float left = Survivable(rec, damage);
-            g_buffs[slot].rez = false;
-            g_buffs[slot].grace = now + g_rez_grace_ms;
-            Log("CHEAT DEATH: %p/%u would die to %.2f (shield %.2f, health %.2f): takes %.2f, %u ms grace",
-                cs, index & 0xffff, damage, *(float *)(rec + 0x1c), *(float *)(rec + 0x20), left, g_rez_grace_ms);
+            static volatile LONG logged = 0;
+            if (InterlockedIncrement(&logged) <= 200)
+                Log("CHEAT DEATH: %p/%u would die to %.2f (shield %.2f, health %.2f): takes %.2f, stays alive",
+                    cs, index & 0xffff, damage, *(float *)(rec + 0x1c), *(float *)(rec + 0x20), left);
             damage = left;
         }
     }
