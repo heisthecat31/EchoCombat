@@ -1,7 +1,8 @@
 EchoCombat
 ==========
 
-DOT FIELD, DRONE, UMBRAL VEIL (smoke tac mod) and POWER BOOST (tac mod).
+DOT FIELD, DRONE, the UMBRAL VEIL, OVERCHARGE (was POWER BOOST) and POINT tac mods,
+TRANSLOCATOR's teleport effect and sound, and gear icons for the new items.
 Everything is prebuilt: the patched package files and script code (stage\),
 the plugins (bin\win10\plugins\) and the plugin loader (bin\win10\dbgcore.dll).
 
@@ -32,8 +33,10 @@ What it writes into the game
     loader logs every plugin it loads, or why it could not, to
     bin\win10\plugins\loader.log.
 
-UMBRAL VEIL shows up as an energy barrier for other players?
-  VeilNet.dll tells the other players' games which wall is the veil. It goes
+UMBRAL VEIL or POINT shows up as an energy barrier, or a TRANSLOCATOR teleport
+shows no effect, for other players?
+  VeilNet.dll tells the other players' games which wall is the veil or POINT, and
+  when someone teleports. It goes
   through the game's own connection to the server (no extra ports), so every
   player and the server need it: install EchoCombat on all of them.
   bin\win10\plugins\VeilNet.log on the server and on each player's PC shows
