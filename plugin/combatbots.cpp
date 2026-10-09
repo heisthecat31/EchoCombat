@@ -639,45 +639,59 @@ bool FindPath(int from, int to, std::vector<int> &out) {
     return true;
 }
 
-// --- the bot's body: its transform (CTransformCS at bot cs + 138h; Quest
-// CR15NetBotCS::Transform -> CTransformCS::ComputeLocalToWorldTransfQ). On PC the
-// transforms are 140h-byte records from tcs+40h (count at tcs+118h): rotation +A0h,
-// inverse position +B0h, rotation +D0h, world position +E0h. The actor -> record table
-// isn't found yet, so a bot's record is the one whose position is exactly where the
-// session API says the bot is (the API reports this very value). That only works while
-// the bot stands still (the API lags a moving bot), so it is found while the bot waits in
-// the war room and cached; the cache holds while the record stays within 3 m of the API.
-constexpr size_t T_RECORD = 0x140, T_POS = 0xe0, T_INV_POS = 0xb0;
-uint8_t *g_body_rec[64];
+// --- teleport: the engine's own, as the TeleportPlayer handler uses it ------------------
+// CR15NetGameplay::TeleportPlayerCB (PC 0x1401b9990, found from EchoTrainer's TeleportPlayer
+// route 0x14012c920) ends in CncaGame::WorldTeleport(game space, SActor, CTransfQ *, reason)
+// = 0x140100db0, which runs at once or queues itself (game space +368h). A component
+// system teleports its own entity the same way (e.g. 0x140d71d5a): the SActor comes from
+// the system's virtual at +1E0h (cs, &out, handle) and the game space is cs+80h.
+// CTransfQ: rotation (x y z w), then position (x y z) and scale, in the game space's frame.
+constexpr uintptr_t WORLD_TELEPORT_RVA = 0x100db0;
+constexpr uint8_t WORLD_TELEPORT_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x20, 0x55, 0x56, 0x41, 0x57, 0x48, 0x83, 0xec, 0x40,
+                                             0x83, 0xb9, 0x68, 0x03, 0x00, 0x00, 0x00 };
+using world_teleport_fn = void(__fastcall *)(void *space, uint64_t actor, const float *xform, uint8_t reason);
+using actor_of_fn = uint64_t *(__fastcall *)(void *cs, uint64_t *out, uint32_t handle);
+world_teleport_fn g_world_teleport = nullptr;
+constexpr size_t R_HANDLE = 0x10;                // the bot's own pool handle (index | generation << 16)
 
-uint8_t *FindBody(uint8_t *cs, unsigned bot, const float *api_pos) {
-    uint8_t *tcs = *(uint8_t **)(cs + 0x138);
-    if (!tcs || bot >= 64) return nullptr;
-    uint8_t *recs = *(uint8_t **)(tcs + 0x40);
-    uint32_t count = *(uint32_t *)(tcs + 0x118);
-    if (!recs || !count || count > 8192) return nullptr;
-    uint8_t *cached = g_body_rec[bot];
-    if (cached && cached >= recs && cached < recs + count * T_RECORD && Dist((float *)(cached + T_POS), api_pos) < 3.0f)
-        return cached;
-    g_body_rec[bot] = nullptr;
-    for (uint32_t k = 0; k < count; ++k) {
-        uint8_t *r = recs + k * T_RECORD;
-        if (Dist((float *)(r + T_POS), api_pos) < 0.02f) return g_body_rec[bot] = r;
-    }
-    return nullptr;
+void QuatRotate(const float *q, const float *v, float *out) {     // q * v * q^-1
+    float t[3] = { 2 * (q[1] * v[2] - q[2] * v[1]), 2 * (q[2] * v[0] - q[0] * v[2]), 2 * (q[0] * v[1] - q[1] * v[0]) };
+    out[0] = v[0] + q[3] * t[0] + (q[1] * t[2] - q[2] * t[1]);
+    out[1] = v[1] + q[3] * t[1] + (q[2] * t[0] - q[0] * t[2]);
+    out[2] = v[2] + q[3] * t[2] + (q[0] * t[1] - q[1] * t[0]);
 }
 
-// Move the body: world position, and the inverse transform's position -(q^-1 * p).
-void SetBody(uint8_t *rec, const float *p) {
-    const float *q = (const float *)(rec + 0xd0);              // x y z w
-    float *pos = (float *)(rec + T_POS), *inv = (float *)(rec + T_INV_POS);
-    // v' = v + 2w(u x v) + 2u x (u x v), with u = -q.xyz (the inverse rotation)
-    float u[3] = { -q[0], -q[1], -q[2] }, w = q[3];
-    float t[3] = { 2 * (u[1] * p[2] - u[2] * p[1]), 2 * (u[2] * p[0] - u[0] * p[2]), 2 * (u[0] * p[1] - u[1] * p[0]) };
-    float r[3] = { p[0] + w * t[0] + (u[1] * t[2] - u[2] * t[1]),
-                   p[1] + w * t[1] + (u[2] * t[0] - u[0] * t[2]),
-                   p[2] + w * t[2] + (u[0] * t[1] - u[1] * t[0]) };
-    for (int k = 0; k < 3; ++k) { pos[k] = p[k]; inv[k] = -r[k]; }
+// Teleport bot i (record r) to world position p, facing yaw (radians). False if it can't.
+bool TeleportBot(uint8_t *cs, uint8_t *r, unsigned i, const float *p, float yaw) {
+    if (!g_world_teleport) return false;
+    uint32_t handle = *(uint32_t *)(r + R_HANDLE);
+    uint16_t *slots = *(uint16_t **)(cs + 0xd0);
+    if (!slots || slots[(handle & 0xffff) * 2] != i) {                 // the handle must lead back here
+        Log("bot %u: handle %08x doesn't map back to its record: not teleporting", i, handle);
+        return false;
+    }
+    uint64_t out = ~0ull;
+    auto actor_of = (actor_of_fn)(*(void ***)cs)[0x1e0 / 8];
+    uint64_t *actor = actor_of(cs, &out, handle);
+    uint8_t *space = *(uint8_t **)(cs + 0x80);
+    if (!actor || !space) return false;
+    // world -> the game space's frame (its rotation +D0h, position +E0h, scale +ECh)
+    const float *sq = (const float *)(space + 0xd0), *sp = (const float *)(space + 0xe0);
+    float scale = *(const float *)(space + 0xec);
+    if (!(fabsf(scale) > 1e-6f)) scale = 1.0f;
+    float inv[4] = { -sq[0], -sq[1], -sq[2], sq[3] };
+    float rel[3] = { (p[0] - sp[0]) / scale, (p[1] - sp[1]) / scale, (p[2] - sp[2]) / scale };
+    float xform[8];
+    float want[4] = { 0, sinf(yaw * 0.5f), 0, cosf(yaw * 0.5f) };
+    // rotation: inv * want
+    xform[0] = inv[3] * want[0] + inv[0] * want[3] + inv[1] * want[2] - inv[2] * want[1];
+    xform[1] = inv[3] * want[1] - inv[0] * want[2] + inv[1] * want[3] + inv[2] * want[0];
+    xform[2] = inv[3] * want[2] + inv[0] * want[1] - inv[1] * want[0] + inv[2] * want[3];
+    xform[3] = inv[3] * want[3] - inv[0] * want[0] - inv[1] * want[1] - inv[2] * want[2];
+    QuatRotate(inv, rel, xform + 4);
+    xform[7] = 1.0f;
+    g_world_teleport(space, *actor, xform, 0);
+    return true;
 }
 
 struct BotState {
@@ -751,9 +765,6 @@ void Think(uint8_t *cs) {
         const Player *me = FindBotPlayer(players, *(uint32_t *)(r + R_USER));
         if (!me || !me->has_pos || i >= 64) continue;
         BotState &st = g_bot[i];
-        uint32_t actor = *(uint32_t *)(r + R_ACTOR);
-        (void)actor;
-        FindBody(cs, i, me->pos);                           // find / keep its transform record
         if (st.landed_at && now - st.landed_at > 1500) {       // did the last teleport hold?
             float d = Dist(me->pos, st.landed);
             Log("bot %u teleport %s: now at %.1f %.1f %.1f (%.1f m from where it landed)", i,
@@ -792,14 +803,10 @@ void Think(uint8_t *cs) {
             *(uint32_t *)(r + R_MOVING) = 0;
             if (now - st.tried_at < 5000) continue;          // one try every 5 s, not every frame
             st.tried_at = now;
-            uint8_t *body = FindBody(cs, i, me->pos);
-            if (!body) {
-                static ULONGLONG warned = 0;
-                if (now > warned) { warned = now + 10000; Log("bot %u at its orb, but its body isn't found yet", i); }
-                continue;
-            }
             float land[3] = { o.to[0] + (rand() % 200 - 100) / 100.0f, o.to[1], o.to[2] + (rand() % 200 - 100) / 100.0f };
-            SetBody(body, land);
+            // face the middle of the map on landing
+            float yaw = atan2f(-land[0], -land[2]);
+            if (!TeleportBot(cs, r, i, land, yaw)) continue;
             memcpy(t, land, sizeof(land));
             memcpy(st.landed, land, sizeof(land));
             st.landed_at = now;
@@ -985,6 +992,9 @@ DWORD WINAPI Install(LPVOID) {
     }
     if (memcmp(base + RESPAWN_RVA, RESPAWN_BYTES, sizeof(RESPAWN_BYTES)) == 0) g_respawn = (respawn_fn)(base + RESPAWN_RVA);
     else Log("prologue mismatch at NetworkRespawn: bots won't respawn");
+    if (memcmp(base + WORLD_TELEPORT_RVA, WORLD_TELEPORT_BYTES, sizeof(WORLD_TELEPORT_BYTES)) == 0)
+        g_world_teleport = (world_teleport_fn)(base + WORLD_TELEPORT_RVA);
+    else Log("prologue mismatch at WorldTeleport: bots can't take orbs");
     Real_Update = (update_fn)(base + BOT_UPDATE_RVA);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
