@@ -78,6 +78,9 @@ TINT = (1.00, 0.30, 0.75)
 PARTICLES = {0x39424707BB2DF316: 0xFA379871313745A5,    # -> CSymbol64("fx_power_boost_beam")
              0xBE696D7D300CBAF7: 0xFA3798713B334AAC}    # -> CSymbol64("fx_power_boost_hand")
 BEAM = 0x39424707BB2DF316
+#: the recoloured copies (and the swap that showed them): off, both tac mods show
+#: Repair Matrix's green beam and crosses
+PURPLE_EFFECTS = False
 #: --fx-test: the stun mine's field effect, put in the beam copy's place
 FX_TEST_EFFECT = 0xDE22B615C9C69CDD
 #: each effect is two assets: the effect itself (recoloured) and a companion (copied)
@@ -456,14 +459,18 @@ def main(argv) -> int:
     # with --buff-fx-test, Repair Matrix showed the buff copy and OVERCHARGE the green
     # beam and crosses. So the effects swap: Repair Matrix's script spawns OVERCHARGE's
     # recoloured copies, OVERCHARGE's script spawns Repair Matrix's own.
+    # That swap showed the beam green to the user and invisible to everyone else, so for
+    # now both tac mods use Repair Matrix's own green effects (PURPLE_EFFECTS off):
+    # Repair Matrix's script stays stock and OVERCHARGE's spawns the originals.
     stock_heal = heal
     heal = read_buff_tuning(heal)
-    hmz = stock_heal.find(b"MZ")
-    os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
-    open(os.path.join(args.out, SCRIPTS, f"{HEAL_SCRIPT:x}"), "wb").write(
-        stock_heal[:hmz] + gold_particle_refs(stock_heal[hmz:]))
-    print(f"{SCRIPTS}/{HEAL_SCRIPT:x}: Repair Matrix's script spawns the purple copies (shown for OVERCHARGE)")
-    for old, new in PARTICLES.items():
+    if PURPLE_EFFECTS:
+        hmz = stock_heal.find(b"MZ")
+        os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
+        open(os.path.join(args.out, SCRIPTS, f"{HEAL_SCRIPT:x}"), "wb").write(
+            stock_heal[:hmz] + gold_particle_refs(stock_heal[hmz:]))
+        print(f"{SCRIPTS}/{HEAL_SCRIPT:x}: Repair Matrix's script spawns the purple copies (shown for OVERCHARGE)")
+    for old, new in (PARTICLES.items() if PURPLE_EFFECTS else ()):
         src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
         effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{src_fx:x}"), "rb").read()
         gold_effect, changed = gold_particles(effect)
