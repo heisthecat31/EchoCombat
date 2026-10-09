@@ -141,7 +141,7 @@ def link_tuning(t: dict) -> dict:
     of the owner's aim, and gives each linked teammate the dr buff. (Repair Matrix's
     radius, a whole 8, is left alone.) The bubble heals each linked teammate up to
     heal_amt_on_success over dr_duration, reaching the full rate after conn_time;
-    the owner does not heal themself."""
+    the owner heals too (self_heal_mult 1)."""
     length, angle = round(t["len"]), round(t["init_angle"])
     if not (1 <= length <= 100 and 1 <= angle <= 180):
         raise ValueError(f"len {t['len']} / init_angle {t['init_angle']} out of range")
@@ -153,7 +153,7 @@ def link_tuning(t: dict) -> dict:
         "heal_amt": heal, "heal_duration": t["dr_duration"],
         "cap_healing": True, "max_healing": heal,
         "scale_healing": False, "min_heal_mult": 1,
-        "time_to_max_heal": t["conn_time"], "self_heal_mult": 0,
+        "time_to_max_heal": t["conn_time"], "self_heal_mult": 1,
         "unique_healing_only": True,
     }
 

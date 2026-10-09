@@ -135,9 +135,10 @@ volatile bool g_rez = false;              // the latest marker's buff carries a 
 unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms (unused)
 unsigned g_rez_window_ms = 5000;          // PowerBoost.ini [rez] seconds: cheat death lasts this long
 volatile ULONGLONG g_last_use = 0;        // server: when OVERCHARGE was last used
-// Damage boost (server): while boosted -- the OVERCHARGE user, and every teammate it links,
-// for the buff's seconds -- each hit they land deals +body_bonus, or +head_bonus on the
-// head (PowerBoost.ini [buff]). A hit's shooter is the victim's record +04h (the shooter's
+// Damage boost (server): only the OVERCHARGE user, for the buff's seconds -- each gun hit
+// they land deals +body_bonus, or +head_bonus on the head (PowerBoost.ini [buff]). The user
+// also gets the damage reduction (not cheat death); linked teammates get the reduction and
+// cheat death but no damage boost. A hit's shooter is the victim's record +04h (the shooter's
 // player slot, as each damageable's own record holds at +0Ch); its body part is +03h.
 float g_body_bonus = 1.0f, g_head_bonus = 2.0f;
 // the hit being applied (set by Hooked_Apply around ProcessDamageServer, same thread)
@@ -289,6 +290,9 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
             return;
         }
         g_last_use = GetTickCount64();
+        // the user: the damage boost and the damage reduction, but no cheat death (that is
+        // for the teammates it links)
+        AddBuff(cs, (uint16_t)index, g_dr, g_dr_seconds, false, true);
         AcquireSRWLockExclusive(&g_lock);
         AddBoost(cs, index, g_dr_seconds, t_in_apply ? t_shooter : ~0ull);
         ReleaseSRWLockExclusive(&g_lock);
@@ -298,10 +302,7 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
     }
     if (kind == 2) {
         if (g_server) {                           // a client linked this damageable
-            AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000, rez, false);
-            AcquireSRWLockExclusive(&g_lock);
-            AddBoost(cs, index, v % 1000);
-            ReleaseSRWLockExclusive(&g_lock);
+            AddBuff(cs, (uint16_t)index, (v / 1000) / 1000.0f, v % 1000, rez, false);   // no damage boost
         }
         return;
     }
@@ -434,10 +435,7 @@ void LinkMade(void *dcs, uint32_t index) {
     if (!g_server && dcs == g_self_cs && (index & 0xffff) == g_self_index)   // someone linked us
         g_boosted_until = now + g_dr_seconds * 1000ull;
     if (g_server) {
-        AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false);
-        AcquireSRWLockExclusive(&g_lock);
-        AddBoost(dcs, index, g_dr_seconds);
-        ReleaseSRWLockExclusive(&g_lock);
+        AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false);   // no damage boost
         return;
     }
     if (g_used_at == 0 || now - g_used_at > 30000) return;
