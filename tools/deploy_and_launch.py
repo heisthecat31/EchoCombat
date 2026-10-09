@@ -366,6 +366,7 @@ def patch_side_package(install: str):
 DLLS = [("build_powerboost.bat", "PowerBoost.dll", os.path.join("plugins", "PowerBoost.dll")),
         ("build_dronefix.bat", "DroneFix.dll", os.path.join("plugins", "DroneFix.dll")),
         ("build_veilnet.bat", "VeilNet.dll", os.path.join("plugins", "VeilNet.dll")),
+        ("build_combatbots.bat", "CombatBots.dll", os.path.join("plugins", "CombatBots.dll")),
         ("build_loader.bat", "dbgcore.dll", "dbgcore.dll")]
 
 

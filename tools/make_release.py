@@ -4,7 +4,7 @@ Takes what a deploy stages and builds -- run deploy_and_launch.py (or its stage
 step) first:
 
 * build/stage/                    every patched package file  -> stage/
-* out/PowerBoost.dll, out/DroneFix.dll, out/VeilNet.dll        -> bin/win10/plugins/
+* out/PowerBoost.dll, DroneFix.dll, VeilNet.dll, CombatBots.dll -> bin/win10/plugins/
 * out/dbgcore.dll, the plugin loader (plugin/loader.cpp)        -> bin/win10/dbgcore.dll
 * evrtool, cross-built for Windows                            -> evrtool.exe
 * release/install.bat, uninstall.bat, README.txt
@@ -41,7 +41,7 @@ def main() -> int:
                     ignore=lambda d, names: [n for n in names if d == STAGE and n in INSTALL_TIME])
     plugins = os.path.join(OUT, "bin", "win10", "plugins")
     os.makedirs(plugins)
-    for dll in ("PowerBoost.dll", "DroneFix.dll", "VeilNet.dll"):
+    for dll in ("PowerBoost.dll", "DroneFix.dll", "VeilNet.dll", "CombatBots.dll"):
         src = os.path.join(ROOT, "out", dll)
         if not os.path.exists(src):
             sys.exit(f"out/{dll} not built")

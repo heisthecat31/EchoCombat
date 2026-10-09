@@ -56,7 +56,21 @@ StopMovement 0x211deb8, IsMoving 0x211dee0, Transform 0x2118ee4, TriggerGrenade
 overloads), Update 0x211b60c. PC: CR15NetBotCS vtable 0x141ca8178 (95 slots),
 ctor 0x140c90810, SetOrdnance 0x140d47170, ThrowGrenade 0x140d5e620.
 
-Still to find on PC: the bot system instance at runtime (capture it from a bot
+Found since: CR15NetBotCS::Update on PC is 0x140d625c0 (sets cs+0x168 from cs+0xB8,
+then walks the enabled bots: records are packed, record i = *(cs+0x100) + i*0x1B0 for
+i < *(u16*)(cs+0xFC)). Look rotation: +0xB8..+0xC4 quaternion (x y z w), +0xB4 turn
+rate (SetLookDir, 0.2 default; the vector overloads build the quaternion from a
+forward axis set at runtime). User id: +0x08 (UserId). Respawn: the server handler
+CR15NetDamageableCS::NetworkRespawn(SMsg<SR15NetDamageablePlayerRespawn>) is PC
+0x140d14080 (Quest 0x2138eb4); a dead bot can be respawned by building that message.
+Positions: the server's session API (127.0.0.1, /session).
+
+plugin/combatbots.cpp (CombatBots.dll) hooks the bot Update. brain=0 (default) logs
+the bot records and the session API players; brain=1 in CombatBots.ini moves each bot
+to the nearest enemy, aims and fires. Next: check the log, fix the bot <-> player
+mapping and the forward axis, then respawn and the war room.
+
+Earlier notes: still to find on PC: the bot system instance at runtime (capture it from a bot
 method's `this`, e.g. SetOrdnance on spawn), a per-frame hook on the game thread to
 run the brain from, the look-direction fields (SetLookDir), and where players'
 positions / teams are read.

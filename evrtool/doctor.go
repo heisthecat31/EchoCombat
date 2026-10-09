@@ -173,6 +173,7 @@ func doctor(game, bundleDir string) {
 	tail(filepath.Join(plugins, "PowerBoost.log"), 8)
 	tail(filepath.Join(plugins, "DroneFix.log"), 4)
 	tail(filepath.Join(plugins, "VeilNet.log"), 8)
+	tail(filepath.Join(plugins, "CombatBots.log"), 8)
 
 	fmt.Println("== scripts (Echo loads script code from bin\\win10\\scripts, not the package)")
 	if bundleDir == "" {
