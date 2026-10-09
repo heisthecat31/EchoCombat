@@ -92,6 +92,8 @@ DOT_COOLDOWN = 30
 #: is already handled by `use_occlusion`.  `barrier` at 1 means the field chews
 #: through an Energy Barrier at face value -- set it to 0 if barriers should stop
 #: it outright.
+#: the field's reach: 2.25 m as shipped, twice that now (wanted: a higher range)
+DOT_RADIUS = 4.5
 DOT_DAMAGE = {"head": 1, "arm": 1, "leg": 1, "torso": 1,
               "ordnance": 1, "barrier": 1, "ssi": 1}
 DRONE_DAMAGE = {"head": 1.5, "arm": 1, "leg": 0.75, "torso": 1,
@@ -191,6 +193,9 @@ def main(argv: list[str]) -> int:
             dot[key] = want
             changes.append(f"grenade_properties.dot.{key} = "
                            f"{str(want).lower()}")
+    if dot.get("radius") != DOT_RADIUS:
+        dot["radius"] = DOT_RADIUS
+        changes.append(f"grenade_properties.dot.radius = {DOT_RADIUS}")
     if "dot" not in settings["damage_table"]:
         settings["damage_table"]["dot"] = dict(DOT_DAMAGE)
         changes.append("damage_table.dot added")

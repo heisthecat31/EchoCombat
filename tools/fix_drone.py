@@ -40,6 +40,12 @@ DRONE_GEAR = {"name": "drone", "display_name": "DRONE"}
 DRONE_DAMAGE = {"head": 1, "arm": 1, "leg": 1, "torso": 1, "ordnance": 1,
                 "barrier": 1, "ssi": 1}
 DRONE_COOLDOWN = 30
+#: The cut data had the drone weak and slow: 2 damage, a shot every 0.33 s, bullets at
+#: 30 m/s that moving players simply outran. CR15NetAutoTargetCS::AttackTarget (Quest
+#: build, libr15.so 0x210b8c4) adds the frame time to a timer and fires when it reaches
+#: fire_rate, so fire_rate is SECONDS BETWEEN SHOTS (lower = faster); the bullet's
+#: velocity is its aim direction * bullet_speed.
+DRONE_TUNING = {"fire_rate": 0.1, "bullet_speed": 120, "bullet_damage": 5}
 
 
 def load(base: str, name: str):
@@ -71,6 +77,7 @@ def main(argv: list[str]) -> int:
     settings["damage_table"].setdefault("drone", dict(DRONE_DAMAGE))
     drone = settings["grenade_properties"]["drone"]
     drone["cooldown"] = args.cooldown
+    drone.update(DRONE_TUNING)
 
     print(save(args.out, EQUIPMENT, eq_path, equipment))
     print(save(args.out, WEAPON_SETTINGS, ws_path, settings))

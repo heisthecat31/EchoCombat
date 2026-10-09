@@ -49,6 +49,13 @@
 // the shield, and then only what the shield did not take; WouldKill follows that.
 // A rez marker is the plain one + REZ_FLAG.
 //
+// Damage boost: a boosted player's own client sends its hits as R15NetDamageableDamageDealt
+// (+0xcc0670, client -> server; damage is decided by the shooter's client), so that is
+// where they are scaled up: x(1 + damage_bonus) (PowerBoost.ini [buff], default 0.25)
+// while this client's player is boosted -- for dr_duration after using OVERCHARGE here,
+// or after another player's bubble links this client's player (known once this client
+// has used OVERCHARGE itself: the use marker names its own damageable).
+//
 // All prologues are checked first; on a mismatch nothing is hooked. "-server" on the
 // command line picks the server role. Log: PowerBoost.log next to the DLL.
 
@@ -80,6 +87,11 @@ heal_fn Real_Heal = nullptr;
 damage_fn Real_Damage = nullptr;
 using send_fn = void(__fastcall *)(void *cs, uint32_t index, float amount, uint8_t type, uint64_t info);
 send_fn SendDamageDealt = nullptr;
+send_fn Real_Send = nullptr;              // the hooked original (SendDamageDealt stays the plain call)
+float g_damage_bonus = 0.25f;             // PowerBoost.ini [buff] damage_bonus
+void *volatile g_self_cs = nullptr;       // this client's own damageable (from its use marker)
+volatile uint32_t g_self_index = 0xffffffff;
+volatile ULONGLONG g_boosted_until = 0;   // this client's player deals more damage until then
 bool g_server = false;
 
 constexpr uintptr_t RADIUS_RVA = 0xd6dcc6;
@@ -171,6 +183,9 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
         g_rez = rez;
         if (!g_server) {                          // used here: hand it to the server
             g_used_at = GetTickCount64();
+            g_self_cs = cs;
+            g_self_index = index & 0xffff;
+            g_boosted_until = g_used_at + g_dr_seconds * 1000ull;
             Log("marker %.0f for %p/%u -> server", amount, cs, index & 0xffff);
             SendDamageDealt(cs, index, -amount, 0, 0);
             return;
@@ -281,6 +296,8 @@ float AngleTo(const float *q, const float *axis, const float *d, float dist) {
 // (a buff still running is left as is). Other clients see the same link and stay quiet.
 void LinkMade(void *dcs, uint32_t index) {
     ULONGLONG now = GetTickCount64();
+    if (!g_server && dcs == g_self_cs && (index & 0xffff) == g_self_index)   // someone linked us
+        g_boosted_until = now + g_dr_seconds * 1000ull;
     if (g_server) { AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false); return; }
     if (g_used_at == 0 || now - g_used_at > 30000) return;
     static struct { void *cs; uint16_t index; ULONGLONG at; } sent[16];
@@ -295,6 +312,18 @@ void LinkMade(void *dcs, uint32_t index) {
         + (g_rez ? REZ_FLAG : 0.0f);
     Log("link to %p/%u -> server (marker %.0f)", dcs, index & 0xffff, marker);
     SendDamageDealt(dcs, index, -marker, 0, 0);
+}
+
+// This client's hits on their way to the server: boosted, they deal x(1 + damage_bonus).
+// Negative amounts are markers / heals, passed through untouched.
+void __fastcall Hooked_Send(void *cs, uint32_t index, float amount, uint8_t type, uint64_t info) {
+    if (amount > 0 && amount < MARKER_BASE && GetTickCount64() < g_boosted_until) {
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 50)
+            Log("boosted hit on %p/%u: %.2f -> %.2f", cs, index & 0xffff, amount, amount * (1.0f + g_damage_bonus));
+        amount *= 1.0f + g_damage_bonus;
+    }
+    Real_Send(cs, index, amount, type, info);
 }
 
 // Called from the bubble's radius check (see InstallCone). Returns 0 to treat the
@@ -395,7 +424,10 @@ void ReadIni() {
     g_axis[0] = g_axis[1] = g_axis[2] = 0;
     g_axis[i] = axis[0] == '-' ? -1.0f : 1.0f;
     g_rez_grace_ms = GetPrivateProfileIntA("rez", "grace_ms", 1500, ini);
-    Log("cone aim axis %s; cheat death grace %u ms", axis, g_rez_grace_ms);
+    char bonus[32];
+    GetPrivateProfileStringA("buff", "damage_bonus", "0.25", bonus, sizeof(bonus), ini);
+    g_damage_bonus = (float)atof(bonus);
+    Log("cone aim axis %s; cheat death grace %u ms; damage bonus x%.2f", axis, g_rez_grace_ms, 1.0f + g_damage_bonus);
 }
 
 // True when the command line has `flag` as a whole argument (any case).
@@ -433,10 +465,12 @@ void Install() {
     g_server = HasArg("-server");
     Real_Heal = (heal_fn)(base + HEAL_RVA);
     Real_Damage = (damage_fn)(base + DAMAGE_RVA);
+    Real_Send = (send_fn)(base + SEND_RVA);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_Heal, Hooked_Heal);
     DetourAttach(&(PVOID &)Real_Damage, Hooked_Damage);
+    if (!g_server) DetourAttach(&(PVOID &)Real_Send, Hooked_Send);
     LONG rc = DetourTransactionCommit();
     if (rc == NO_ERROR) Log("hooked HealServer and ProcessDamageServer (%s)", g_server ? "server" : "client");
     else Log("hook failed (%ld)", rc);
