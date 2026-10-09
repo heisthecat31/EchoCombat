@@ -486,6 +486,32 @@ void __fastcall Hooked_Send(void *cs, uint32_t index, float amount, uint8_t type
 // Called from the bubble's radius check (see InstallCone). Returns 0 to treat the
 // target as out of range. bubble: the bubble's record; target: its position;
 // dcs/index: the target's damageable.
+// The bubble's radius check runs for the bubble's whole life, so the cone alone links
+// everyone the owner turns towards during those seconds. Only the first link_window_ms
+// after a bubble is first seen can link anyone; after that a bubble keeps the targets it
+// already linked (so their heal goes on) and adds no one.
+unsigned g_link_window_ms = 500;                  // PowerBoost.ini [cone] link_window_ms
+struct BubbleLinks {
+    uint8_t *bubble;
+    ULONGLONG first, last;
+    int count;
+    struct { void *dcs; uint32_t index; } linked[8];
+};
+BubbleLinks g_bubbles[8];
+
+BubbleLinks &BubbleFor(uint8_t *bubble, ULONGLONG now) {
+    BubbleLinks *oldest = &g_bubbles[0];
+    for (BubbleLinks &b : g_bubbles) {
+        // a bubble record unseen for 2 s is a new bubble (records are reused)
+        if (b.bubble == bubble && now - b.last < 2000) { b.last = now; return b; }
+        if (b.last < oldest->last) oldest = &b;
+    }
+    *oldest = {};
+    oldest->bubble = bubble;
+    oldest->first = oldest->last = now;
+    return *oldest;
+}
+
 int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint32_t index) {
     float radius = *(float *)(bubble + 0x38);
     int angle = (int)((radius - floorf(radius)) * 100000.0f + 0.5f);
@@ -500,6 +526,18 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
     if (dist < 0.3f) return 0;                            // the owner: never self-linked
     float off = AngleTo(q, g_axis, d, dist);
     bool ok = off <= (float)angle;
+    ULONGLONG now0 = GetTickCount64();
+    BubbleLinks &bl = BubbleFor(bubble, now0);
+    bool known = false;
+    for (int i = 0; i < bl.count; ++i)
+        if (bl.linked[i].dcs == dcs && (bl.linked[i].index & 0xffff) == (index & 0xffff)) known = true;
+    if (known) {
+        ok = true;                                        // linked at the start: stays linked
+    } else if (ok && now0 - bl.first <= g_link_window_ms) {
+        if (bl.count < 8) bl.linked[bl.count++] = { dcs, index };
+    } else {
+        ok = false;                                       // too late to join
+    }
 
     static ULONGLONG last;                                // diagnostics, twice a second
     ULONGLONG now = GetTickCount64();
@@ -512,7 +550,7 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
             "+z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", dcs, index & 0xffff, dist, off, angle,
             ok ? "LINK" : "no", a[0], a[1], a[2], a[3], a[4], a[5], q[0], q[1], q[2], q[3]);
     }
-    if (ok) LinkMade(dcs, index);
+    if (ok && !known) LinkMade(dcs, index);              // once per teammate per use
     return ok;
 }
 
@@ -582,6 +620,7 @@ void ReadIni() {
     g_axis[i] = axis[0] == '-' ? -1.0f : 1.0f;
     g_rez_grace_ms = GetPrivateProfileIntA("rez", "grace_ms", 1500, ini);
     g_rez_window_ms = GetPrivateProfileIntA("rez", "seconds", 5, ini) * 1000u;
+    g_link_window_ms = GetPrivateProfileIntA("cone", "link_window_ms", 500, ini);
     char bonus[32];
     GetPrivateProfileStringA("buff", "damage_bonus", "0", bonus, sizeof(bonus), ini);
     g_damage_bonus = (float)atof(bonus);
