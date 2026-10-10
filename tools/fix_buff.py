@@ -399,6 +399,9 @@ def main(argv) -> int:
     ap.add_argument("--no-rez", action="store_true",
                     help="linked teammates do not cheat death (sets ability_properties.buff.do_rez_buff to 0)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
+    ap.add_argument("--stock-visuals", action="store_true",
+                    help="POWER BOOST shows Repair Matrix's visuals exactly as they are (no recolour, the stock "
+                         "particle effects): to check them in game before changing them")
     args = ap.parse_args(argv[1:])
     gold = tuple(float(v) for v in args.gold.split(","))
     tint = tuple(float(v) for v in args.tint.split(","))
@@ -422,8 +425,8 @@ def main(argv) -> int:
         tuning["do_rez_buff"] = 0
     rez = bool(tuning.get("do_rez_buff"))
     marker = buff_marker(tuning["dr"], tuning["dr_duration"], rez)
-    heal = gold_particle_refs(read_buff_tuning(heal))
-    for old, new in PARTICLES.items():
+    heal = read_buff_tuning(heal) if args.stock_visuals else gold_particle_refs(read_buff_tuning(heal))
+    for old, new in ({} if args.stock_visuals else PARTICLES).items():
         src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
         effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{src_fx:x}"), "rb").read()
         gold_effect, changed = gold_particles(effect)
@@ -438,13 +441,15 @@ def main(argv) -> int:
     mz = heal.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
-        heal[:mz] + add_buff(gold_script(heal[mz:], gold, tint), wraith[wraith.find(b"MZ"):], marker))
+        heal[:mz] + add_buff(heal[mz:] if args.stock_visuals else gold_script(heal[mz:], gold, tint),
+                             wraith[wraith.find(b"MZ"):], marker))
     print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s (marker {marker:.0f}); link "
           f"{tuning['len']} m / {tuning['init_angle']} deg (bubble radius {tuning['heal_radius']}), "
           f"heal {tuning['heal_amt_on_success']}, cheat death {'on' if rez else 'off'} (needs PowerBoost.dll on server and clients)")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{BUFF_SCRIPT:x}"), "wb").write(bytes(4))
-    print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (Repair Matrix recoloured to {gold}, tint {tint})")
+    print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (" + ("Repair Matrix's visuals, unchanged)"
+          if args.stock_visuals else f"Repair Matrix recoloured to {gold}, tint {tint})"))
 
     os.makedirs(os.path.join(args.out, SCRIPT_CR), exist_ok=True)
     staged = os.path.join(args.out, SCRIPT_CR, GLOBAL_LEVEL)

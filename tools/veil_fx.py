@@ -536,15 +536,13 @@ ACTIVATE_EXPLOSION = {
 STUN_EXPLOSION = 0x25905B54E61D3F10
 #: the stun mine's burst (execute_node_8ff76ff9)
 POINT_FX = 0x4CE12AE42C1B6269
-#: the arc mine's sounds (mp_combat_grenade_arc's PLAYSOUND nodes, bank c823e2c9bc0168ad),
-#: in the order --point-sound-preview plays them; POINT_EVENT is the one it plays
-ARC_EVENTS = [0x9BA74430, 0x84545E9B, 0xDA4D002D, 0xD19CD68D, 0xD5D7FDC7, 0x7F295300, 0xB1C3DEA9,
-              0xE9ECEA06, 0x9B54488D]
+#: the arc mine's sounds that play something (mp_combat_grenade_arc's PLAYSOUND nodes,
+#: bank c823e2c9bc0168ad; 9ba74430 / 84545e9b only stop sounds, e9ecea06 starts its armed
+#: hum loop, which 9b54488d stops as it plays: the detonation). POINT_EVENT is the one
+#: POINT plays; --point-sound-preview cycles through them all.
+ARC_EVENTS = [0x9B54488D, 0xDA4D002D, 0xD19CD68D, 0xD5D7FDC7, 0x7F295300, 0xB1C3DEA9]
 POINT_EVENT = ARC_EVENTS[0]
-#: what --point-sound-preview cycles through: the stun field's sound first (heard in an
-#: earlier build, so a silent #1 means the sound path, not the event, is at fault), then
-#: the arc mine's
-PREVIEW_EVENTS = [0x7741E93B] + ARC_EVENTS
+PREVIEW_EVENTS = ARC_EVENTS
 #: --point-sound-preview's counter (per machine): after POINT's tokens
 POINT_PREVIEW_RVA = POINT_TOKEN_RVA + 0x18
 #: decide() with point tokens: as TOKEN_DECIDE, but a point token is tried first and
@@ -721,7 +719,7 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
     if point:
         sizes.update({"bind": 96, "phys": 128, "point": 192, "point_spawn": 512, "point_boom": 96,
                       "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
-                      "events": 4 * len(ARC_EVENTS) + 4})
+                      "events": 4 * len(PREVIEW_EVENTS)})
     for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
         parts[name] = len(blob)

@@ -182,7 +182,8 @@ def veil_mailbox(installs) -> str:
 def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float, smoke: bool = True,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = 0.09, buff_charge: float = 40, buff_fx_test: bool = False,
-          buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False):
+          buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
+          buff_stock_visuals: bool = False):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -203,7 +204,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
              *(("--point-sound-preview",) if point and point_sound_preview else ()))
         if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
             tool("fix_buff.py", "--base", STAGE, *src, "--dr", str(buff_dr), "--charge", str(buff_charge),
-                 *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
+                 *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)),
+                 *(("--stock-visuals",) if buff_stock_visuals else ()))
         if point:                             # POINT: a stun field where its wall lands, seventh tac mod
             tool("fix_point.py", "--base", STAGE, *src)
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
@@ -480,8 +482,10 @@ def main(argv) -> int:
                     help="UMBRAL VEIL plays the slot's original audio (to tell a silent event from silent audio)")
     ap.add_argument("--no-buff", action="store_true", help="leave POWER BOOST out (and POINT, whose branch follows it)")
     ap.add_argument("--no-point", action="store_true", help="leave POINT out")
+    ap.add_argument("--buff-stock-visuals", action="store_true",
+                    help="POWER BOOST shows Repair Matrix's visuals exactly as they are, to check them")
     ap.add_argument("--point-sound-preview", action="store_true",
-                    help="each POINT use plays the next sound: 1st the stun field's (a check), then the arc mine's 9, to pick POINT's")
+                    help="each POINT use plays the next of the arc mine's 6 sounds (veil_fx.ARC_EVENTS), to pick POINT's")
     ap.add_argument("--buff-dr", type=float, default=0.09,
                     help="POWER BOOST damage reduction (0.09 = 9%% less damage taken)")
     ap.add_argument("--buff-charge", type=float, default=40, help="POWER BOOST recharge time in seconds")
@@ -519,7 +523,7 @@ def main(argv) -> int:
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
-              not args.no_buff_rez, not args.no_point, args.point_sound_preview)
+              not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.buff_stock_visuals)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)
