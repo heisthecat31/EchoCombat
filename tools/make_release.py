@@ -1,7 +1,7 @@
 """Pack the release: release/EchoCombat-<version>.zip, which the Echo VR launcher installs.
 
 Takes what a deploy stages and builds -- run deploy_and_launch.py first (or
-`deploy_and_launch.py --stage-only --buff-purple-fx` for the stage, and the build_*.bat
+`deploy_and_launch.py --stage-only` for the stage, and the build_*.bat
 scripts with MSVC for the plugins):
 
 * build/stage + a stock install    -> content/echocombat/ (`evrtool pack`: the manifests,
@@ -74,7 +74,7 @@ def main() -> int:
                          "files/ in a launcher dev folder")
     args = ap.parse_args()
     if not os.path.isdir(STAGE):
-        sys.exit("no build/stage: run deploy_and_launch.py --stage-only --buff-purple-fx first")
+        sys.exit("no build/stage: run deploy_and_launch.py --stage-only first")
     if not args.install or not os.path.isdir(os.path.join(args.install, DATA_DIR)):
         sys.exit(f"no Echo VR install with {DATA_DIR} at {args.install!r}: pass --install")
     for dll in PLUGINS:

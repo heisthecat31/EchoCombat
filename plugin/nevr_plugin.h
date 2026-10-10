@@ -18,7 +18,7 @@
 #include "nevr_plugin_interface.h"
 
 #define ECHOCOMBAT_VERSION_MAJOR 1
-#define ECHOCOMBAT_VERSION_MINOR 0
+#define ECHOCOMBAT_VERSION_MINOR 1
 #define ECHOCOMBAT_VERSION_PATCH 0
 
 #define ECHOCOMBAT_EXPORT extern "C" __declspec(dllexport)
@@ -46,8 +46,13 @@ inline bool EchoCombatIsServer(const NvrGameContext *ctx) {
 }
 
 // <bin\win10>\plugin_logs\<name>\<name>.log, where the other plugins log (and where the
-// launcher's "Upload logs" picks them up); the folders are made here.
+// launcher's "Upload logs" picks them up); the folders are made here, and only in a build
+// that logs (ECHOCOMBAT_LOG).
 inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
+#ifndef ECHOCOMBAT_LOG
+    (void)size; (void)name;
+    out[0] = 0;
+#else
     char dir[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, dir, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) { out[0] = 0; return; }
@@ -58,6 +63,7 @@ inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
     sprintf_s(path, "%s\\plugin_logs\\%s", dir, name);
     CreateDirectoryA(path, nullptr);
     sprintf_s(out, size, "%s\\%s.log", path, name);
+#endif
 }
 
 // A file next to this plugin's DLL in plugins\ (its .ini).

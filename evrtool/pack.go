@@ -186,12 +186,11 @@ func packScripts(stageDir, outDir string) []string {
 		if len(asset) < scriptHead || string(asset[scriptHead:scriptHead+2]) != "MZ" {
 			die("staged script %s holds no PE image", e.Name())
 		}
-		size := int(uint32(asset[16]) | uint32(asset[17])<<8 | uint32(asset[18])<<16 | uint32(asset[19])<<24)
-		if scriptHead+size > len(asset) {
-			die("staged script %s: its DLL runs past the asset", e.Name())
-		}
+		// The DLL is everything after the header. Not the header's size: the patch tools
+		// that add sections to a DLL (fix_buff, fix_smoke) leave it at the stock size, and a
+		// DLL cut there is one Windows will not load.
 		name := fmt.Sprintf("%016x.dll", sym)
-		if err := os.WriteFile(filepath.Join(outDir, "scripts", name), asset[scriptHead:scriptHead+size], 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(outDir, "scripts", name), asset[scriptHead:], 0644); err != nil {
 			die("write script %s: %v", name, err)
 		}
 		out = append(out, "scripts/"+name)

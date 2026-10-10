@@ -89,6 +89,10 @@ void Log(const char *fmt, ...) {
 // --- settings (CombatBots.ini) --------------------------------------------------------
 struct Settings {
     bool brain = false;
+    bool ml = false;                     // mode=ml: an outside policy (TestEchoAI/live.py) drives the bots
+    unsigned ml_port = 6790;             // ... over UDP on 127.0.0.1:ml_port
+    unsigned ml_stale_ms = 600;          // a command older than this is dropped (the bot is left alone)
+    float ml_resync = 3.0f;              // velocity mode: further than this from the reported position, jump to it
     float forward[3] = { 0, 0, 1 };      // the look rotation's local forward axis
     float keep_distance = 8.0f;          // how close a bot closes in on its target
     float fire_range = 35.0f;
@@ -134,6 +138,13 @@ void ReadIni() {
     g_cfg.lost_distance = IniFloat("bots", "lost_distance", 15.0f);
     g_cfg.walk_speed = IniFloat("bots", "walk_speed", 5.0f);
     g_cfg.log_every_ms = GetPrivateProfileIntA("bots", "log_every_ms", 5000, g_ini_path);
+    char mode[16];
+    GetPrivateProfileStringA("bots", "mode", "", mode, sizeof(mode), g_ini_path);
+    g_cfg.ml = _stricmp(mode, "ml") == 0;
+    g_cfg.ml_port = GetPrivateProfileIntA("bots", "ml_port", 6790, g_ini_path);
+    g_cfg.ml_stale_ms = GetPrivateProfileIntA("bots", "ml_stale_ms", 600, g_ini_path);
+    g_cfg.ml_resync = IniFloat("bots", "ml_resync", 3.0f);
+    if (g_cfg.ml) Log("settings: mode=ml, commands on udp 127.0.0.1:%u (stale after %u ms)", g_cfg.ml_port, g_cfg.ml_stale_ms);
     Log("settings: brain=%d forward=%s keep_distance=%.1f fire_range=%.1f turn_rate=%.2f aim_up=%.2f bullet_speed=%.0f",
         g_cfg.brain, axis, g_cfg.keep_distance, g_cfg.fire_range, g_cfg.turn_rate, g_cfg.aim_up, g_cfg.bullet_speed);
 }
@@ -706,9 +717,27 @@ bool TeleportBot(uint8_t *cs, uint8_t *r, unsigned i, const float *p, float yaw)
     if (!g_world_teleport) return false;
     uint32_t handle = *(uint32_t *)(r + R_HANDLE);
     uint16_t *slots = *(uint16_t **)(cs + 0xd0);
-    if (!slots || slots[(handle & 0xffff) * 2] != i) {                 // the handle must lead back here
-        Log("bot %u: handle %08x doesn't map back to its record: not teleporting", i, handle);
-        return false;
+    if (!slots) return false;
+    if (slots[(handle & 0xffff) * 2] != i) {                           // the handle must lead back here
+        // Arena bots: the record's handle field doesn't index the slot table directly.
+        // Find the slot that does lead back to record i and use that one instead.
+        static uint32_t fixed[64] = {};
+        static bool reported[64] = {};
+        uint32_t use = i < 64 ? fixed[i] : 0;
+        if (!use || slots[(use & 0xffff) * 2] != i) {
+            use = 0;
+            for (uint32_t k = 0; k < 256; ++k)
+                if (slots[k * 2] == i) { use = k | 0x80000000u; break; }
+            if (i < 64) fixed[i] = use;
+            if (i < 64 && !reported[i]) {
+                reported[i] = true;
+                if (use) Log("bot %u: handle %08x isn't its slot; slot %u leads back to it (gen %04x): using that",
+                             i, handle, use & 0xffff, slots[(use & 0xffff) * 2 + 1]);
+                else Log("bot %u: handle %08x doesn't map back to its record and no slot does: not teleporting", i, handle);
+            }
+        }
+        if (!use) return false;
+        handle = (use & 0xffff) | ((uint32_t)slots[(use & 0xffff) * 2 + 1] << 16);
     }
     uint64_t out = ~0ull;
     auto actor_of = (actor_of_fn)(*(void ***)cs)[0x1e0 / 8];
@@ -983,6 +1012,156 @@ void Think(uint8_t *cs) {
     }
 }
 
+// --- mode=ml: an outside policy drives the bots ------------------------------------------
+// TestEchoAI/live.py sends UDP datagrams to 127.0.0.1:ml_port, one text line per player:
+//
+//     <playerid> <userid> <tx> <ty> <tz> <lx> <ly> <lz>
+//
+// t = the point to fly towards (world space), l = the direction to look. Lines for players
+// that are not bots on this server are ignored. A bot with no command newer than
+// ml_stale_ms is left to the game's own behaviour.
+//
+// Optionally followed by `<vx> <vy> <vz> <px> <py> <pz>`: the velocity to fly at and where
+// the policy saw the bot. Then the plugin moves the bot itself, a small engine teleport
+// every ~33 ms along that velocity (the bot's own mover only flies at one fixed speed),
+// re-syncing to the reported position when they drift apart.
+struct MlCommand {
+    int playerid = -1;
+    uint64_t userid = 0;
+    float target[3] = {}, look[3] = {};
+    bool has_vel = false;
+    float vel[3] = {}, pos[3] = {};
+    ULONGLONG at = 0;
+};
+SRWLOCK g_ml_lock = SRWLOCK_INIT;
+std::vector<MlCommand> g_ml;
+volatile LONG g_ml_packets = 0;
+
+DWORD WINAPI MlReceiver(LPVOID) {
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sockaddr_in a = {};
+    a.sin_family = AF_INET;
+    a.sin_port = htons((u_short)g_cfg.ml_port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (s == INVALID_SOCKET || bind(s, (sockaddr *)&a, sizeof(a)) != 0) {
+        Log("ml: can't bind udp 127.0.0.1:%u (another server already has it?)", g_cfg.ml_port);
+        return 0;
+    }
+    Log("ml: listening on udp 127.0.0.1:%u", g_cfg.ml_port);
+    char buf[8192];
+    for (;;) {
+        int got = recv(s, buf, sizeof(buf) - 1, 0);
+        if (got <= 0) continue;
+        buf[got] = 0;
+        std::vector<MlCommand> cmds;
+        ULONGLONG now = GetTickCount64();
+        char *ctx = nullptr;
+        for (char *line = strtok_s(buf, "\n", &ctx); line; line = strtok_s(nullptr, "\n", &ctx)) {
+            MlCommand c;
+            unsigned long long uid = 0;
+            int got = sscanf_s(line, "%d %llu %f %f %f %f %f %f %f %f %f %f %f %f", &c.playerid, &uid, &c.target[0],
+                               &c.target[1], &c.target[2], &c.look[0], &c.look[1], &c.look[2], &c.vel[0], &c.vel[1],
+                               &c.vel[2], &c.pos[0], &c.pos[1], &c.pos[2]);
+            c.has_vel = got == 14;
+            if (got == 8 || got == 14) {
+                c.userid = uid;
+                c.at = now;
+                cmds.push_back(c);
+            }
+        }
+        AcquireSRWLockExclusive(&g_ml_lock);
+        for (const MlCommand &c : cmds) {
+            bool found = false;
+            for (MlCommand &o : g_ml)
+                if (o.playerid == c.playerid && o.userid == c.userid) { o = c; found = true; break; }
+            if (!found) g_ml.push_back(c);
+        }
+        ReleaseSRWLockExclusive(&g_ml_lock);
+        InterlockedIncrement(&g_ml_packets);
+    }
+}
+
+// While the policy is driving, the game's own bot AI (CRxAICS: the Arena behaviours
+// GetDisc, Defense, Goalie, Throw, ...) is switched off, or it steers the same bots and the
+// two fight. Its two per-frame tasks are skipped while any command is fresh; in round start
+// and after a goal live.py goes quiet and the game's AI takes the bots out of the tubes.
+constexpr uintptr_t AI_REACTIONS_RVA = 0xf6d7a0;   // CRxAICS "UpdateReactions"
+constexpr uint8_t AI_REACTIONS_BYTES[] = { 0x4c, 0x8b, 0xdc, 0x49, 0x89, 0x4b, 0x08, 0x41, 0x56, 0x41, 0x57 };
+constexpr uintptr_t AI_BEHAVIORS_RVA = 0xf6d590;   // CRxAICS "UpdateBehaviors"
+constexpr uint8_t AI_BEHAVIORS_BYTES[] = { 0x40, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xec, 0x20 };
+using ai_task_fn = void(__fastcall *)(void *, void *, void *, void *);
+ai_task_fn Real_AiReactions = nullptr, Real_AiBehaviors = nullptr;
+volatile ULONGLONG g_ml_last_drive = 0;            // when ThinkMl last drove a bot
+volatile LONG g_ai_skipped = 0;
+
+bool MlActive() { return g_cfg.ml && GetTickCount64() - g_ml_last_drive < g_cfg.ml_stale_ms; }
+
+void __fastcall Hooked_AiReactions(void *a, void *b, void *c, void *d) {
+    if (MlActive()) { InterlockedIncrement(&g_ai_skipped); return; }
+    Real_AiReactions(a, b, c, d);
+}
+
+void __fastcall Hooked_AiBehaviors(void *a, void *b, void *c, void *d) {
+    if (MlActive()) { InterlockedIncrement(&g_ai_skipped); return; }
+    Real_AiBehaviors(a, b, c, d);
+}
+
+void ThinkMl(uint8_t *cs) {
+    uint16_t n = *(uint16_t *)(cs + 0xfc);
+    uint8_t *records = *(uint8_t **)(cs + 0x100);
+    if (!records || !n) return;
+    ULONGLONG now = GetTickCount64();
+    AcquireSRWLockShared(&g_ml_lock);
+    std::vector<MlCommand> cmds = g_ml;
+    ReleaseSRWLockShared(&g_ml_lock);
+    static ULONGLONG next_log = 0;
+    int driven = 0;
+    for (uint16_t i = 0; i < n; ++i) {
+        uint8_t *r = records + i * RECORD;
+        uint32_t user = *(uint32_t *)(r + R_USER);
+        const MlCommand *c = nullptr;
+        for (const MlCommand &k : cmds)
+            if ((uint32_t)k.userid == user || k.playerid == (int)user) { c = &k; break; }
+        if (!c || now - c->at > g_cfg.ml_stale_ms) continue;
+        float dir[3] = { c->look[0], c->look[1], c->look[2] }, q[4];
+        Normalize(dir);
+        if (c->has_vel && g_world_teleport && i < 64) {
+            // velocity mode: fly the bot ourselves, the mover stays idle
+            BotState &st = g_bot[i];
+            if (!st.has_at || Dist(st.at, c->pos) > g_cfg.ml_resync) {
+                memcpy(st.at, c->pos, sizeof(st.at));
+                st.has_at = true;
+                st.step_at = now;
+            }
+            if (now - st.step_at >= 33) {
+                float dt = fminf((now - st.step_at) / 1000.0f, 0.1f);
+                st.step_at = now;
+                float next[3] = { st.at[0] + c->vel[0] * dt, st.at[1] + c->vel[1] * dt, st.at[2] + c->vel[2] * dt };
+                if (TeleportBot(cs, r, i, next, atan2f(dir[0], dir[2]))) memcpy(st.at, next, sizeof(st.at));
+            }
+            Stop(r, st.at);
+        } else {
+            memcpy(r + R_TARGET, c->target, sizeof(c->target));
+            *(uint32_t *)(r + R_MOVING) = 1;
+        }
+        if (g_cfg.forward[2] > 0.5f) YawPitch(dir, q);
+        else FromTo(g_cfg.forward, dir, q);
+        memcpy(r + R_LOOK, q, sizeof(q));
+        *(float *)(r + R_TURN) = g_cfg.turn_rate;
+        *(uint32_t *)(r + R_FIRE) = 0;
+        *(uint32_t *)(r + R_BOOST) = 0;             // a boost-to-transform from the game's AI would win
+        ++driven;
+    }
+    if (driven) g_ml_last_drive = now;
+    if (now >= next_log) {
+        next_log = now + g_cfg.log_every_ms;
+        Log("ml: %u bot(s), %d driven, %ld packets so far, %zu commanded players, game AI %s (%ld frames skipped)",
+            n, driven, g_ml_packets, cmds.size(), MlActive() ? "OFF" : "on", g_ai_skipped);
+    }
+}
+
 // --- diagnostics ---------------------------------------------------------------------
 // The damageable system (dead / health), from PowerBoost.dll once anything has been hit.
 uint8_t *DamageableCS() {
@@ -1066,7 +1245,8 @@ update_fn Real_Update = nullptr;
 
 void __fastcall Hooked_Update(uint8_t *cs) {
     __try {
-        if (g_cfg.brain) Think(cs);
+        if (g_cfg.ml) ThinkMl(cs);
+        else if (g_cfg.brain) Think(cs);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         static volatile LONG faults = 0;
         if (InterlockedIncrement(&faults) <= 5) Log("brain fault 0x%08lx: skipped this frame", GetExceptionCode());
@@ -1094,13 +1274,31 @@ bool Install(bool server) {
         g_world_teleport = (world_teleport_fn)(base + WORLD_TELEPORT_RVA);
     else Log("prologue mismatch at WorldTeleport: bots can't take orbs");
     Real_Update = (update_fn)(base + BOT_UPDATE_RVA);
+    bool ai_hooks = false;
+    if (g_cfg.ml) {
+        if (memcmp(base + AI_REACTIONS_RVA, AI_REACTIONS_BYTES, sizeof(AI_REACTIONS_BYTES)) == 0 &&
+            memcmp(base + AI_BEHAVIORS_RVA, AI_BEHAVIORS_BYTES, sizeof(AI_BEHAVIORS_BYTES)) == 0) {
+            Real_AiReactions = (ai_task_fn)(base + AI_REACTIONS_RVA);
+            Real_AiBehaviors = (ai_task_fn)(base + AI_BEHAVIORS_RVA);
+            ai_hooks = true;
+        } else {
+            Log("prologue mismatch at CRxAICS updates: the game's bot AI stays on in ml mode");
+        }
+    }
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_Update, Hooked_Update);
+    if (ai_hooks) {
+        DetourAttach(&(PVOID &)Real_AiReactions, Hooked_AiReactions);
+        DetourAttach(&(PVOID &)Real_AiBehaviors, Hooked_AiBehaviors);
+    }
     LONG rc = DetourTransactionCommit();
     if (rc != NO_ERROR) { Log("hook failed (%ld)", rc); return false; }
-    Log("hooked CR15NetBotCS::Update; brain %s", g_cfg.brain ? "ON" : "off (logging only)");
+    Log("hooked CR15NetBotCS::Update; brain %s%s", g_cfg.ml ? "ML (outside policy)" : g_cfg.brain ? "ON" : "off (logging only)",
+        ai_hooks ? "; the game's bot AI pauses while ml commands arrive" : "");
     if (HANDLE t = CreateThread(nullptr, 0, Poller, nullptr, 0, nullptr)) CloseHandle(t);
+    if (g_cfg.ml)
+        if (HANDLE t = CreateThread(nullptr, 0, MlReceiver, nullptr, 0, nullptr)) CloseHandle(t);
     return true;
 }
 

@@ -7,11 +7,13 @@
    they edit when it has one, otherwise the extract's.
      fix_drone.py                            drone registry / damage / cooldown, on that JSON
      fix_drone_script.py, fix_drone_bullet.py
+     fix_drone_model.py                      DRONE: the satellite ball with the sidearm (newdronemodel.glb)
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
-     veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
-     fix_buff.py                             POWER BOOST tac mod: Repair Matrix in purplish red
+     veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav), callout audio
+     fix_vo.py                               announcer equip callouts for the gear with none (assets/vo/)
+     fix_buff.py                            POWER BOOST tac mod: Repair Matrix in purplish red
      fix_point.py                            POINT tac mod: a stun field where its wall lands
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
@@ -114,6 +116,7 @@ BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's be
 WRAITH_SCRIPT = "e1971566197d460"
 LOC_SCRIPT = "9398a165c004a9c0"          # TRANSLOCATOR (fix_loc_fx.py: teleport effect + sound)
 STARBURST_SCRIPT = "a9db89899292a98f"    # STARBURST gun (fix_starburst_div.py: divide-by-zero log)
+VO_SCRIPT = "7c10e713aec2f12b"           # the announcer's equip callouts (fix_vo.py)
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 #: gear icons (gear_icons.py): the stock icon atlases (descriptor + DDS) -- the HUD's
 #: gear sheet and the shared UI sheet the equipment station uses -- and their canvases
@@ -130,6 +133,12 @@ DOT_BUBBLE_SOURCES = [(t, m) for m in ("7e824dad4cd4ef3",) for t in (
     "230554bc3beca38c", "4e426f88c1b5d7ac", "73d312a620da3824", "7b9a4c9fd03f37eb", "a388ea69e5108f4c",
     "b7d338793fa37832", "c2434c5a99e139ce", "e642bfb1abcf76df")] + [
     ("e3e0266f1911dafa", "4a9b00b6ec40fbfa"), ("e3e0266f1911dafa", "7ac7845083d5e9a6")]
+#: what tools/fix_drone_model.py builds the drone's satellite from (its source_files())
+DRONE_MODEL_SOURCES = [(t, "171942614d4df2b3") for t in (
+    "230554bc3beca38c", "73d312a620da3824", "7b9a4c9fd03f37eb", "b7d338793fa37832",
+    "4e426f88c1b5d7ac", "a388ea69e5108f4c")] + [
+    (t, "33c6e9840092f5e3") for t in ("37102e4b27955a14", "e7a8ab5ceaef49cb", "c2434c5a99e139ce")] + [
+    (t, "c0fb34e681a628f1") for t in ("4984e2bbb2ddb256", "43ddbd692282a6a7")]
 #: what tools/rm_preview/buff_assets.py copies from: Repair Matrix's cross mesh (four assets)
 #: and the beam sparks' colour texture (two)
 BUFF_ARROW_SOURCES = [(t, "c90ff12470c68d3b") for t in ("37102e4b27955a14", "73d312a620da3824",
@@ -174,10 +183,12 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     (SCRIPTS_TYPE, LOC_SCRIPT),
                                                     (SCRIPTS_TYPE, STARBURST_SCRIPT),
+                                                    (SCRIPTS_TYPE, VO_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (t, a) for t, a in BUFF_ARROW_SOURCES] + [                     # OVERCHARGE's arrows / sparks (buff_assets.py)
         (t, a) for t, a in DOT_BUBBLE_SOURCES] + [                     # the DOT field bubble (fix_dot_field.py)
+        (t, a) for t, a in DRONE_MODEL_SOURCES] + [                    # the drone's satellite (fix_drone_model.py)
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
         (t, atlas) for t in GEAR_ICON_TEXTURE_TYPES for atlas in GEAR_ICON_ATLASES]
     for t, asset in wanted:
@@ -209,7 +220,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = None, buff_charge: float = None, buff_fx_test: bool = False,
           buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
-          point_event: str = None, buff_purple_fx: bool = False):
+          point_event: str = None, buff_purple_fx: bool = True, drone_model: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -222,6 +233,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         tool("fix_drone.py", "--base", STAGE, "--out", STAGE)
         tool("fix_drone_script.py", *src)
         tool("fix_drone_bullet.py", *src)
+        if drone_model:                       # the satellite look; DroneFix.dll fires from its gun
+            tool("fix_drone_model.py", *src)
     # UMBRAL VEIL (smoke tac mod): registered, own script, fifth controller branch.
     if smoke:
         point = point and buff and "--mailbox" not in veil
@@ -238,7 +251,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         if point:                             # POINT: a stun field where its wall lands, seventh tac mod
             tool("fix_point.py", "--base", STAGE, *src)
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
-            tool("veil_sound.py", *src)
+            tool("veil_sound.py", *src)       # (and the announcer callouts' audio, fix_vo.py)
+            tool("fix_vo.py", *src)           # the announcer's listeners for those callouts
     # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound
     # event is added to the sound bank by veil_sound.py above).
     tool("fix_loc_fx.py", "--src", SOURCE, "--out", STAGE)
@@ -438,7 +452,7 @@ def stage_from_args(args):
              ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
           not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
           not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
-          args.buff_purple_fx)
+          not args.no_buff_purple_fx, not args.no_drone_model)
 
 
 def main(argv) -> int:
@@ -483,11 +497,13 @@ def main(argv) -> int:
                     help="OVERCHARGE recharge time in seconds; default: config/mp_weapon_settings.json")
     ap.add_argument("--no-buff-rez", action="store_true",
                     help="POWER BOOST without cheat death for linked teammates")
-    ap.add_argument("--buff-purple-fx", action="store_true",
-                    help="OVERCHARGE shows its own purple up-arrow effects (fix_buff --purple-fx)")
+    ap.add_argument("--no-buff-purple-fx", action="store_true",
+                    help="OVERCHARGE shows Repair Matrix's stock look instead of its own purple one (fix_buff --purple-fx)")
     ap.add_argument("--buff-fx-test", action="store_true",
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
+    ap.add_argument("--no-drone-model", action="store_true",
+                    help="keep the drone's stock look instead of fix_drone_model.py's satellite")
     ap.add_argument("--no-build", action="store_true",
                     help="do not build the DLLs with MSVC; install the ones already built in out/")
     ap.add_argument("--headless", type=int, default=HEADLESS_COUNT)

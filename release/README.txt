@@ -71,19 +71,17 @@ UMBRAL VEIL or POINT shows up as an energy barrier, or a TRANSLOCATOR teleport
 shows no effect, for other players?
   VeilNet.dll tells the other players' games which wall is the veil or POINT, and
   when someone teleports. It goes through the game's own connection to the server
-  (no extra ports), so every player and the server need it.
-  bin\win10\plugin_logs\VeilNet\VeilNet.log on the server and on each player's PC
-  shows what was sent and received.
+  (no extra ports), so every player and the server need it. On a server without
+  EchoCombat, UMBRAL VEIL, OVERCHARGE and POINT are hidden from the tac mod list.
 
 OVERCHARGE gives no damage bonus or cheat death?
   Those are decided on the server: the server needs EchoCombat installed.
-  bin\win10\plugin_logs\PowerBoost\PowerBoost.log on the server shows each use
-  and boosted hit.
 
 The new gear isn't there?
   bin\win10\plugin_logs\NvrContentOverlay\NvrContentOverlay.log says why: a game
   file that isn't stock, a pack file that changed, or "loaded too late" (nEVR
   without the early load pass, or the entry without early: true).
+  (EchoCombat's own plugins write no logs, so they cost slow PCs nothing.)
 
 Tuning (for server hosts building their own)
   Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, POINT, TRANSLOCATOR
