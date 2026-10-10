@@ -238,7 +238,51 @@ def buff_marker(dr: float, seconds: float, rez: bool = False) -> float:
 CTX_SAVE, DATA_SAVE = 0xE0, 0x100
 
 
-def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) -> bytes:
+# --- --visual-preview: one of Repair Matrix's visuals per use ---------------------------
+#: The heal script's visual nodes, by group (read from the script: execute_node_<id>,
+#: its rva, its first instructions -- replayed by the hook). Use N shows group N
+#: (then round again); every other group's nodes are skipped. Sounds always play.
+PREVIEW_GROUPS = [
+    ("beam particle effect 39424707bb2df316 (one per linked teammate)",
+     [(0xAD60, "48897c2418"), (0xD9B0, "48897c2418"), (0xE320, "48895c2410"), (0xEB80, "48897c2418")]),
+    ("hand particle effect be696d7d300cbaf7 (two sizes)", [(0xF0F0, "48895c2408"), (0xF3E0, "48895c2408")]),
+    ("full-screen tint (0.6, 1, 0.6)", [(0xB750, "4883ec48 80b9db00000000"), (0xF8A0, "4883ec48 80b9db00000000")]),
+    ("model 127705d644e32e78 shown, and its light colour", [(0xB7C0, "4c8bdc 4883ec58"), (0xB2E0, "4881ecb8000000")]),
+    ("model 9425ffc9d7797400 shown, and its light colour", [(0xB840, "4c8bdc 4883ec58"), (0xBE20, "4881ecb8000000")]),
+    ("material colours (4 nodes, on 09f1312f49418925)",
+     [(0xC900, "4055 488bec"), (0xCB10, "4055 488bec"), (0xCD10, "4055 488bec"), (0xE070, "4055 488bec")]),
+]
+#: the preview's use counter (per machine): spare bytes past echovr.exe's .data, after
+#: POINT's (veil_fx.POINT_PREVIEW_RVA + 4)
+PREVIEW_COUNT_RVA = 0x2104CFC
+
+
+def preview_hooks(pe: PE) -> None:
+    """Hook every PREVIEW_GROUPS node: it runs only when its group is this use's."""
+    groups = len(PREVIEW_GROUPS)
+    stubs = []
+    for g, (_, nodes) in enumerate(PREVIEW_GROUPS):
+        for rva, old in nodes:
+            old = bytes.fromhex(old)
+            if pe.read(rva, len(old)) != old:
+                raise ValueError(f"heal script node at {rva:#x} differs: wrong heal script build")
+            stubs.append(((g + 1) % groups, rva, old))
+    size = sum(64 for _ in stubs)
+    va = add_section(pe, b".prev\0\0\0", size)
+    blob = bytearray(size)
+    for k, (want, rva, old) in enumerate(stubs):
+        at = va + 64 * k
+        b = bytearray(bytes.fromhex("6548a16000000000000000 488b4010 8b80") + struct.pack("<I", PREVIEW_COUNT_RVA))
+        b += bytes.fromhex("31d2 41b8") + struct.pack("<I", groups) + bytes.fromhex("41f7f0")   # edx = count % groups
+        b += bytes.fromhex("83fa") + bytes([want]) + bytes.fromhex("7403 31c0 c3")              # not this group: done
+        b += old + b"\xe9" + rel32(at + len(b) + len(old) + 5, rva + len(old))
+        assert len(b) <= 64
+        blob[64 * k:64 * k + len(b)] = b
+        pe.write(rva, b"\xe9" + rel32(rva + 5, at) + b"\x90" * (len(old) - 5))
+    pe.write(va, bytes(blob))
+
+
+def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int, count: bool = False) -> bytes:
     """execute_node replacement: one R15NetDamageableHeal on "self" of `amount`, then the
     original execute_node (its first 6 bytes replayed here, then a jump to `resume`), so
     the heal bubble still activates and the ability ends and recharges as before.
@@ -253,6 +297,8 @@ def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) ->
     jumps = []
     b += bytes.fromhex("80bbdb00000000 0f85"); jumps.append(len(b)); b += bytes(4)   # aborting
     b += bytes.fromhex("48837b1800 0f8f"); jumps.append(len(b)); b += bytes(4)       # already entered
+    if count:                                                        # --visual-preview: a new use
+        b += bytes.fromhex("6548a16000000000000000 488b4010 f0ff80") + struct.pack("<I", PREVIEW_COUNT_RVA)
     b += bytes.fromhex("4889de 488d7c2450 b9") + struct.pack("<I", CTX_SAVE // 8) + bytes.fromhex("f348a5")
     b += bytes.fromhex("488bb3b0000000 488dbc2430010000 b9") + struct.pack("<I", DATA_SAVE // 8) \
         + bytes.fromhex("f348a5")
@@ -270,7 +316,7 @@ def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) ->
     return bytes(b)
 
 
-def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
+def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float, preview: bool = False) -> bytes:
     """Phase 1: using POWER BOOST heals yourself with the marker (PowerBoost.dll then
     buffs you), then activates the heal bubble as before (which ends the ability)."""
     pe, wraith = PE(gold_pe), PE(wraith_pe)
@@ -293,11 +339,14 @@ def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
     stub += bytes.fromhex("488b5710 488b0f e8") + rel32(at + len(stub) + 12, va + node["bind"])
     stub += bytes.fromhex("4883c428 c3")
     blob[bind_off:bind_off + len(stub)] = stub
-    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker, ACTIVATE_NODE + len(ACTIVATE_OLD))
+    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker, ACTIVATE_NODE + len(ACTIVATE_OLD),
+                     preview)
     blob[stub_off:stub_off + len(s_)] = s_
     pe.write(va, bytes(blob))
     pe.write(HEAL_BIND_CALL, b"\xe8" + rel32(HEAL_BIND_CALL + 5, at))
     pe.write(ACTIVATE_NODE, b"\xe9" + rel32(ACTIVATE_NODE + 5, va + stub_off) + b"\x90")
+    if preview:
+        preview_hooks(pe)
     return bytes(pe.d)
 
 
@@ -399,10 +448,14 @@ def main(argv) -> int:
     ap.add_argument("--no-rez", action="store_true",
                     help="linked teammates do not cheat death (sets ability_properties.buff.do_rez_buff to 0)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
+    ap.add_argument("--visual-preview", action="store_true",
+                    help="each use shows one group of Repair Matrix's visuals (PREVIEW_GROUPS), in order; "
+                         "implies --stock-visuals")
     ap.add_argument("--stock-visuals", action="store_true",
                     help="POWER BOOST shows Repair Matrix's visuals exactly as they are (no recolour, the stock "
                          "particle effects): to check them in game before changing them")
     args = ap.parse_args(argv[1:])
+    args.stock_visuals |= args.visual_preview
     gold = tuple(float(v) for v in args.gold.split(","))
     tint = tuple(float(v) for v in args.tint.split(","))
 
@@ -442,12 +495,16 @@ def main(argv) -> int:
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
         heal[:mz] + add_buff(heal[mz:] if args.stock_visuals else gold_script(heal[mz:], gold, tint),
-                             wraith[wraith.find(b"MZ"):], marker))
+                             wraith[wraith.find(b"MZ"):], marker, args.visual_preview))
     print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s (marker {marker:.0f}); link "
           f"{tuning['len']} m / {tuning['init_angle']} deg (bubble radius {tuning['heal_radius']}), "
           f"heal {tuning['heal_amt_on_success']}, cheat death {'on' if rez else 'off'} (needs PowerBoost.dll on server and clients)")
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{BUFF_SCRIPT:x}"), "wb").write(bytes(4))
+    if args.visual_preview:
+        print("VISUAL PREVIEW: each POWER BOOST use shows one group of Repair Matrix's visuals:")
+        for k, (name, nodes) in enumerate(PREVIEW_GROUPS):
+            print(f"   use {k + 1} (and {k + 1 + len(PREVIEW_GROUPS)}, ...): {name}")
     print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: mp_combat_ability_buff (" + ("Repair Matrix's visuals, unchanged)"
           if args.stock_visuals else f"Repair Matrix recoloured to {gold}, tint {tint})"))
 
