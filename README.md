@@ -151,6 +151,47 @@ was built with. CombatBots is left out. `release/echocombat.mods.json` is the zi
 entry for the launcher's mod catalog (sha256 and size filled in). The version is
 `ECHOCOMBAT_VERSION_*` in `plugin/nevr_plugin.h`, which the plugins also report to nEVR.
 
+## Publishing to the launcher (dev folder)
+
+Until EchoCombat is in the launcher's published mods catalogue, it goes out through a
+**dev folder** on release.echovr.de: the launcher lists the folder's mods for whoever has its
+**dev code** (Settings → Advanced settings → Dev mods and plugins), with a Dev tag. The folder
+is yours over SFTP (your SSH key, no shell); its maintainers give you the login and the code.
+Keep the code private: whoever has it sees the folder.
+
+The folder holds `mods.json` (its mods catalogue), `plugins.json` and `files/`. Its
+`mods.json` already lists EchoCombat and `content-overlay` (NvrContentOverlay, which serves
+the pack; keep that entry until the published catalogue has it).
+
+1. Build the release with the zip's address inside the folder:
+
+   ```
+   python tools/make_release.py --url-base files/
+   ```
+
+2. Upload the zip and update the catalogue:
+
+   ```
+   sftp -P 2999 dev-<your name>@168.119.2.94
+   sftp> put release/EchoCombat-<version>.zip files/
+   sftp> get mods.json
+   ```
+
+   In that `mods.json`, replace the `echocombat` entry with `release/echocombat.mods.json`
+   (a new `version`, `sha256` and `size`; leave `content-overlay` as it is), then
+   `sftp> put mods.json`. An old zip can stay or go (`rm files/EchoCombat-<old>.zip`).
+
+3. In the launcher, press **Use code** again (or wait for its update check, every 15
+   minutes): the Mods page offers the new version as an update on EchoCombat's rows.
+
+What the catalogue may hold and how the launcher checks it: the launcher's
+`docs/launcher/dev-folders.md` and `docs/launcher/mods.md` (Content packs).
+
+**Servers.** A match only has EchoCombat when its game server runs it too. The launcher's
+Settings → Launch options → **EchoCombat server** points a player's game at a server of
+EchoCombat's own while the pack is on (its address and key, and an account there); empty,
+EchoCombat plays on EchoVRCE.
+
 ## CombatBots (work in progress)
 
 `build_combatbots.bat` builds it; the deploy installs it on the servers. Bots need a

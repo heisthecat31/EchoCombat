@@ -15,9 +15,10 @@ The launcher installs the zip from its Mods page: plugins/ into bin/win10/plugin
 into bin/win10/content/, and lists them in nEVR's config.yaml (NvrContentOverlay early, with
 the pack active). Nothing in the game's own files changes. Game servers take the same two
 folders (README.txt). release/echocombat.mods.json is the zip's catalog entry for the
-launcher (sha256 and size filled in); the zip goes on the mirror as its "url".
+launcher (sha256 and size filled in); the zip goes where its "url" says: packs/ on the
+mirror, or files/ in a dev folder (--url-base files/, see README.md: Publishing).
 
-    python tools/make_release.py [--install <Echo VR install>] [--version 1.0.0]
+    python tools/make_release.py [--install <Echo VR install>] [--version 1.0.0] [--url-base files/]
 
 The install only has to be stock (or repacked by an old install.bat: its .bak manifests
 are stock): every live install has the same stock files, so the pack fits them all.
@@ -68,6 +69,9 @@ def main() -> int:
     ap.add_argument("--install", default=local()["client_install"],
                     help="an Echo VR install to read the stock files from (default: local.json client_install)")
     ap.add_argument("--version", default=version_from_header())
+    ap.add_argument("--url-base", default="packs/",
+                    help="where the zip goes, relative to the catalogue: packs/ on the mirror (default), "
+                         "files/ in a launcher dev folder")
     args = ap.parse_args()
     if not os.path.isdir(STAGE):
         sys.exit("no build/stage: run deploy_and_launch.py --stage-only --buff-purple-fx first")
@@ -110,7 +114,7 @@ def main() -> int:
         "author": "heisthecat31",
         "version": args.version,
         "pack": {
-            "url": f"packs/{name}",
+            "url": f"{args.url_base.rstrip('/')}/{name}",
             "sha256": sha256(zip_path),
             "size": os.path.getsize(zip_path),
             "content": PACK_ID,

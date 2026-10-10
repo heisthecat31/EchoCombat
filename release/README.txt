@@ -21,10 +21,18 @@ What it adds
   * Station and HUD icons for the new gear.
 
 Install
-  In the Echo VR launcher: Mods, EchoCombat, Install. Switch it off or Remove it
-  there too. Install it on the game server as well as on every client: several
-  features (OVERCHARGE, UMBRAL VEIL, POINT, TRANSLOCATOR) run partly on the server,
-  and a player without it can't play in a match with it (and the other way round).
+  In the Echo VR launcher: Mods, More mods, EchoCombat, Get. Switch it off or
+  Remove it there too. Install it on the game server as well as on every client:
+  several features (OVERCHARGE, UMBRAL VEIL, POINT, TRANSLOCATOR) run partly on the
+  server, and a player without it can't play in a match with it (and the other way
+  round).
+
+Where you play it
+  A match only has EchoCombat when its game server runs it, so EchoCombat plays on
+  servers of its own. In the launcher: Settings, Launch options, EchoCombat server,
+  Server...: the address and key its host gives you, and your account there (a
+  Discord ID and a password). While EchoCombat is on, the game signs in and finds
+  matches there; switched off (or with the address empty) it's EchoVRCE as always.
 
 Nothing in the game's own files changes
   The launcher puts plugins\ into bin\win10\plugins\ and content\ into
