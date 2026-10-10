@@ -7,7 +7,7 @@ entirely from this repository.
 | Gear | What it is |
 |---|---|
 | **DOT FIELD** | The unfinished damage-over-time ordnance, registered and working: stick, trigger, damage. |
-| **DRONE** | The cut drone ordnance, working: auto-targets and fires. |
+| **DRONE** | The cut drone ordnance, working: auto-targets and fires from its gun. Looks like a satellite ball with the sidearm on it (`newdronemodel.glb`, built by `tools/fix_drone_model.py`). |
 | **UMBRAL VEIL** | New tac mod: a wall of smoke clouds (networked). |
 | **OVERCHARGE** | New tac mod (was POWER BOOST): a cone link to teammates. User: heal, damage reduction, +1 body / +2 head damage on guns. Linked teammates: heal, damage reduction, cheat death. |
 | **POINT** | New tac mod: a placed wall that goes off as a stun field. |
@@ -34,7 +34,7 @@ script DLLs, sound banks, textures). The build:
 |---|---|---|
 | `dbgcore.dll` (`plugin/loader.cpp`) | everyone | loads every DLL in `bin/win10/plugins/` |
 | `PowerBoost.dll` | server + clients | OVERCHARGE: links, damage reduction, cheat death, damage bonus |
-| `DroneFix.dll` | server + clients | drone fixes |
+| `DroneFix.dll` | server + clients | drone fixes: no follow-update crash, bullets from the gun's muzzle, satellite shown / hidden with the gun |
 | `VeilNet.dll` | server + clients | relays UMBRAL VEIL / POINT / TRANSLOCATOR events between players |
 | `CombatBots.dll` | server | AI bots (work in progress, not released) |
 
@@ -98,7 +98,7 @@ Useful options:
 | `--headless N` / `--headless-args "..."` | number of servers / their arguments |
 | `--bots N` | adds `-bots N` to the servers |
 | `--server-install` / `--client-install` | override `local.json` |
-| `--no-drone`, `--no-smoke`, `--no-buff`, `--veil-*`, `--buff-*` | leave gear out / override values for one run |
+| `--no-drone`, `--no-drone-model`, `--no-smoke`, `--no-buff`, `--veil-*`, `--buff-*` | leave gear out / override values for one run |
 
 Run `python tools/deploy_and_launch.py --help` for the rest.
 
