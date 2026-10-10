@@ -60,7 +60,8 @@ def main() -> int:
     env = dict(os.environ, GOOS="windows", GOARCH="amd64")
     subprocess.run(["go", "build", "-trimpath", "-o", os.path.join(OUT, "evrtool.exe"), "."],
                    cwd=os.path.join(ROOT, "evrtool"), env=env, check=True)
-    for f in ("install.bat", "uninstall.bat", "doctor.bat", "README.txt"):
+    for f in ("install.bat", "uninstall.bat", "doctor.bat", "README.txt",
+              "fix_server.bat", "fix_server.ps1", "EchoRelay.Patch.dll"):   # game servers: fix_server.ps1
         shutil.copy2(os.path.join(ROOT, "release", f), OUT)
     with zipfile.ZipFile(ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for path, _, files in os.walk(OUT):

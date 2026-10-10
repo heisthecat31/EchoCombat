@@ -73,3 +73,17 @@ Tuning (for server hosts building their own)
   It is packed into the game data when the release is built: edit it, then build the
   release again (see the source's README.md). mp_weapon_settings.json in this zip
   is the copy this release was built with.
+
+Game servers (EchoRelay)
+  Run fix_server.bat on the game server PC, for the Echo VR folder the game
+  servers start from. Game servers must run WITHOUT nEVR: an nEVR game server never
+  logs in to EchoRelay (it stays at "Logging in...") and never hosts. Players on
+  nEVR (the Echo VR launcher's EchoCombat mod) play fine on a normal server.
+  fix_server.bat:
+    * puts the stock BugSplat64.dll back in place of nEVR's (it asks for a normal
+      Echo VR install to take it from, e.g. another copy of the game)
+    * moves nEVR's plugins and _local\config.yaml to bin\win10\_nevr_backup_*      (RESTORE.txt there says how to go back)
+    * adds EchoRelay's game patch (plugins\EchoRelay.Patch.dll) if it is missing
+    * runs install.bat for that folder
+  Then start the game servers again (EchoRelay.Host). EchoRelay 0.9.7 or newer is
+  needed for nEVR players to match.
