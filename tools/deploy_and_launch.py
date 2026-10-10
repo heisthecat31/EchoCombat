@@ -88,6 +88,7 @@ FIX_TYPES = [
     "5b723f040a3778ee", "dde8fffc5b4d7ad4", "f2676c58c07bab0c", "2b292830e51c4fd2",
     "92abd3e1432bf5e8", "d99f6bbd8009c92c", "4fd65c8d2b63d470", "21a09c2016d8f3e6",
     "4af215b19b297c34",                         # explosions: POINT's stun on the barrier wall (fix_point.py)
+    "ea51a0d76eb90142", "96832b652460ecde",     # models, texture streaming: the DOT's field bubble (fix_dot_field.py)
 ]
 LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",
           "cb9977f7fc2b4526", "df5ca7b7dfa383d4"]
@@ -123,6 +124,12 @@ GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1"
                       "13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b",
                       "72e4349798ae3ea1")    # the last: the station's element index (gear_icons.INDEX_CANVAS)
 SOURCE = os.path.join(ROOT, "build", "source")
+#: what fix_dot_field.py copies the DOT's red field bubble from: the arc mine's bubble model
+#: (eight files) and its two materials
+DOT_BUBBLE_SOURCES = [(t, m) for m in ("7e824dad4cd4ef3",) for t in (
+    "230554bc3beca38c", "4e426f88c1b5d7ac", "73d312a620da3824", "7b9a4c9fd03f37eb", "a388ea69e5108f4c",
+    "b7d338793fa37832", "c2434c5a99e139ce", "e642bfb1abcf76df")] + [
+    ("e3e0266f1911dafa", "4a9b00b6ec40fbfa"), ("e3e0266f1911dafa", "7ac7845083d5e9a6")]
 #: what tools/rm_preview/buff_assets.py copies from: Repair Matrix's cross mesh (four assets)
 #: and the beam sparks' colour texture (two)
 BUFF_ARROW_SOURCES = [(t, "c90ff12470c68d3b") for t in ("37102e4b27955a14", "73d312a620da3824",
@@ -170,6 +177,7 @@ def overlay(base: str, extract: str):
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (t, a) for t, a in BUFF_ARROW_SOURCES] + [                     # OVERCHARGE's arrows / sparks (buff_assets.py)
+        (t, a) for t, a in DOT_BUBBLE_SOURCES] + [                     # the DOT field bubble (fix_dot_field.py)
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
         (t, atlas) for t in GEAR_ICON_TEXTURE_TYPES for atlas in GEAR_ICON_ATLASES]
     for t, asset in wanted:
@@ -245,6 +253,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     # shared script skips enabling it for the DOT, as it already does for the arc.
     tool("fix_shared_frisbee.py", *src)
     tool("fix_dot_script.py", *src)
+    tool("fix_dot_field.py", *src)            # after the dampener and fix_dot_script: builds on their output
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
     # STARBURST: its script's divide-by-zero log, written every frame while the gun is out.
     tool("fix_starburst_div.py", *src)
