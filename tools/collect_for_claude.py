@@ -565,6 +565,12 @@ def main(argv) -> int:
     c.copied.append(f"actor_scan.txt  ({len(scan)} tables mention the scanned actors)")
 
     particle_scan(extract, c, args.dry_run)
+    # Everything Repair Matrix draws (its effects, models, materials, textures), for the
+    # offline preview: collect_visuals.py follows the IDs, writes visuals.txt.
+    if not args.dry_run:
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "collect_visuals.py"),
+                        "--extract", extract, "--out", OUT])
+        c.copied.append("visuals.txt  (Repair Matrix's visuals and every asset they use)")
     c.copied.append(sound_scan(extract, args.game, args.dry_run, c))
 
     found = search_scripts(os.path.join(extract, SCRIPTS_TYPE))
