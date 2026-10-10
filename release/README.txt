@@ -2,8 +2,8 @@ EchoCombat
 ==========
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
-Everything is prebuilt: the patched package files and script code (stage\), the
-plugins (bin\win10\plugins\) and the plugin loader (bin\win10\dbgcore.dll).
+Everything is prebuilt: the content pack (content\echocombat\: the game data and
+script code EchoCombat changes) and the plugins (plugins\).
 
 What it adds
   * DOT FIELD (ordnance): the unfinished damage-over-time grenade, working. Throw,
@@ -21,55 +21,61 @@ What it adds
   * Station and HUD icons for the new gear.
 
 Install
-  Close Echo VR, then run install.bat. It asks where Echo VR is installed
-  (the ready-at-dawn-echo-arena folder; drag it into the window, or press
-  Enter to take the install it found).
-  Install on the game server as well as on every client: several features
-  (OVERCHARGE, UMBRAL VEIL, POINT, TRANSLOCATOR) run partly on the server.
+  In the Echo VR launcher: Mods, EchoCombat, Install. Switch it off or Remove it
+  there too. Install it on the game server as well as on every client: several
+  features (OVERCHARGE, UMBRAL VEIL, POINT, TRANSLOCATOR) run partly on the server,
+  and a player without it can't play in a match with it (and the other way round).
 
-Other mods are kept
-  If another mod already repacked the game (packages\48037dc70b0ecab2_3, _4,
-  ... and manifests\48037dc70b0ecab2.bak exist), EchoCombat is MERGED on top:
-  their delta packages stay and ours are added after them. Running install.bat
-  again replaces EchoCombat's own files instead of stacking more.
+Nothing in the game's own files changes
+  The launcher puts plugins\ into bin\win10\plugins\ and content\ into
+  bin\win10\content\, and lists them in _local\config.yaml for nEVR (the game's
+  runtime). While Echo runs, NvrContentOverlay (a plugin the launcher installs
+  with it) hands the game EchoCombat's data and scripts in place of the stock
+  files. Switched off, the game is stock.
+  The pack only works on stock game files: it checks them first and does nothing
+  if they were changed (see "Installed with install.bat before?").
 
-Uninstall
-  uninstall.bat takes EchoCombat back out and keeps the other mods.
-  "evrtool restore <_data\5932408047\rad15\win10>" resets to stock (removes ALL mods).
+Game servers (no launcher)
+  Needs nEVR with its early load pass (BugSplat64.dll from the launcher's Beta
+  channel or newer) and NvrContentOverlay.dll in bin\win10\plugins\.
+  1. Copy plugins\* into bin\win10\plugins\ and content\ into bin\win10\.
+  2. Add to the plugins: list in _local\config.yaml (keep the rest of the file):
+       - name: "NvrContentOverlay"
+         file: "NvrContentOverlay.dll"
+         early: true
+         args: {"active":"echocombat"}
+       - name: "DroneFix"
+         file: "DroneFix.dll"
+       - name: "PowerBoost"
+         file: "PowerBoost.dll"
+       - name: "VeilNet"
+         file: "VeilNet.dll"
+  3. bin\win10\plugin_logs\NvrContentOverlay\NvrContentOverlay.log should say
+     "serving the pack", and nEVR's log "Loaded:" for each plugin.
 
-What it writes into the game
-  * the merged package (see above)
-  * bin\win10\scripts\<hash>.dll: the patched scripts; each original is kept as
-    <hash>.dll.orig
-  * bin\win10\plugins\PowerBoost.dll, DroneFix.dll, VeilNet.dll, and PowerBoost.ini
-    (OVERCHARGE's damage bonus, cheat death and link settings)
-  * bin\win10\dbgcore.dll: the plugin loader, which loads bin\win10\plugins\.
-    A dbgcore.dll that was already there (another mod) is moved into plugins\
-    so it still loads; an older plugin loader is replaced (kept as .bak). The
-    loader logs every plugin it loads, or why it could not, to
-    bin\win10\plugins\loader.log.
+Installed with install.bat before?
+  That version repacked the game's own files. The launcher sees it and offers to
+  restore the stock files first. By hand: Install in the launcher on that
+  version again (it checks and repairs the game files), then delete
+  bin\win10\dbgcore.dll if it is still there (nEVR does not start beside it).
 
 UMBRAL VEIL or POINT shows up as an energy barrier, or a TRANSLOCATOR teleport
 shows no effect, for other players?
   VeilNet.dll tells the other players' games which wall is the veil or POINT, and
   when someone teleports. It goes through the game's own connection to the server
-  (no extra ports), so every player and the server need it: install EchoCombat on
-  all of them. bin\win10\plugins\VeilNet.log on the server and on each player's PC
+  (no extra ports), so every player and the server need it.
+  bin\win10\plugin_logs\VeilNet\VeilNet.log on the server and on each player's PC
   shows what was sent and received.
 
 OVERCHARGE gives no damage bonus or cheat death?
   Those are decided on the server: the server needs EchoCombat installed.
-  bin\win10\plugins\PowerBoost.log on the server shows each use and boosted hit.
+  bin\win10\plugin_logs\PowerBoost\PowerBoost.log on the server shows each use
+  and boosted hit.
 
-Echo will not start on a PC (e.g. the server)?
-  Look at bin\win10\plugins\loader.log first, then run doctor.bat there. It
-  checks that the plugin loader and plugins can load on that PC, that echovr.exe
-  is the build they were made for, what is in bin\win10\plugins\, and shows the
-  plugin logs.
-
-Notes
-  * The drone's bullet effects are patched at install time from your own game
-    files, so they always match your install.
+The new gear isn't there?
+  bin\win10\plugin_logs\NvrContentOverlay\NvrContentOverlay.log says why: a game
+  file that isn't stock, a pack file that changed, or "loaded too late" (nEVR
+  without the early load pass, or the entry without early: true).
 
 Tuning (for server hosts building their own)
   Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, POINT, TRANSLOCATOR
@@ -77,4 +83,5 @@ Tuning (for server hosts building their own)
   config/mp_weapon_settings.json, shaped like the game's own mp_weapon_settings.json.
   It is packed into the game data when the release is built: edit it, then build the
   release again (see the source's README.md). mp_weapon_settings.json in this zip
-  is the copy this release was built with.
+  is the copy this release was built with. OVERCHARGE's plugin-side values are in
+  plugins\PowerBoost.ini.

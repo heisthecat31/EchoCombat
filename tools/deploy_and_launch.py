@@ -17,17 +17,17 @@
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
      fix_dot_trigger.py                      stacks onto the drone's script table
      fix_starburst_div.py                    STARBURST: no divide-by-zero log every frame
-2. `evrtool repack` each install. QuickRepack always starts from the stock
-   manifest (`manifests/<pkg>.bak`), so the stage must hold every patch you
-   want live: anything left out goes back to stock.
-3. `evrtool findlive` checks that the new scripts (DOT trigger, smoke) made it into each
-   manifest, and its DLL is written to `bin/win10/scripts/`, which is where
-   Echo actually loads script code from.
-4. The DLLs (build_powerboost.bat, build_dronefix.bat, build_loader.bat, with
-   MSVC; --no-build installs the ones already built in out/) go into each install:
-   PowerBoost.dll, DroneFix.dll and VeilNet.dll in bin/win10/plugins/, the plugin loader as
-   bin/win10/dbgcore.dll.
-5. Launch the headless instances from the server install, then the VR client
+2. Each install is made stock again if an old install.bat repacked it (`evrtool clean`),
+   then `evrtool pack` builds the content pack from its stock files into
+   `bin/win10/content/echocombat/`: the game's own files are never changed.
+   NvrContentOverlay (the nEVR plugin, `content_overlay` in local.json) serves the pack
+   while Echo runs; it needs nEVR with the early load pass.
+3. The plugins (build_*.bat, with MSVC; --no-build installs the ones already built in
+   out/) go into bin/win10/plugins/ with PowerBoost.ini, and `_local/config.yaml` lists
+   them for nEVR: NvrContentOverlay `early: true` with the pack active, then
+   PowerBoost.dll, DroneFix.dll, VeilNet.dll (and CombatBots.dll on the servers). The
+   rest of config.yaml (services, ...) is kept.
+4. Launch the headless instances from the server install, then the VR client
    from the other install.
 
     python tools/deploy_and_launch.py                                 # build, deploy, launch
@@ -279,47 +279,20 @@ def echo_running() -> bool:
     return "echovr.exe" in out.lower()
 
 
-def repack(install: str):
-    data = os.path.join(install, DATA_DIR)
-    if not os.path.exists(os.path.join(data, "manifests", PACKAGE)):
-        sys.exit(f"no manifest under {data}")
-    print(f"\n== repacking {install}")
-    run([evrtool(), "repack", data, STAGE])
-    for script in (DOT_TRIGGER_SCRIPT,) + tuple(s for s in (SMOKE_SCRIPT, BUFF_SCRIPT, POINT_SCRIPT) if os.path.exists(
-            os.path.join(STAGE, "991421b41de58370", s))):
-        out = subprocess.run([evrtool(), "findlive", data, script], capture_output=True, text=True).stdout
-        for t in ("6eace9f64204fd0", "991421b41de58370"):     # DLL + CScriptResource
-            if f"{t}/{script}" not in out:
-                sys.exit(f"script {script} ({t}) missing from {install}'s manifest after repack")
-    print("   new scripts present: DOT trigger, smoke, buff, point")
-    staged_bank = os.path.join(STAGE, SOUND_BANK_TYPE, VEIL_BANK)
-    if os.path.exists(staged_bank):
-        want = os.path.getsize(staged_bank)
-        out = subprocess.run([evrtool(), "findlive", data, VEIL_BANK], capture_output=True, text=True).stdout
-        sizes = [int(line.split()[1]) for line in out.splitlines() if SOUND_BANK_TYPE in line]
-        if want not in sizes:
-            sys.exit(f"sound bank {VEIL_BANK} in {install}'s manifest is {sizes}, not the patched {want} bytes")
-        print(f"   UMBRAL VEIL sound bank present ({want} bytes)")
-        # Read it back through the live manifest, as the game does: the size in
-        # the manifest is not proof the package holds the patched bytes.
-        check = os.path.join(ROOT, "build", "readback")
-        shutil.rmtree(check, ignore_errors=True)
-        os.makedirs(check)
-        lst = os.path.join(check, "list.txt")
-        open(lst, "w").write(f"{SOUND_BANK_TYPE}/{VEIL_BANK}\n")
-        subprocess.run([evrtool(), "getlive", data, lst, check], capture_output=True, text=True)
-        got_path = os.path.join(check, f"{int(SOUND_BANK_TYPE, 16):016x}", f"{int(VEIL_BANK, 16):016x}")
-        got = open(got_path, "rb").read() if os.path.exists(got_path) else b""
-        staged = open(staged_bank, "rb").read()
-        stock = open(os.path.join(SOURCE, SOUND_BANK_TYPE, VEIL_BANK), "rb").read()
-        if got == staged:
-            print("   read back from the package: the patched bank")
-        elif got[:len(stock)] == stock:
-            print("   WARNING: the package returns the ORIGINAL bank under the new size: the repack "
-                  "updated the size but not the data")
-        else:
-            print(f"   WARNING: the package returns {len(got)} bytes that match neither the patched "
-                  f"nor the original bank")
+#: the content pack's folder in an install, where NvrContentOverlay looks for it
+PACK_DIR = os.path.join("bin", "win10", "content", "echocombat")
+
+
+def evr(args: list) -> None:
+    run([evrtool(), *args])
+
+
+def deploy_pack(install: str):
+    """Make the install stock again if an old install.bat repacked it, then build the
+    content pack from its stock files into bin/win10/content/echocombat/."""
+    print(f"\n== content pack for {install}")
+    evr(["clean", install])
+    evr(["pack", os.path.join(install, DATA_DIR), STAGE, os.path.join(install, PACK_DIR), "dev"])
 
 
 def wwise_caches(install: str) -> list[str]:
@@ -345,9 +318,8 @@ def wwise_caches(install: str) -> list[str]:
 
 
 def clear_wwise_cache(install: str):
-    """A sound bank cached on disk from before the repack would be played instead
-    of the patched one (UMBRAL VEIL's sound), so the cache is emptied; the game
-    writes it again."""
+    """A sound bank cached on disk from an earlier build would be played instead of the
+    pack's (UMBRAL VEIL's sound), so the cache is emptied; the game writes it again."""
     caches = wwise_caches(install)
     for cache in caches:
         shutil.rmtree(cache, ignore_errors=True)
@@ -356,57 +328,20 @@ def clear_wwise_cache(install: str):
         print("   no _temp/wwise sound bank cache found")
 
 
-def evr(args: list, package: str = PACKAGE, **kw) -> subprocess.CompletedProcess:
-    env = dict(os.environ, EVR_PKG=package)
-    return subprocess.run([evrtool(), *args], env=env, capture_output=True, text=True, **kw)
-
-
-def patch_side_package(install: str):
-    """If the side package carries its own copy of UMBRAL VEIL's sound bank, the
-    game plays that one (the original audio), so it gets the patched bank too."""
-    data = os.path.join(install, DATA_DIR)
-    staged_bank = os.path.join(STAGE, SOUND_BANK_TYPE, VEIL_BANK)
-    if not (os.path.exists(staged_bank) and os.path.exists(os.path.join(data, "manifests", SIDE_PACKAGE))):
-        return
-    listing = evr(["list", data, SOUND_BANK_TYPE], SIDE_PACKAGE).stdout.split()
-    print(f"   side package {SIDE_PACKAGE}: {len(listing)} sound bank(s)")
-    found = evr(["findlive", data, VEIL_BANK], SIDE_PACKAGE).stdout
-    if SOUND_BANK_TYPE not in found:
-        print(f"   side package has no copy of the UMBRAL VEIL bank")
-        return
-    print(f"   side package HAS its own copy of the UMBRAL VEIL bank ({found.strip()}): patching it too")
-    side = os.path.join(ROOT, "build", "stage_side")
-    shutil.rmtree(side, ignore_errors=True)
-    os.makedirs(os.path.join(side, SOUND_BANK_TYPE))
-    shutil.copy2(staged_bank, os.path.join(side, SOUND_BANK_TYPE, VEIL_BANK))
-    r = evr(["repack", data, side], SIDE_PACKAGE)
-    print("   " + r.stdout.strip().replace("\n", "\n   "))
-    if r.returncode:
-        sys.exit(f"repack of {SIDE_PACKAGE} failed: {r.stderr}")
-    check = os.path.join(ROOT, "build", "readback_side")
-    shutil.rmtree(check, ignore_errors=True)
-    os.makedirs(check)
-    lst = os.path.join(check, "list.txt")
-    open(lst, "w").write(f"{SOUND_BANK_TYPE}/{VEIL_BANK}\n")
-    evr(["getlive", data, lst, check], SIDE_PACKAGE)
-    got = os.path.join(check, f"{int(SOUND_BANK_TYPE, 16):016x}", f"{int(VEIL_BANK, 16):016x}")
-    ok = os.path.exists(got) and open(got, "rb").read() == open(staged_bank, "rb").read()
-    print("   side package read back: " + ("the patched bank" if ok else "NOT the patched bank"))
-
-
-#: (build script, the DLL it writes to out/, where it goes under bin/win10)
-DLLS = [("build_powerboost.bat", "PowerBoost.dll", os.path.join("plugins", "PowerBoost.dll")),
-        ("build_dronefix.bat", "DroneFix.dll", os.path.join("plugins", "DroneFix.dll")),
-        ("build_veilnet.bat", "VeilNet.dll", os.path.join("plugins", "VeilNet.dll")),
-        ("build_combatbots.bat", "CombatBots.dll", os.path.join("plugins", "CombatBots.dll")),
-        ("build_loader.bat", "dbgcore.dll", "dbgcore.dll")]
+#: (build script, the DLL it writes to out/); each goes into bin/win10/plugins/
+DLLS = [("build_powerboost.bat", "PowerBoost.dll"),
+        ("build_dronefix.bat", "DroneFix.dll"),
+        ("build_veilnet.bat", "VeilNet.dll"),
+        ("build_combatbots.bat", "CombatBots.dll")]
+#: the plugins every install runs; CombatBots only on the servers
+PLAYER_DLLS = ("DroneFix.dll", "PowerBoost.dll", "VeilNet.dll")
 
 
 def build_dlls():
-    """Build the plugins and the plugin loader with MSVC (the build_*.bat scripts).
-    A DLL that fails to build falls back to the committed copy in out/."""
+    """Build the plugins with MSVC (the build_*.bat scripts). A DLL that fails to build
+    falls back to the copy already in out/."""
     print("\n== building DLLs")
-    for bat, dll, _ in DLLS:
+    for bat, dll in DLLS:
         r = subprocess.run(["cmd", "/c", os.path.join(ROOT, bat)], cwd=ROOT, capture_output=True, text=True)
         out = (r.stdout + r.stderr).strip()
         if r.returncode:
@@ -418,37 +353,24 @@ def build_dlls():
             sys.exit(f"out/{dll} missing and could not be built")
 
 
-def is_plugin_loader(data: bytes) -> bool:
-    return b"plugins\0" in data and b"LoadLibrary" in data
-
-
 def install_dlls(install: str):
-    """PowerBoost.dll, DroneFix.dll and VeilNet.dll into bin/win10/plugins/, and the plugin loader as
-    bin/win10/dbgcore.dll (echovr.exe loads it at startup; it loads plugins/). A
-    dbgcore.dll from another mod is moved into plugins/ so it still loads; an older
-    plugin loader is replaced (kept as dbgcore.dll.bak) so nothing loads twice."""
-    bin_dir = os.path.join(install, "bin", "win10")
-    plugins = os.path.join(bin_dir, "plugins")
+    """The plugins into bin/win10/plugins/ with PowerBoost.ini, NvrContentOverlay.dll
+    from local.json's content_overlay, and CombatBots' nav files."""
+    plugins = os.path.join(install, "bin", "win10", "plugins")
     os.makedirs(plugins, exist_ok=True)
-    for _, dll, dest in DLLS:
+    for _, dll in DLLS:
         src = open(os.path.join(ROOT, "out", dll), "rb").read()
-        dst = os.path.join(bin_dir, dest)
-        if dll == "dbgcore.dll" and os.path.exists(dst):
-            old = open(dst, "rb").read()
-            if old != src:
-                if is_plugin_loader(old):
-                    shutil.copy2(dst, dst + ".bak")
-                    print(f"   replacing an older plugin loader (kept as {dst}.bak)")
-                else:
-                    moved = os.path.join(plugins, "dbgcore.dll")
-                    if os.path.exists(moved) and open(moved, "rb").read() != old:
-                        moved = os.path.join(plugins, "dbgcore_previous.dll")
-                    shutil.copy2(dst, moved)
-                    print(f"   moved the existing dbgcore.dll to {moved} so the loader still loads it")
+        dst = os.path.join(plugins, dll)
         open(dst, "wb").write(src)
         if open(dst, "rb").read() != src:
             sys.exit(f"{dst} did not keep what was written (antivirus? Echo running?)")
         print(f"   wrote {dst}")
+    overlay = LOCAL.get("content_overlay")
+    if overlay:
+        shutil.copy2(overlay, os.path.join(plugins, "NvrContentOverlay.dll"))
+        print(f"   wrote {os.path.join(plugins, 'NvrContentOverlay.dll')}")
+    elif not os.path.exists(os.path.join(plugins, "NvrContentOverlay.dll")):
+        sys.exit(f"no NvrContentOverlay.dll in {plugins}: set content_overlay in local.json")
     # PowerBoost.ini from config/mp_weapon_settings.json (OVERCHARGE's plugin-side values)
     from echocombat_config import powerboost_ini
     ini = os.path.join(plugins, "PowerBoost.ini")
@@ -464,32 +386,38 @@ def install_dlls(install: str):
             print(f"   wrote {dst}")
 
 
-def install_script_dlls(install: str):
-    """Echo loads script code from bin/win10/scripts/<hash>.dll, not from the package,
-    so every staged script (the new DOT trigger script, the sound-patched DOT script)
-    is written there too. An original DLL is kept once as <hash>.dll.orig.
-    The detonator's DLL on disk is checked against its packaged asset first, to be
-    sure the two hold the same image."""
-    folder = os.path.join(install, "bin", "win10", "scripts")
-    os.makedirs(folder, exist_ok=True)
-    det = open(os.path.join(SOURCE, SCRIPTS_TYPE, DET_SCRIPT), "rb").read()
-    det_dll = os.path.join(folder, f"{DET_SCRIPT}.dll")
-    if os.path.exists(det_dll) and open(det_dll, "rb").read() != det[det.find(b"MZ"):]:
-        print(f"   warning: {det_dll} differs from the packaged detonator script")
-    staged = set(os.listdir(os.path.join(STAGE, SCRIPTS_TYPE)))
-    # A script patched by an earlier deploy but not this one goes back to stock.
-    for orig in sorted(f for f in os.listdir(folder) if f.endswith(".dll.orig")):
-        name = orig[:-len(".dll.orig")]
-        if name not in staged:
-            shutil.copy2(os.path.join(folder, orig), os.path.join(folder, f"{name}.dll"))
-            print(f"   restored {name}.dll from its .orig")
-    for name in sorted(staged):
-        asset = open(os.path.join(STAGE, SCRIPTS_TYPE, name), "rb").read()
-        dest = os.path.join(folder, f"{name}.dll")
-        if os.path.exists(dest) and not os.path.exists(dest + ".orig") and name != DOT_TRIGGER_SCRIPT:
-            shutil.copy2(dest, dest + ".orig")
-        open(dest, "wb").write(asset[asset.find(b"MZ"):])
-        print(f"   wrote {dest}")
+def plugin_entries(install: str, server: bool) -> str:
+    """config.yaml's plugins: block: NvrContentOverlay first (early, the pack active), the
+    launcher's own plugins that are there, then EchoCombat's."""
+    plugins = os.path.join(install, "bin", "win10", "plugins")
+    lines = ["plugins:",
+             '  - name: "NvrContentOverlay"', '    file: "NvrContentOverlay.dll"', "    early: true",
+             '    args: {"active":"echocombat"}']
+    for name, args in (("NvrAssetPatches", '{"logging":"normal"}'), ("NvrGpuRating", None)):
+        if os.path.exists(os.path.join(plugins, f"{name}.dll")):
+            lines += [f'  - name: "{name}"', f'    file: "{name}.dll"'] + ([f"    args: {args}"] if args else [])
+    for dll in PLAYER_DLLS + (("CombatBots.dll",) if server else ()):
+        lines += [f'  - name: "{dll[:-4]}"', f'    file: "{dll}"']
+    return "\n".join(lines) + "\n"
+
+
+def write_config(install: str, server: bool):
+    """_local/config.yaml with plugin_entries() in place of its plugins: block; every other
+    top-level section (services, ...) is kept as it is."""
+    path = os.path.join(install, "_local", "config.yaml")
+    kept, skipping = [], False
+    if os.path.exists(path):
+        for line in open(path, encoding="utf-8").read().splitlines():
+            top = line[:1] not in ("", " ", "\t", "#", "-")
+            if top:
+                skipping = line.split(":", 1)[0].strip() == "plugins"
+            if not skipping:
+                kept.append(line)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    text = "\n".join(kept).rstrip("\n")
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write((text + "\n" if text else "") + plugin_entries(install, server))
+    print(f"   wrote {path} (plugins for the {'server' if server else 'client'})")
 
 
 def launch(install: str, args: str, label: str):
@@ -497,6 +425,20 @@ def launch(install: str, args: str, label: str):
     print(f"launching {label}: {exe} {args}")
     subprocess.Popen([exe, *shlex.split(args, posix=False)], cwd=os.path.dirname(exe),
                      creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+
+
+def stage_from_args(args):
+    stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
+          not args.no_smoke, tuple(a for flag, v in (
+              ("--count", args.veil_count), ("--scale", args.veil_scale), ("--life", args.veil_life),
+              ("--spread", args.veil_spread), ("--emission", args.veil_emission),
+              ("--particle-scale", args.veil_puff), ("--alpha", args.veil_alpha),
+              ("--shade", args.veil_shade)) if v is not None for a in (flag, v))  # default: the config
+          + (() if not args.veil_anchor_sound else
+             ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
+          not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
+          not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
+          args.buff_purple_fx)
 
 
 def main(argv) -> int:
@@ -557,7 +499,12 @@ def main(argv) -> int:
     ap.add_argument("--kill", action="store_true", help="close running echovr.exe first")
     ap.add_argument("--no-launch", action="store_true")
     ap.add_argument("--launch-only", action="store_true")
+    ap.add_argument("--stage-only", action="store_true",
+                    help="only stage build/stage (no installs needed; any OS): what make_release.py packs")
     args = ap.parse_args(argv[1:])
+    if args.stage_only:
+        stage_from_args(args)
+        return 0
     missing = [f"--{k.replace('_', '-')}" for k in ("server_install", "client_install") if not getattr(args, k)]
     if missing:
         sys.exit(f"no Echo VR install given ({', '.join(missing)}): copy local.example.json to "
@@ -571,23 +518,12 @@ def main(argv) -> int:
             time.sleep(3)
         if not args.no_build:
             build_dlls()
-        stage(args.gunpatch, args.extract, args.preset, not args.no_drone, args.dot_damping,
-              not args.no_smoke, tuple(a for flag, v in (
-                  ("--count", args.veil_count), ("--scale", args.veil_scale), ("--life", args.veil_life),
-                  ("--spread", args.veil_spread), ("--emission", args.veil_emission),
-                  ("--particle-scale", args.veil_puff), ("--alpha", args.veil_alpha),
-                  ("--shade", args.veil_shade)) if v is not None for a in (flag, v))  # default: the config
-              + (() if not args.veil_anchor_sound else
-                 ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
-              not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
-              not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
-              args.buff_purple_fx)
-        for install in (args.server_install, args.client_install):
-            repack(install)
-            patch_side_package(install)
-            install_script_dlls(install)
+        stage_from_args(args)
+        for install, server in ((args.server_install, True), (args.client_install, False)):
+            deploy_pack(install)
             clear_wwise_cache(install)
             install_dlls(install)
+            write_config(install, server or args.server_install == args.client_install)
 
     if args.no_launch:
         return 0

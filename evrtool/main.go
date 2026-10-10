@@ -1,18 +1,15 @@
-// evrtool: packs EchoCombat's stage into Echo VR's packages and installs the release, over the EvrFile library.
+// evrtool: builds EchoCombat's content pack from the stage and an install's stock files, over
+// the EvrFile library. The game's own files are only read: NvrContentOverlay serves the pack
+// beside them while Echo runs.
 //
+//	evrtool pack    <dataDir> <stageDir> <outDir> [version]  the content pack (pack.go)
 //	evrtool get     <dataDir> <listFile> <outDir>   dump <type>/<file> resources from the STOCK manifest
+//	evrtool getlive <dataDir> <listFile> <outDir>   the same through the live manifest
 //	evrtool list    <dataDir> <typeHex>             print every <type>/<file> of one type (stock manifest)
-//	evrtool repack  <dataDir> <inputDir>            QuickRepack: stock + inputDir -> one delta package
-//	evrtool merge   <dataDir> <inputDir>            like repack, but keeps other mods' delta packages (merge.go)
-//	evrtool unmerge <dataDir>                       take a merge back out, leaving the other mods
-//	evrtool install <dataDir> <stageDir>            player install: drone bullet tables + merge, side package too
-//	evrtool setup   <gameDir> <bundleDir>           install.bat: install + script DLLs, plugins, plugin loader (files.go)
-//	evrtool remove  <gameDir> <bundleDir>           uninstall.bat: unmerge, scripts back, plugins out
-//	evrtool doctor  <gameDir> [bundleDir]           doctor.bat: why Echo will not start on this PC (doctor.go)
-//	evrtool getlive <dataDir> <listFile> <outDir>   read files back through the live manifest
-//	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages (ALL mods)
-//	evrtool cmp     <dataDir> <oldDir>              diff the install against an old manifest + delta copy
 //	evrtool find    <dataDir> <fileHex>...          where a file symbol is stored (stock manifest; findlive: live)
+//	evrtool dronebullet <dataDir> <outDir>          the drone's bullet tables built from stock (stage.go)
+//	evrtool restore <dataDir>                       put the stock manifest back and delete delta packages (ALL mods)
+//	evrtool clean   <gameDir>                       take out an install made the old way (clean.go)
 //
 // Set EVR_PKG=<package> to work on a package other than 48037dc70b0ecab2.
 // "Stock" is manifests/<pkg>.bak when present (QuickRepack writes it before its first change),
@@ -68,7 +65,7 @@ func parsePair(s string) ([2]int64, bool) {
 
 func main() {
 	if len(os.Args) < 3 {
-		die("usage: evrtool get|list|repack|merge|unmerge|install|restore|cmp <dataDir> ...")
+		die("usage: evrtool pack|get|getlive|list|find|findlive|dronebullet|restore|clean <dir> ...")
 	}
 	mode, dataDir := os.Args[1], os.Args[2]
 	switch mode {
@@ -134,53 +131,20 @@ func main() {
 				fmt.Printf("%016x/%016x\n", uint64(fc.TypeSymbol), uint64(fc.FileSymbol))
 			}
 		}
-	case "repack":
-		if len(os.Args) < 4 {
-			die("usage: evrtool repack <dataDir> <inputDir>")
+	case "pack":
+		if len(os.Args) < 5 {
+			die("usage: evrtool pack <dataDir> <stageDir> <outDir> [version]")
 		}
-		files := scan(os.Args[3])
-		m, err := manifest.ReadFile(filepath.Join(dataDir, "manifests", pkg))
-		if err != nil {
-			die("read manifest: %v", err)
+		version := "dev"
+		if len(os.Args) > 5 {
+			version = os.Args[5]
 		}
-		if err := manifest.QuickRepack(m, files, dataDir, pkg); err != nil {
-			die("repack: %v", err)
-		}
-		fmt.Println("repack OK")
-	case "merge":
-		if len(os.Args) < 4 {
-			die("usage: evrtool merge <dataDir> <inputDir>")
-		}
-		merge(dataDir, scan(os.Args[3]))
-	case "unmerge":
-		unmerge(dataDir)
+		pack(dataDir, os.Args[3], os.Args[4], version)
 	case "dronebullet":
 		if len(os.Args) < 4 {
 			die("usage: evrtool dronebullet <dataDir> <outDir>")
 		}
 		droneBulletStage(dataDir, os.Args[3])
-	case "doctor":
-		// doctor <gameDir> [bundleDir]: why Echo will not start on this PC
-		b := ""
-		if len(os.Args) > 3 {
-			b = os.Args[3]
-		}
-		doctor(dataDir, b)
-	case "setup", "remove":
-		// setup <gameDir> <bundleDir>: the whole player install (install.bat)
-		if len(os.Args) < 4 {
-			die("usage: evrtool setup|remove <gameDir> <bundleDir>")
-		}
-		if mode == "setup" {
-			setup(dataDir, os.Args[3])
-		} else {
-			remove(dataDir, os.Args[3])
-		}
-	case "install":
-		if len(os.Args) < 4 {
-			die("usage: evrtool install <dataDir> <stageDir>")
-		}
-		install(dataDir, os.Args[3])
 	case "find", "findlive":
 		// find <dataDir> <hash>...: every type a file symbol is stored under (stock manifest)
 		// findlive: the same against the live manifest, i.e. after a repack
@@ -203,37 +167,11 @@ func main() {
 			}
 		}
 	case "restore":
-		mp := filepath.Join(dataDir, "manifests", pkg)
-		orig, err := manifest.ReadFile(mp + ".bak")
-		if err != nil {
+		if !restorePackage(dataDir, pkg) {
 			fmt.Println("no .bak manifest: the install was never repacked, nothing to restore")
-			return
 		}
-		data, err := os.ReadFile(mp + ".bak")
-		if err != nil {
-			die("read .bak: %v", err)
-		}
-		if err := os.WriteFile(mp, data, 0644); err != nil {
-			die("write manifest: %v", err)
-		}
-		os.Remove(mp + ".echocombat")
-		os.Remove(mp + ".echocombat.live")
-		for i := orig.Header.PackageCount; ; i++ {
-			p := filepath.Join(dataDir, "packages", fmt.Sprintf("%s_%d", pkg, i))
-			if _, err := os.Stat(p); err != nil {
-				break
-			}
-			if err := os.Remove(p); err != nil {
-				die("remove %s: %v", p, err)
-			}
-			fmt.Println("removed", p)
-		}
-		fmt.Println("restored stock manifest")
-	case "cmp":
-		if len(os.Args) < 4 {
-			die("usage: evrtool cmp <dataDir> <oldDir>")
-		}
-		cmpOldNew(dataDir, os.Args[3])
+	case "clean":
+		clean(dataDir)
 	default:
 		die("unknown mode %s", mode)
 	}

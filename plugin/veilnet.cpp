@@ -28,7 +28,9 @@
 //
 // Clients say hello every 2 s; the server relays only to clients that have (so a
 // player without VeilNet never gets a packet the game would not understand).
-// "-server" on the command line picks the server role. Log: VeilNet.log next to the DLL.
+// A nEVR plugin (nevr_plugin.h): set up from NvrPluginInitEx, taken down in
+// NvrPluginShutdown; the host says whether this is the server. Log:
+// plugin_logs\VeilNet\VeilNet.log.
 //
 // POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
 // the u32 at +0x2104f80, every machine gets a "point token" (+0x2104ce0, same layout as
@@ -53,6 +55,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include "detours.h"
+#include "nevr_plugin.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -96,6 +99,8 @@ bool g_server;
 char g_log_path[MAX_PATH];
 volatile LONG g_logged = 0;
 SRWLOCK g_lock = SRWLOCK_INIT;
+volatile bool g_stop = false;                   // NvrPluginShutdown: the tick thread ends
+HANDLE g_tick = nullptr;
 
 void Log(const char *fmt, ...) {
     if (InterlockedIncrement(&g_logged) > 2000) return;
@@ -338,7 +343,7 @@ DWORD WINAPI Tick(LPVOID) {
     LONG seen_skips = *skips, seen_reruns = *reruns;
     sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0, next_pick = 0, next_hook = 0;
-    for (;;) {
+    while (!g_stop) {
         Sleep(5);
         if (!g_server && GetTickCount64() >= next_hook) {                // the selection is the client's own
             next_hook = GetTickCount64() + 1000;
@@ -407,19 +412,22 @@ DWORD WINAPI Tick(LPVOID) {
         LONG oc = g_oc->veils;
         if (oc != seen_ocs) { seen_ocs = oc; Log("a heal bubble took an overcharge token: shown purple (%ld so far)", oc); }
     }
+    return 0;
 }
 
 // The tac mod the player selected, as the client sends it ("[NSUSER] sent profile
 // update: {"ability":"point"}"): stored at EQUIP_RVA for tools/equip_guard.py's checks
 // and the controller's re-run. Read from the game's log the moment it is picked. The
 // profile code is in the platform module (pnsovr.dll for Oculus, pnsrad.dll for the
-// others; echovr.exe has a copy too), each with its own copy of the logger: in each,
-// the logger is found from the code that logs that line (lea r8, <format>; ...; call
-// WriteLog; WriteLog calls PrintfImpl(level, flags, fmt, va_list)) and hooked.
+// others), each with its own copy of the logger: in each, the logger is found from the
+// code that logs that line (lea r8, <format>; ...; call WriteLog; WriteLog calls
+// PrintfImpl(level, flags, fmt, va_list)) and hooked. echovr.exe has a copy too, but its
+// logger is nEVR's: nEVR hooks it itself, and a second hook there breaks nEVR's log and
+// stops a server (its hook guard), so that one is left alone.
 using printf_fn = void(*)(int, uint64_t, const char *, va_list);
 constexpr char kProfileFmt[] = "[NSUSER] sent profile update: %s";
-const wchar_t *const kLogModules[] = {nullptr, L"pnsovr.dll", L"pnsrad.dll"};   // nullptr: echovr.exe
-constexpr int kLogHooks = 3;
+const wchar_t *const kLogModules[] = {L"pnsovr.dll", L"pnsrad.dll"};
+constexpr int kLogHooks = 2;
 printf_fn g_real_log[kLogHooks];
 bool g_log_tried[kLogHooks];
 
@@ -452,7 +460,7 @@ template <int I> void HookedLog(int level, uint64_t flags, const char *fmt, va_l
     SawLog(fmt, args);
     g_real_log[I](level, flags, fmt, args);
 }
-const printf_fn kHookedLog[kLogHooks] = {HookedLog<0>, HookedLog<1>, HookedLog<2>};
+const printf_fn kHookedLog[kLogHooks] = {HookedLog<0>, HookedLog<1>};
 
 // The PrintfImpl the module's profile update goes through, or nullptr.
 printf_fn FindProfileLogger(uint8_t *m) {
@@ -496,7 +504,7 @@ printf_fn FindProfileLogger(uint8_t *m) {
 void HookSelectionLogs() {
     for (int i = 0; i < kLogHooks; ++i) {
         if (g_log_tried[i]) continue;
-        HMODULE m = kLogModules[i] ? GetModuleHandleW(kLogModules[i]) : GetModuleHandleW(nullptr);
+        HMODULE m = GetModuleHandleW(kLogModules[i]);
         if (!m) continue;
         g_log_tried[i] = true;
         printf_fn f = FindProfileLogger((uint8_t *)m);
@@ -506,40 +514,80 @@ void HookSelectionLogs() {
         DetourUpdateThread(GetCurrentThread());
         DetourAttach(&(PVOID &)g_real_log[i], (PVOID)kHookedLog[i]);
         LONG rc = DetourTransactionCommit();
+        if (rc != NO_ERROR) g_real_log[i] = nullptr;
         Log(rc == NO_ERROR ? "watching tac mod selections in %ls" : "hooking the logger in %ls failed",
-            kLogModules[i] ? kLogModules[i] : L"echovr.exe");
+            kLogModules[i]);
     }
 }
 
-DWORD WINAPI Install(LPVOID) {
+bool g_hooked = false;
+
+bool Install(bool server) {
+    if (g_hooked) return true;
     g_base = (uint8_t *)GetModuleHandleW(nullptr);
     g_shared = (Shared *)(g_base + TOKEN_RVA);
     g_point = (Shared *)(g_base + POINT_TOKEN_RVA);
     g_loc = (Shared *)(g_base + LOC_TOKEN_RVA);
     g_oc = (Shared *)(g_base + OC_TOKEN_RVA);
-    g_server = strstr(GetCommandLineA(), " -server") != nullptr;
+    g_server = server;
     if (g_server) *(volatile LONG *)(g_base + EQUIP_RVA + 0x14) = 1;   // equip_guard: a client's check only
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_sendto, Hooked_sendto);
     DetourAttach(&(PVOID &)Real_recvfrom, Hooked_recvfrom);
     LONG rc = DetourTransactionCommit();
-    if (rc != NO_ERROR) { Log("hooking sendto / recvfrom failed (%ld): UMBRAL VEIL stays local", rc); return 0; }
+    if (rc != NO_ERROR) { Log("hooking sendto / recvfrom failed (%ld): UMBRAL VEIL stays local", rc); return false; }
+    g_hooked = true;
     Log(g_server ? "server: relaying UMBRAL VEIL over the game's own connection"
                  : "client: UMBRAL VEIL goes over the game's own connection");
-    if (HANDLE t = CreateThread(nullptr, 0, Tick, nullptr, 0, nullptr)) CloseHandle(t);
-    return 0;
+    g_stop = false;
+    g_tick = CreateThread(nullptr, 0, Tick, nullptr, 0, nullptr);
+    return true;
+}
+
+void Uninstall() {
+    g_stop = true;
+    if (g_tick) {
+        WaitForSingleObject(g_tick, 2000);
+        CloseHandle(g_tick);
+        g_tick = nullptr;
+    }
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    if (g_hooked) {
+        DetourDetach(&(PVOID &)Real_sendto, Hooked_sendto);
+        DetourDetach(&(PVOID &)Real_recvfrom, Hooked_recvfrom);
+    }
+    for (int i = 0; i < kLogHooks; ++i)
+        if (g_real_log[i]) DetourDetach(&(PVOID &)g_real_log[i], (PVOID)kHookedLog[i]);
+    DetourTransactionCommit();
+    g_hooked = false;
+    for (int i = 0; i < kLogHooks; ++i) { g_real_log[i] = nullptr; g_log_tried[i] = false; }
+    Log("unhooked");
 }
 
 } // namespace
 
+ECHOCOMBAT_EXPORT NvrPluginInfo NvrPluginGetInfo(void) {
+    return EchoCombatPluginInfo("veil_net", "EchoCombat: UMBRAL VEIL, POINT, TRANSLOCATOR and OVERCHARGE between players");
+}
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetApiVersion(void) { return NEVR_PLUGIN_API_VERSION; }
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
+    return NEVR_PLUGIN_CAP_ALTERS_GAMEPLAY | NEVR_PLUGIN_CAP_NETWORK | NEVR_PLUGIN_CAP_HOOKS_ENGINE;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
+    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "VeilNet");
+    return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInit(const NvrGameContext *ctx) { return NvrPluginInitEx(ctx, "{}"); }
+
+ECHOCOMBAT_EXPORT void NvrPluginShutdown(void) { Uninstall(); }
+
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "VeilNet.log");
-        // The hooks are set up off the loader lock.
-        if (HANDLE t = CreateThread(nullptr, 0, Install, nullptr, 0, nullptr)) CloseHandle(t);
-    }
+    if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(self);
     return TRUE;
 }

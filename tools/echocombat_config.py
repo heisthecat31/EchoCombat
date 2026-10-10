@@ -53,8 +53,9 @@ LOCAL = os.path.join(ROOT, "local.json")
 
 def local() -> dict:
     """Paths for this machine. extract / gunpatch default to the repo's data/ folders;
-    server_install / client_install (the Echo VR installs to deploy into) have no
-    default and are None until set in local.json or passed on the command line."""
+    server_install / client_install (the Echo VR installs to deploy into) and
+    content_overlay (NvrContentOverlay.dll) have no default and are None until set in
+    local.json or passed on the command line."""
     cfg = {}
     if os.path.exists(LOCAL):
         with open(LOCAL, encoding="utf-8") as fh:
@@ -64,4 +65,7 @@ def local() -> dict:
         "gunpatch": cfg.get("gunpatch") or os.path.join(ROOT, "data", "gunpatch"),
         "server_install": cfg.get("server_install"),
         "client_install": cfg.get("client_install"),
+        # NvrContentOverlay.dll, the nEVR plugin that serves the content pack; deploys copy it
+        # into each install's plugins/ when set (the launcher installs it for players)
+        "content_overlay": cfg.get("content_overlay"),
     }

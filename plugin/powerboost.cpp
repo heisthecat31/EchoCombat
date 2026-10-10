@@ -56,8 +56,10 @@
 // or after another player's bubble links this client's player (known once this client
 // has used OVERCHARGE itself: the use marker names its own damageable).
 //
-// All prologues are checked first; on a mismatch nothing is hooked. "-server" on the
-// command line picks the server role. Log: PowerBoost.log next to the DLL.
+// All prologues are checked first; on a mismatch nothing is hooked (and nEVR unloads the
+// plugin). A nEVR plugin (nevr_plugin.h): hooked from NvrPluginInitEx, unhooked in
+// NvrPluginShutdown; the host says whether this is the server. Log:
+// plugin_logs\PowerBoost\PowerBoost.log; settings: PowerBoost.ini next to the DLL.
 
 #include <windows.h>
 #include <stdint.h>
@@ -65,6 +67,7 @@
 #include <string.h>
 #include <math.h>
 #include "detours.h"
+#include "nevr_plugin.h"
 
 namespace {
 
@@ -226,6 +229,8 @@ Buff g_buffs[MAX_BUFFS];
 SRWLOCK g_lock = SRWLOCK_INIT;
 
 char g_log_path[MAX_PATH];
+char g_ini_path[MAX_PATH];                // PowerBoost.ini, next to the DLL
+HMODULE g_self = nullptr;
 volatile LONG g_logged = 0;
 
 void Log(const char *fmt, ...) {
@@ -554,6 +559,9 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
     return ok;
 }
 
+uint8_t g_radius_saved[14];
+uint8_t *g_radius_site = nullptr;          // patched by InstallCone
+
 // The radius check, 14 bytes at +0xd6dcc6, becomes an absolute jump to this stub:
 // the original three instructions, then ConeFilter (volatile registers saved); a
 // rejected target gets radius^2 = 0, so the check that follows unlinks it.
@@ -604,6 +612,8 @@ bool InstallCone(uint8_t *base) {
     memcpy(jump + 6, &to, 8);
     DWORD old;
     if (!VirtualProtect(site, sizeof(jump), PAGE_EXECUTE_READWRITE, &old)) return false;
+    memcpy(g_radius_saved, site, sizeof(jump));         // put back by NvrPluginShutdown
+    g_radius_site = site;
     memcpy(site, jump, sizeof(jump));
     VirtualProtect(site, sizeof(jump), old, &old);
     FlushInstructionCache(GetCurrentProcess(), site, sizeof(jump));
@@ -611,9 +621,8 @@ bool InstallCone(uint8_t *base) {
 }
 
 void ReadIni() {
-    char ini[MAX_PATH], axis[16];
-    strcpy_s(ini, g_log_path);
-    if (char *dot = strrchr(ini, '.')) strcpy_s(dot, MAX_PATH - (dot - ini), ".ini");
+    char axis[16];
+    const char *ini = g_ini_path;
     GetPrivateProfileStringA("cone", "axis", "+z", axis, sizeof(axis), ini);
     int i = axis[1] == 'x' || axis[1] == 'X' ? 0 : axis[1] == 'y' || axis[1] == 'Y' ? 1 : 2;
     g_axis[0] = g_axis[1] = g_axis[2] = 0;
@@ -633,29 +642,21 @@ void ReadIni() {
         axis, g_rez_window_ms / 1000, g_body_bonus, g_head_bonus, g_head_part);
 }
 
-// True when the command line has `flag` as a whole argument (any case).
-bool HasArg(const char *flag) {
-    const char *cmd = GetCommandLineA();
-    size_t n = strlen(flag);
-    for (const char *p = cmd; p && *p; ++p)
-        if ((p == cmd || p[-1] == ' ' || p[-1] == '\t') && _strnicmp(p, flag, n) == 0 &&
-            (p[n] == 0 || p[n] == ' ' || p[n] == '\t' || p[n] == '"'))
-            return true;
-    return false;
-}
-
 bool Check(uint8_t *at, const uint8_t *bytes, size_t n, const char *name) {
     if (memcmp(at, bytes, n) == 0) return true;
     Log("prologue mismatch at %s -- wrong echovr build, not hooking", name);
     return false;
 }
 
-void Install() {
+bool g_hooked = false, g_send_hooked = false, g_apply_hooked = false;
+
+bool Install(bool server) {
+    if (g_hooked) return true;
     auto base = (uint8_t *)GetModuleHandleW(nullptr);
     if (!Check(base + HEAL_RVA, HEAL_BYTES, sizeof(HEAL_BYTES), "HealServer") ||
         !Check(base + DAMAGE_RVA, DAMAGE_BYTES, sizeof(DAMAGE_BYTES), "ProcessDamageServer") ||
         !Check(base + SEND_RVA, SEND_BYTES, sizeof(SEND_BYTES), "SendDamageDealt"))
-        return;
+        return false;
     SendDamageDealt = (send_fn)(base + SEND_RVA);
     if (Check(base + RADIUS_RVA, RADIUS_BYTES, sizeof(RADIUS_BYTES), "heal bubble radius check") &&
         Check(base + OWNER_HANDLE_RVA, OWNER_HANDLE_BYTES, sizeof(OWNER_HANDLE_BYTES), "owner handle") &&
@@ -665,7 +666,7 @@ void Install() {
         ReadIni();
         Log(InstallCone(base) ? "POWER BOOST link: cone on the heal bubble radius check" : "cone patch failed");
     }
-    g_server = HasArg("-server");
+    g_server = server;
     Real_Heal = (heal_fn)(base + HEAL_RVA);
     Real_Damage = (damage_fn)(base + DAMAGE_RVA);
     Real_Send = (send_fn)(base + SEND_RVA);
@@ -673,10 +674,12 @@ void Install() {
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_Heal, Hooked_Heal);
     DetourAttach(&(PVOID &)Real_Damage, Hooked_Damage);
-    if (!g_server) DetourAttach(&(PVOID &)Real_Send, Hooked_Send);
+    g_send_hooked = !g_server;
+    if (g_send_hooked) DetourAttach(&(PVOID &)Real_Send, Hooked_Send);
     if (g_server && Check(base + APPLY_RVA, APPLY_BYTES, sizeof(APPLY_BYTES), "ApplyDamageAndNotify")) {
         Real_Apply = (apply_fn)(base + APPLY_RVA);
         DetourAttach(&(PVOID &)Real_Apply, Hooked_Apply);
+        g_apply_hooked = true;
         if (Check(base + SHOOTER_SLOT_RVA, SHOOTER_SLOT_BYTES, sizeof(SHOOTER_SLOT_BYTES), "shooter slot"))
             ShooterSlotFn = (shooter_slot_fn)(base + SHOOTER_SLOT_RVA);
         if (Check(base + SLOT_ACTOR_RVA, SLOT_ACTOR_BYTES, sizeof(SLOT_ACTOR_BYTES), "player slot actor")) {
@@ -687,6 +690,31 @@ void Install() {
     LONG rc = DetourTransactionCommit();
     if (rc == NO_ERROR) Log("hooked HealServer and ProcessDamageServer (%s)", g_server ? "server" : "client");
     else Log("hook failed (%ld)", rc);
+    g_hooked = rc == NO_ERROR;
+    return g_hooked;
+}
+
+void Uninstall() {
+    if (g_hooked) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID &)Real_Heal, Hooked_Heal);
+        DetourDetach(&(PVOID &)Real_Damage, Hooked_Damage);
+        if (g_send_hooked) DetourDetach(&(PVOID &)Real_Send, Hooked_Send);
+        if (g_apply_hooked) DetourDetach(&(PVOID &)Real_Apply, Hooked_Apply);
+        DetourTransactionCommit();
+        g_hooked = g_send_hooked = g_apply_hooked = false;
+    }
+    if (g_radius_site) {                                // the cone's jump back to the radius check
+        DWORD old;
+        if (VirtualProtect(g_radius_site, sizeof(g_radius_saved), PAGE_EXECUTE_READWRITE, &old)) {
+            memcpy(g_radius_site, g_radius_saved, sizeof(g_radius_saved));
+            VirtualProtect(g_radius_site, sizeof(g_radius_saved), old, &old);
+            FlushInstructionCache(GetCurrentProcess(), g_radius_site, sizeof(g_radius_saved));
+        }
+        g_radius_site = nullptr;
+    }
+    Log("unhooked");
 }
 
 } // namespace
@@ -694,12 +722,30 @@ void Install() {
 // CombatBots.dll finds the damageable system here (dead / respawn of its bots).
 extern "C" __declspec(dllexport) void *PowerBoost_DamageableCS() { return g_damage_cs; }
 
+ECHOCOMBAT_EXPORT NvrPluginInfo NvrPluginGetInfo(void) {
+    return EchoCombatPluginInfo("power_boost", "EchoCombat: OVERCHARGE (links, damage reduction, cheat death, damage bonus)");
+}
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetApiVersion(void) { return NEVR_PLUGIN_API_VERSION; }
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
+    return NEVR_PLUGIN_CAP_ALTERS_GAMEPLAY | NEVR_PLUGIN_CAP_HOOKS_ENGINE;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
+    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "PowerBoost");
+    EchoCombatBesideDll(g_self, g_ini_path, sizeof(g_ini_path), "PowerBoost.ini");
+    return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInit(const NvrGameContext *ctx) { return NvrPluginInitEx(ctx, "{}"); }
+
+ECHOCOMBAT_EXPORT void NvrPluginShutdown(void) { Uninstall(); }
+
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "PowerBoost.log");
-        Install();
+        g_self = self;
     }
     return TRUE;
 }

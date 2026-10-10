@@ -1,8 +1,8 @@
 # EchoCombat
 
 A mod for Echo VR's **Echo Combat** mode (PC build `631547.rad15_live`). It adds and
-fixes gear, ships as a zip that players install with one double-click, and builds
-entirely from this repository.
+fixes gear, ships as a zip that players install from the Echo VR launcher's Mods page,
+and builds entirely from this repository. It changes none of the game's own files.
 
 | Gear | What it is |
 |---|---|
@@ -26,13 +26,24 @@ script DLLs, sound banks, textures). The build:
 1. takes the game files it needs from `data/extract/` and `data/gunpatch/`,
 2. patches them with the `tools/fix_*.py` / `veil_*.py` / `gear_icons.py` scripts into
    `build/stage/`, merging in every tunable value from `config/mp_weapon_settings.json`,
-3. packs the stage into the game's package with `evrtool` (Go, `evrtool/`),
-4. builds the native plugins (C++, `plugin/`, hooked in with Microsoft Detours) that
-   the game loads at startup through a small plugin loader (`dbgcore.dll`).
+3. packs the stage into a **content pack** with `evrtool pack` (Go, `evrtool/`): the
+   stock manifests with the stage packed on top, the packages that adds, and the script
+   DLLs, read from an install's stock files (`content/echocombat/`, with `content.json`),
+4. builds the native plugins (C++, `plugin/`, hooked in with Microsoft Detours).
+
+Both run under nEVR (`BugSplat64.dll`), the runtime the Echo VR launcher installs:
+
+* **NvrContentOverlay** (a separate nEVR plugin, not in this repo) serves the content
+  pack while Echo runs: the game's opens of its manifests and of the packages they add
+  get the pack's files, and its script loader gets the pack's script DLLs. Nothing on
+  disk changes; with the pack switched off the game is stock. It has to load before the
+  game reads its data, so nEVR lists it `early: true` (nEVR with the early load pass).
+* The plugins are nEVR plugins (`plugin/nevr_plugin.h`): nEVR loads the ones
+  `_local/config.yaml` lists and calls `NvrPluginInitEx`, where the hooks go in, and
+  `NvrPluginShutdown`, where they come out. They log to `bin/win10/plugin_logs/<Plugin>/`.
 
 | Plugin | Runs on | Does |
 |---|---|---|
-| `dbgcore.dll` (`plugin/loader.cpp`) | everyone | loads every DLL in `bin/win10/plugins/` |
 | `PowerBoost.dll` | server + clients | OVERCHARGE: links, damage reduction, cheat death, damage bonus |
 | `DroneFix.dll` | server + clients | drone fixes |
 | `VeilNet.dll` | server + clients | relays UMBRAL VEIL / POINT / TRANSLOCATOR events between players |
@@ -47,7 +58,7 @@ script DLLs, sound banks, textures). The build:
   (the `build_*.bat` scripts find MSVC with `vswhere`)
 * An **Echo VR PC install** of build `631547.rad15_live` to deploy into and test with
   (two installs work best: one for headless servers, one for the VR client; one is
-  fine for both)
+  fine for both), with nEVR that has the early load pass, and **NvrContentOverlay.dll**
 
 Everything else (game files, Detours, the CSymbol64 hash) is in the repo.
 
@@ -68,8 +79,9 @@ Edit `local.json` (it is gitignored) with your installs:
 ```
 
 `server_install` is where the headless test servers run from; `client_install` is the
-one your headset plays. They can be the same folder. Optional keys `extract` and
-`gunpatch` override `data/extract` and `data/gunpatch`.
+one your headset plays. They can be the same folder. `content_overlay` is the path of
+NvrContentOverlay.dll, copied into each install's `plugins/`. Optional keys `extract`
+and `gunpatch` override `data/extract` and `data/gunpatch`.
 
 ## Build and deploy
 
@@ -81,8 +93,11 @@ deploy_and_launch.bat --kill --client-args=-mp
 
 1. builds the plugins (`build_*.bat`) into `out/`,
 2. stages every patch into `build/stage/` from `config/mp_weapon_settings.json`,
-3. repacks both installs with `evrtool` (from their stock manifests, so the stage always
-   holds everything), writes the script DLLs, plugins and `PowerBoost.ini`,
+3. for both installs: takes out an old repack (`evrtool clean`: an install.bat from
+   before the content pack, or an old deploy), builds the content pack from the
+   install's stock files into `bin/win10/content/echocombat/`, writes the plugins and
+   `PowerBoost.ini`, and lists them in `_local/config.yaml` (the rest of the file is
+   kept),
 4. launches 2 headless servers from `server_install` and the VR client from
    `client_install`.
 
@@ -90,7 +105,8 @@ Useful options:
 
 | Option | |
 |---|---|
-| `--kill` | close running `echovr.exe` first (it must not run while repacking) |
+| `--kill` | close running `echovr.exe` first (it must not run while deploying) |
+| `--stage-only` | only stage `build/stage/` (any OS, no installs): what a release packs |
 | `--no-launch` | build and deploy only |
 | `--launch-only` | just start the servers and client again |
 | `--no-build` | skip MSVC; use the DLLs already in `out/` |
@@ -102,7 +118,8 @@ Useful options:
 
 Run `python tools/deploy_and_launch.py --help` for the rest.
 
-Logs: each plugin writes `<install>/bin/win10/plugins/<Plugin>.log`; the game writes
+Logs: each plugin writes `<install>/bin/win10/plugin_logs/<Plugin>/<Plugin>.log` (the
+overlay too: `NvrContentOverlay/`), nEVR `%LOCALAPPDATA%/EchoVR/logs/`, the game
 `<install>/_local/r14logs/`.
 
 ## Tuning: `config/mp_weapon_settings.json`
@@ -122,14 +139,17 @@ written into `PowerBoost.ini`. The full merged settings of the last build are in
 ## Release
 
 ```
-python tools/deploy_and_launch.py --kill --no-launch     # fresh build/stage and out/
-python tools/make_release.py                             # -> release/EchoCombat.zip
+python tools/deploy_and_launch.py --stage-only --buff-purple-fx   # fresh build/stage
+build_dronefix.bat & build_powerboost.bat & build_veilnet.bat     # out/ (MSVC)
+python tools/make_release.py [--install <a stock install>]        # -> release/EchoCombat-<version>.zip
 ```
 
-The zip holds the stage, the plugins and loader, `PowerBoost.ini`, `evrtool.exe`
-(cross-built), `install.bat` / `uninstall.bat` / `doctor.bat`, `README.txt` (the
-player instructions, in `release/`) and the config it was built with. CombatBots is
-left out.
+The zip holds `content/echocombat/` (the pack, built from the install's stock files:
+every live install has the same ones), `plugins/` (the plugins and `PowerBoost.ini`),
+`README.txt` (the player and server-host instructions, in `release/`) and the config it
+was built with. CombatBots is left out. `release/echocombat.mods.json` is the zip's
+entry for the launcher's mod catalog (sha256 and size filled in). The version is
+`ECHOCOMBAT_VERSION_*` in `plugin/nevr_plugin.h`, which the plugins also report to nEVR.
 
 ## CombatBots (work in progress)
 
@@ -150,11 +170,11 @@ data/gunpatch/     the combat gun patch the build starts from
 data/nav/          CombatBots nav per map
 assets/            UMBRAL VEIL / POINT sounds (wav)
 ICONS/             gear icon art
-plugin/            C++ plugins + loader
-evrtool/           Go packer / installer (vendor/ holds its dependencies)
+plugin/            C++ nEVR plugins (nevr_plugin.h: the ABI they share)
+evrtool/           Go content-pack builder (vendor/ holds its dependencies)
 third_party/       Microsoft Detours (MIT)
 tools/             the build: deploy_and_launch.py, make_release.py, fix_*.py, ...
-release/           player-facing install scripts and README.txt
+release/           README.txt: the player and server-host instructions
 docs/              notes (CombatBots)
 build_*.bat        MSVC builds of each plugin into out/
 deploy_and_launch.bat
@@ -162,4 +182,4 @@ local.example.json copy to local.json
 ```
 
 Generated (gitignored): `build/`, `obj/`, `out/`, `evrtool/evrtool.exe`,
-`release/EchoCombat/`, `release/EchoCombat.zip`, `local.json`.
+`release/EchoCombat-*.zip`, `release/echocombat.mods.json`, `local.json`.

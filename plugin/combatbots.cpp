@@ -27,7 +27,10 @@
 // can be checked in CombatBots.log before the brain drives anything. brain=1 turns on
 // the first behaviour: go for the nearest enemy, aim at them, fire within range.
 //
-// Server only ("-server"); on a prologue mismatch nothing is hooked.
+// Server only; on a prologue mismatch nothing is hooked. A nEVR plugin (nevr_plugin.h):
+// hooked from NvrPluginInitEx, which a client turns down (nEVR then unloads it). No
+// NvrPluginShutdown yet: its poller thread has no way to stop. Log:
+// plugin_logs\CombatBots\CombatBots.log; settings: CombatBots.ini next to the DLL.
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -43,6 +46,7 @@
 #include <array>
 #include <queue>
 #include "detours.h"
+#include "nevr_plugin.h"
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
@@ -1074,23 +1078,13 @@ void __fastcall Hooked_Update(uint8_t *cs) {
     }
 }
 
-bool HasArg(const char *flag) {
-    const char *cmd = GetCommandLineA();
-    size_t n = strlen(flag);
-    for (const char *p = cmd; p && *p; ++p)
-        if ((p == cmd || p[-1] == ' ' || p[-1] == '\t') && _strnicmp(p, flag, n) == 0 &&
-            (p[n] == 0 || p[n] == ' ' || p[n] == '\t' || p[n] == '"'))
-            return true;
-    return false;
-}
-
-DWORD WINAPI Install(LPVOID) {
-    if (!HasArg("-server")) { Log("not a server: CombatBots stays off"); return 0; }
+bool Install(bool server) {
+    if (!server) { Log("not a server: CombatBots stays off"); return false; }
     ReadIni();
     auto base = (uint8_t *)GetModuleHandleW(nullptr);
     if (memcmp(base + BOT_UPDATE_RVA, BOT_UPDATE_BYTES, sizeof(BOT_UPDATE_BYTES)) != 0) {
         Log("prologue mismatch at CR15NetBotCS::Update -- wrong echovr build, not hooking");
-        return 0;
+        return false;
     }
     if (memcmp(base + LOOKUP_RVA, LOOKUP_BYTES, sizeof(LOOKUP_BYTES)) == 0) g_lookup = (lookup_fn)(base + LOOKUP_RVA);
     else Log("prologue mismatch at the component lookup: dead bots found through PowerBoost only");
@@ -1104,22 +1098,38 @@ DWORD WINAPI Install(LPVOID) {
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_Update, Hooked_Update);
     LONG rc = DetourTransactionCommit();
-    if (rc != NO_ERROR) { Log("hook failed (%ld)", rc); return 0; }
+    if (rc != NO_ERROR) { Log("hook failed (%ld)", rc); return false; }
     Log("hooked CR15NetBotCS::Update; brain %s", g_cfg.brain ? "ON" : "off (logging only)");
     if (HANDLE t = CreateThread(nullptr, 0, Poller, nullptr, 0, nullptr)) CloseHandle(t);
-    return 0;
+    return true;
 }
 
+HMODULE g_self = nullptr;
+
 } // namespace
+
+ECHOCOMBAT_EXPORT NvrPluginInfo NvrPluginGetInfo(void) {
+    return EchoCombatPluginInfo("combat_bots", "EchoCombat: AI bots for -bots servers (work in progress)");
+}
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetApiVersion(void) { return NEVR_PLUGIN_API_VERSION; }
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
+    return NEVR_PLUGIN_CAP_ALTERS_GAMEPLAY | NEVR_PLUGIN_CAP_NETWORK | NEVR_PLUGIN_CAP_HOOKS_ENGINE;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
+    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "CombatBots");
+    EchoCombatBesideDll(g_self, g_ini_path, sizeof(g_ini_path), "CombatBots.ini");
+    return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInit(const NvrGameContext *ctx) { return NvrPluginInitEx(ctx, "{}"); }
 
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        strcpy_s(g_ini_path, g_log_path);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "CombatBots.log");
-        if (char *dot = strrchr(g_ini_path, '.')) strcpy_s(dot, MAX_PATH - (dot - g_ini_path), ".ini");
-        if (HANDLE t = CreateThread(nullptr, 0, Install, nullptr, 0, nullptr)) CloseHandle(t);
+        g_self = self;
     }
     return TRUE;
 }

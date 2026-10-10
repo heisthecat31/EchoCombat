@@ -11,12 +11,14 @@
 //
 // The hook skips the update until a target is set, and contains an access violation inside it
 // rather than letting it take the game down. The prologue is verified first; on a mismatch
-// nothing is hooked. Log: DroneFix.log next to the DLL.
+// nothing is hooked (and nEVR unloads the plugin). A nEVR plugin (nevr_plugin.h): hooked from
+// NvrPluginInitEx, unhooked in NvrPluginShutdown. Log: plugin_logs\DroneFix\DroneFix.log.
 
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "detours.h"
+#include "nevr_plugin.h"
 
 namespace {
 
@@ -65,12 +67,15 @@ void __fastcall Hooked_FollowUpdate(uintptr_t cs) {
             *(void **)(cs + TARGET_BODY_SYSTEM), *(uint16_t *)(cs + 0x190));
 }
 
-void Install() {
+bool g_hooked = false;
+
+bool Install() {
+    if (g_hooked) return true;
     auto base = (uintptr_t)GetModuleHandleW(nullptr);
     auto target = (uint8_t *)(base + FOLLOW_UPDATE_RVA);
     if (memcmp(target, FOLLOW_UPDATE_BYTES, sizeof(FOLLOW_UPDATE_BYTES)) != 0) {
         Log("prologue mismatch at +0x%llx -- wrong echovr build, not hooking", (unsigned long long)FOLLOW_UPDATE_RVA);
-        return;
+        return false;
     }
     Real_FollowUpdate = (follow_update_fn)target;
     DetourTransactionBegin();
@@ -79,16 +84,40 @@ void Install() {
     LONG rc = DetourTransactionCommit();
     Log(rc == NO_ERROR ? "hooked CR15NetFollowPlayerCS update (+0x%llx)" : "hook failed (+0x%llx)",
         (unsigned long long)FOLLOW_UPDATE_RVA);
+    g_hooked = rc == NO_ERROR;
+    return g_hooked;
 }
 
 } // namespace
 
+ECHOCOMBAT_EXPORT NvrPluginInfo NvrPluginGetInfo(void) {
+    return EchoCombatPluginInfo("drone_fix", "EchoCombat: keeps the DRONE from crashing Echo VR");
+}
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetApiVersion(void) { return NEVR_PLUGIN_API_VERSION; }
+
+ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
+    return NEVR_PLUGIN_CAP_ALTERS_GAMEPLAY | NEVR_PLUGIN_CAP_HOOKS_ENGINE;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *, const char *) {
+    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "DroneFix");
+    return Install() ? 0 : 1;
+}
+
+ECHOCOMBAT_EXPORT int NvrPluginInit(const NvrGameContext *ctx) { return NvrPluginInitEx(ctx, "{}"); }
+
+ECHOCOMBAT_EXPORT void NvrPluginShutdown(void) {
+    if (!g_hooked) return;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourDetach(&(PVOID &)Real_FollowUpdate, Hooked_FollowUpdate);
+    DetourTransactionCommit();
+    g_hooked = false;
+    Log("unhooked (%ld updates skipped, %ld faults contained)", g_skipped, g_faults);
+}
+
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "DroneFix.log");
-        Install();
-    }
+    if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(self);
     return TRUE;
 }

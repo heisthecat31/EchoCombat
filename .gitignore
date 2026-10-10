@@ -4,7 +4,8 @@ obj/
 out/
 evrtool/evrtool.exe
 release/EchoCombat/
-release/EchoCombat.zip
+release/EchoCombat*.zip
+release/echocombat.mods.json
 __pycache__/
 
 # this machine's paths (copy local.example.json)
