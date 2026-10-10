@@ -11,8 +11,9 @@
      fix_dot_stick.py, fix_dot_constraints.py, fix_dot_dampener.py, fix_dot_script.py,
      fix_shared_frisbee.py
      fix_smoke.py (+ veil_fx.py)             UMBRAL VEIL tac mod: detonator smoke clouds, no wall
-     veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav)
-     fix_buff.py                             POWER BOOST tac mod: Repair Matrix in purplish red
+     veil_sound.py                           UMBRAL VEIL smoke sound (assets/umbral_veil.wav), callout audio
+     fix_vo.py                               announcer equip callouts for the gear with none (assets/vo/)
+     fix_buff.py                            POWER BOOST tac mod: Repair Matrix in purplish red
      fix_point.py                            POINT tac mod: a stun field where its wall lands
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
@@ -115,6 +116,7 @@ BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's be
 WRAITH_SCRIPT = "e1971566197d460"
 LOC_SCRIPT = "9398a165c004a9c0"          # TRANSLOCATOR (fix_loc_fx.py: teleport effect + sound)
 STARBURST_SCRIPT = "a9db89899292a98f"    # STARBURST gun (fix_starburst_div.py: divide-by-zero log)
+VO_SCRIPT = "7c10e713aec2f12b"           # the announcer's equip callouts (fix_vo.py)
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 #: gear icons (gear_icons.py): the stock icon atlases (descriptor + DDS) -- the HUD's
 #: gear sheet and the shared UI sheet the equipment station uses -- and their canvases
@@ -181,6 +183,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     (SCRIPTS_TYPE, LOC_SCRIPT),
                                                     (SCRIPTS_TYPE, STARBURST_SCRIPT),
+                                                    (SCRIPTS_TYPE, VO_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (t, a) for t, a in BUFF_ARROW_SOURCES] + [                     # OVERCHARGE's arrows / sparks (buff_assets.py)
@@ -248,7 +251,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         if point:                             # POINT: a stun field where its wall lands, seventh tac mod
             tool("fix_point.py", "--base", STAGE, *src)
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
-            tool("veil_sound.py", *src)
+            tool("veil_sound.py", *src)       # (and the announcer callouts' audio, fix_vo.py)
+            tool("fix_vo.py", *src)           # the announcer's listeners for those callouts
     # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound
     # event is added to the sound bank by veil_sound.py above).
     tool("fix_loc_fx.py", "--src", SOURCE, "--out", STAGE)

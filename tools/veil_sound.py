@@ -72,6 +72,9 @@ POINT_COPIES = int(section("ability_properties", "point").get("sound_copies", 2)
 #: the veil is, 3D (posbits 3, bits3d 10), with ATTENUATION: the arc mine's attenuation
 #: (copied from its bank, as each bank carries its own), silent by 40 m.
 ATTENUATION, ATT_SRC_BANK = 686965829, "c823e2c9bc0168ad"
+#: the announcer's PULSAR callout (vo_hra_gun_equip_pulsar): the sound object our callouts
+#: copy (tools/fix_vo.py), in the announcer's actor-mixer 870330691
+VO_TEMPLATE = 490707288
 #: RIFF header of the game's mono 48 kHz PCM wems, up to the data chunk's size.
 FMT = bytes.fromhex("666d742018000000feff010080bb0000007701000200100006000000014100004a554e4b0400000000000000")
 
@@ -169,9 +172,13 @@ def add_children(hirc: bytes, parent: int, ids: list, objects: bytes = b"") -> b
 
 
 def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_media: dict = None,
-                  attenuation: bytes = None) -> bytes:
+                  attenuation: bytes = None, vo: list = None) -> bytes:
     """`attenuation`: the body of the ATTENUATION object, added to the bank and given to
-    our sounds (None leaves them as they were, 2D)."""
+    our sounds (None leaves them as they were, 2D). `vo`: the announcer callouts to add
+    (fix_vo.vo_lines(), each with its "wem"): a sound object per line, a copy of VO_TEMPLATE
+    (PULSAR's callout) with the media swapped, a Play action and the event."""
+    vo = vo or []
+    template = hirc_objects(asset)[VO_TEMPLATE][1] if vo else None
     start = asset.find(b"BKHD")
     if start != 16 or struct.unpack_from("<Q", asset, 0)[0] != len(asset) - 24:
         raise ValueError("unexpected bank resource wrapper")
@@ -190,12 +197,15 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
         raise ValueError("POINT's media already in the bank")
     # DIDX is kept sorted by media id (Wwise looks media up by a binary search): appended
     # out of order, POINT's media was never found and its sound played nothing
-    entries = sorted(entries + [[m, 0, 0] for m in point_media])
+    vo_media = {line["media"]: line["wem"] for line in vo}
+    if any(m in [e[0] for e in entries] for m in vo_media):
+        raise ValueError("a callout's media id is already in the bank")
+    entries = sorted(entries + [[m, 0, 0] for m in point_media] + [[m, 0, 0] for m in vo_media])
     new = pcm_wem(pcm)
     out = bytearray()
     for e in entries:
         blob = new if e[0] == MEDIA else point_media[e[0]] if e[0] in point_media \
-            else bytes(data[e[1]:e[1] + e[2]])
+            else vo_media[e[0]] if e[0] in vo_media else bytes(data[e[1]:e[1] + e[2]])
         out += bytes(-len(out) % 16)
         e[1], e[2] = len(out), len(blob)
         out += blob
@@ -254,6 +264,19 @@ def replace_sound(asset: bytes, pcm: bytes, copies: int = LOC_COPIES, point_medi
         # lists SOUND, or they are never attached to the mix and play nothing.
         new_ids = [POINT_SND_SOUND + k for k in range(len(point_media))]
         hirc[:] = add_children(bytes(hirc), struct.unpack_from("<I", done, SOUND_PARENT)[0], new_ids, bytes(sounds))
+    if vo:
+        # the callouts: PULSAR's sound object with the media swapped (PCM), so each line
+        # has the game's own callout mix, in PULSAR's actor-mixer beside the game's lines
+        sounds = bytearray()
+        for line in vo:
+            body = bytearray(template)
+            struct.pack_into("<IBII", body, 0, PLUGIN_PCM, 0, line["media"], len(line["wem"]))
+            sounds += hirc_object(2, line["sound"], bytes(body))
+            hirc += play(line["action"], line["sound"], BANK_ID)
+            hirc += hirc_object(4, line["event"], bytes([1]) + struct.pack("<I", line["action"]))
+        added += 3 * len(vo)
+        hirc[:] = add_children(bytes(hirc), struct.unpack_from("<I", template, SOUND_PARENT)[0],
+                               [line["sound"] for line in vo], bytes(sounds))
     struct.pack_into("<I", hirc, 0, n + added)
 
     bank = b"".join(t + struct.pack("<I", len(c)) + bytes(c) for t, c in parts)
@@ -267,6 +290,7 @@ def main(argv) -> int:
     ap.add_argument("--wav", default=os.path.join(ROOT, "assets", "umbral_veil.wav"))
     ap.add_argument("--point-wav", default=os.path.join(ROOT, "assets", "point.wav"),
                     help="POINT's sound, mono 16-bit 48 kHz, short enough to keep the bank under 3 MiB")
+    ap.add_argument("--no-vo", action="store_true", help="leave the announcer callouts (fix_vo.py) out")
     args = ap.parse_args(argv[1:])
     asset = open(os.path.join(args.src, BANK_TYPE, BANK), "rb").read()
     pcm = read_wav(args.wav)
@@ -280,14 +304,21 @@ def main(argv) -> int:
     kind, attenuation = hirc_objects(open(arc, "rb").read())[ATTENUATION]
     if kind != 14:
         sys.exit(f"{ATT_SRC_BANK}: object {ATTENUATION} is not an attenuation")
-    fixed = replace_sound(asset, pcm, point_media=point_media, attenuation=attenuation)
+    # the announcer callouts for the gear that has none (tools/fix_vo.py patches the script)
+    from fix_vo import vo_lines
+    vo = [dict(line, wem=pcm_wem(read_wav(line["wav"]))) for line in vo_lines()] if not args.no_vo else []
+    fixed = replace_sound(asset, pcm, point_media=point_media, attenuation=attenuation, vo=vo)
     if len(fixed) > BANK_LIMIT:
-        sys.exit(f"{BANK}: the bank would be {len(fixed)} bytes, over the {BANK_LIMIT} the game loads")
+        # 3,172,061 bytes once failed to load (2026-10-08); the callouts put it past that, as
+        # a deliberate test: if the veil / translocator / POINT sounds go silent, this is why
+        print(f"WARNING: {BANK}: the bank is {len(fixed)} bytes, over {BANK_LIMIT} "
+              f"(a 3,172,061-byte bank once failed to load)")
     os.makedirs(os.path.join(args.out, BANK_TYPE), exist_ok=True)
     open(os.path.join(args.out, BANK_TYPE, BANK), "wb").write(fixed)
     print(f"{BANK_TYPE}/{BANK}: sound {MEDIA} -> {os.path.basename(args.wav)} "
           f"({len(pcm) / 2 / RATE:.2f} s PCM), event {LOC_EVENT} -> sound {LOC_SOUND} x{LOC_COPIES}, "
           f"event {POINT_SND_EVENT} -> POINT's sound(s) {list(point_media)} x{POINT_COPIES}, "
+          f"{len(vo)} announcer callout(s), "
           f"3D with attenuation {ATTENUATION}, "
           f"bank {len(asset)} -> {len(fixed)} bytes")
     return 0
