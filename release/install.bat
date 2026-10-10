@@ -35,7 +35,9 @@ if exist "%GAME%\bin\win10\echovr.exe" goto found
 echo No bin\win10\echovr.exe in "%GAME%".
 goto ask
 :found
-tasklist /FI "IMAGENAME eq echovr.exe" | find /i "echovr.exe" >nul && (
+rem Full path: with Git's usr\bin on PATH, plain "find" is the Unix one and
+rem walks the whole I: drive for "/i".
+tasklist /FI "IMAGENAME eq echovr.exe" | "%SystemRoot%\System32\find.exe" /i "echovr.exe" >nul && (
     echo Close Echo VR first.
     pause
     exit /b 1
