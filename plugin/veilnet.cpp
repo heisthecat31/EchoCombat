@@ -27,7 +27,10 @@
 //     bumps the u32 there each time the veil is used on this machine.
 //
 // Clients say hello every 2 s; the server relays only to clients that have (so a
-// player without VeilNet never gets a packet the game would not understand).
+// player without VeilNet never gets a packet the game would not understand), and answers
+// each hello with an 'A'. A client that has had no answer for SERVER_TIMEOUT is on a
+// server without EchoCombat: it hides the three new tac mods (UMBRAL VEIL, OVERCHARGE,
+// POINT) from the tac mod list until one comes (TacModsFor).
 // "-server" on the command line picks the server role. Log: VeilNet.log next to the DLL.
 //
 // POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
@@ -71,6 +74,14 @@ constexpr uintptr_t POINT_FIRED_RVA = 0x2104d44;    // POINTs whose stun went of
 constexpr ULONGLONG TOKEN_LIFE = 15000000;      // 1.5 s, in 100 ns
 constexpr uint32_t MAGIC = 0x4c564345;          // "ECVL"
 constexpr uint32_t MAGIC2 = 0x4c494556;         // "VEIL"
+//: The gear registry's tac mod list (filled from gear_table.tacmods, InitAndLoadGearTables
+//: +0xc4eba0): a pointer to { allocator, entries, count, capacity }, entries 0x88 bytes
+//: with the name (char[64]) first. Ours are the table's last three (fix_smoke.py,
+//: fix_buff.py, fix_point.py append them in this order).
+constexpr uintptr_t TACMOD_LIST_RVA = 0x20d3430;
+constexpr size_t TACMOD_ENTRY = 0x88;
+const char *const kNewTacMods[3] = {"smoke", "buff", "point"};
+constexpr ULONGLONG SERVER_TIMEOUT = 6000;      // ms without an answer to the hello
 
 struct Shared {
     volatile LONG tokens;
@@ -81,7 +92,7 @@ struct Shared {
 
 struct Packet {
     uint32_t magic;
-    uint8_t type;                               // 'H' hello, 'V' veil, 'P' point, 'T' teleport, 'O' overcharge
+    uint8_t type;                               // 'H' hello, 'A' its answer, 'V' veil, 'P' point, 'T' teleport, 'O' overcharge
     uint8_t pad[3];
     uint32_t id;
     uint32_t magic2;
@@ -270,16 +281,22 @@ int Relay(const sockaddr_in &from, uint8_t type, uint32_t id) {
     return n;
 }
 
+volatile ULONGLONG g_last_answer = 0;           // client: when the server last answered a hello
+
 void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     char buf[48];
     if (g_server) {
         Remember(s, from);
+        if (p.type == 'H') Send(s, from, 'A', 0);       // "this server has EchoCombat"
         if (Carried(p.type) && FirstTime(p.id)) {
             if (p.type != 'T') AddToken(Tokens(p.type));   // a teleport has nothing to show here
             int n = Relay(from, p.type, p.id);
             Log("%s %08x from %s: %srelayed to %d client(s)", What(p.type), p.id,
                 Addr(from, buf, sizeof(buf)), p.type != 'T' ? "token here, " : "", n);
         }
+    } else if (p.type == 'A') {
+        Dest d;                                          // only the current server's answer counts
+        if (ServerDest(d) && Same(d.addr, from)) g_last_answer = GetTickCount64();
     } else if (Carried(p.type) && FirstTime(p.id)) {
         AddToken(Tokens(p.type));
         Log("%s %08x from the server: token here", What(p.type), p.id);
@@ -316,8 +333,56 @@ int WSAAPI Hooked_recvfrom(SOCKET s, char *buf, int len, int flags, sockaddr *fr
     }
 }
 
-// Watches this machine's veil uses (client), says hello (client) and logs what the
-// barrier walls decided (both).
+// The tac mod list as the server allows: all of it on a server with EchoCombat, without the
+// last three (ours) on one without. The entries stay where they are; only the count
+// changes. A rebuilt list (SettingsUpdateCB reloads the gear tables) has a new entries
+// pointer and its full count again. Nothing is touched unless its last three are ours.
+uint8_t *g_list_entries;
+uint64_t g_list_full;
+
+bool OursAtEnd(uint8_t *entries, uint64_t full) {
+    for (int k = 0; k < 3; ++k)
+        if (strncmp((const char *)entries + (full - 3 + k) * TACMOD_ENTRY, kNewTacMods[k], 64) != 0) return false;
+    return true;
+}
+
+// The list is rebuilt (and its old one freed) on the game's thread: everything here is
+// guarded. 0: unchanged, 1: shown, 2: hidden.
+int TacModsGuarded(bool server_has_it, uint64_t *now_count) {
+    __try {
+        uint8_t *list = *(uint8_t *volatile *)(g_base + TACMOD_LIST_RVA);
+        if (!list) return 0;
+        uint8_t *entries = *(uint8_t *volatile *)(list + 0x08);
+        volatile uint64_t *count = (volatile uint64_t *)(list + 0x10);
+        uint64_t capacity = *(volatile uint64_t *)(list + 0x18);
+        if (!entries) return 0;
+        // a new list is filled an entry at a time: its full count is the most it has had
+        if (entries != g_list_entries) {
+            g_list_entries = entries;
+            g_list_full = 0;
+        }
+        if (*count > g_list_full) g_list_full = *count;
+        uint64_t full = g_list_full;
+        if (full < 3 || full > capacity || !OursAtEnd(entries, full)) return 0;
+        uint64_t want = server_has_it ? full : full - 3;
+        if (*count == want) return 0;
+        *count = want;
+        *now_count = want;
+        return server_has_it ? 1 : 2;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+void TacModsFor(bool server_has_it) {
+    uint64_t n = 0;
+    int r = TacModsGuarded(server_has_it, &n);
+    if (r == 1) Log("the server has EchoCombat: UMBRAL VEIL, OVERCHARGE and POINT shown (%llu tac mods)", n);
+    if (r == 2) Log("the server has no EchoCombat: UMBRAL VEIL, OVERCHARGE and POINT hidden (%llu tac mods)", n);
+}
+
+// Watches this machine's veil uses (client), says hello (client), shows / hides the new
+// tac mods (client) and logs what the barrier walls decided (both).
 void HookSelectionLogs();
 
 DWORD WINAPI Tick(LPVOID) {
@@ -337,7 +402,7 @@ DWORD WINAPI Tick(LPVOID) {
     uint64_t seen_queried = equip[3], seen_writer = equip[1];
     LONG seen_skips = *skips, seen_reruns = *reruns;
     sockaddr_in logged_server = {};
-    ULONGLONG next_hello = 0, next_pick = 0, next_hook = 0;
+    ULONGLONG next_hello = 0, next_pick = 0, next_hook = 0, next_tacmods = 0;
     for (;;) {
         Sleep(5);
         if (!g_server && GetTickCount64() >= next_hook) {                // the selection is the client's own
@@ -366,6 +431,10 @@ DWORD WINAPI Tick(LPVOID) {
             if (now >= next_pick) {
                 next_pick = now + 1000;
                 PickServer();
+            }
+            if (now >= next_tacmods) {
+                next_tacmods = now + 250;
+                TacModsFor(g_last_answer && now - g_last_answer < SERVER_TIMEOUT);
             }
             if (now >= next_hello) {
                 next_hello = now + 2000;

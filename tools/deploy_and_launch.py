@@ -217,7 +217,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = None, buff_charge: float = None, buff_fx_test: bool = False,
           buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
-          point_event: str = None, buff_purple_fx: bool = False, drone_model: bool = True):
+          point_event: str = None, buff_purple_fx: bool = True, drone_model: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -551,8 +551,8 @@ def main(argv) -> int:
                     help="OVERCHARGE recharge time in seconds; default: config/mp_weapon_settings.json")
     ap.add_argument("--no-buff-rez", action="store_true",
                     help="POWER BOOST without cheat death for linked teammates")
-    ap.add_argument("--buff-purple-fx", action="store_true",
-                    help="OVERCHARGE shows its own purple up-arrow effects (fix_buff --purple-fx)")
+    ap.add_argument("--no-buff-purple-fx", action="store_true",
+                    help="OVERCHARGE shows Repair Matrix's stock look instead of its own purple one (fix_buff --purple-fx)")
     ap.add_argument("--buff-fx-test", action="store_true",
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
@@ -593,7 +593,7 @@ def main(argv) -> int:
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
               not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
-              args.buff_purple_fx, not args.no_drone_model)
+              not args.no_buff_purple_fx, not args.no_drone_model)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)

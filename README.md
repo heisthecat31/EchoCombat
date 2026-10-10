@@ -9,7 +9,7 @@ entirely from this repository.
 | **DOT FIELD** | The unfinished damage-over-time ordnance, registered and working: stick, trigger, damage. |
 | **DRONE** | The cut drone ordnance, working: auto-targets and fires from its gun. Looks like a satellite ball with the sidearm on it (`newdronemodel.glb`, built by `tools/fix_drone_model.py`). |
 | **UMBRAL VEIL** | New tac mod: a wall of smoke clouds (networked). |
-| **OVERCHARGE** | New tac mod (was POWER BOOST): a cone link to teammates. User: heal, damage reduction, +1 body / +2 head damage on guns. Linked teammates: heal, damage reduction, cheat death. |
+| **OVERCHARGE** | New tac mod (was POWER BOOST): a cone link to teammates. User: heal, damage reduction, +1 body / +2 head damage on guns. Linked teammates: heal, damage reduction, cheat death. Shown in purple (`--no-buff-purple-fx` for Repair Matrix's look). |
 | **POINT** | New tac mod: a placed wall that goes off as a stun field. |
 | **TRANSLOCATOR** | A teleport effect and sound that everyone sees and hears. |
 | **STARBURST** | Fix for the stock divide-by-zero log spam while the gun is out. |
@@ -35,7 +35,7 @@ script DLLs, sound banks, textures). The build:
 | `dbgcore.dll` (`plugin/loader.cpp`) | everyone | loads every DLL in `bin/win10/plugins/` |
 | `PowerBoost.dll` | server + clients | OVERCHARGE: links, damage reduction, cheat death, damage bonus |
 | `DroneFix.dll` | server + clients | drone fixes: no follow-update crash, bullets from the gun's muzzle, satellite shown / hidden with the gun |
-| `VeilNet.dll` | server + clients | relays UMBRAL VEIL / POINT / TRANSLOCATOR events between players |
+| `VeilNet.dll` | server + clients | relays UMBRAL VEIL / POINT / TRANSLOCATOR / OVERCHARGE events between players; on a server without EchoCombat the client hides UMBRAL VEIL, OVERCHARGE and POINT |
 | `CombatBots.dll` | server | AI bots (work in progress, not released) |
 
 ## Requirements

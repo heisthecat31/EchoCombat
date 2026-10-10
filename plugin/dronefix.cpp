@@ -135,7 +135,7 @@ void __fastcall Hooked_FollowUpdate(uintptr_t cs) {
 void __fastcall Hooked_EnableEnter(void *node, const uint64_t *data) {
     Real_EnableEnter(node, data);
     if (data[2] == NCA_MODEL && data[3] == GUN) {
-        uint64_t copy[6];
+        uint64_t copy[5];                                   // actor, scope, system, component, enable
         memcpy(copy, data, sizeof copy);
         copy[3] = SATELLITE;
         Real_EnableEnter(node, copy);
