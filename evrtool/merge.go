@@ -19,6 +19,7 @@ package main
 // anything repacked after us, the live manifest is taken as the new base.
 
 import (
+	"math"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -196,6 +197,8 @@ const (
 	particleCR  = 0x21a09c2016d8f3e6 // CParticleEffectCRWin10
 	donorBullet = 0x12001003B8E9A2A6
 	droneBullet = 0xA8F84E7DD40B806E
+	// its lifetime, record +0x28 (tools/fix_drone_bullet.py DRONE_BULLET_LIFETIME): 3 s emptied the pool
+	droneBulletLifetime = float32(1.0)
 	crHdr       = 0x38
 )
 
@@ -271,6 +274,7 @@ func patchDroneBullet(bullets, particles []byte) ([]byte, []byte) {
 		precs = append(precs, copies...)
 	}
 	copy(drone[0x58:0x68], donor[0x58:0x68])
+	binary.LittleEndian.PutUint32(drone[0x28:], math.Float32bits(droneBulletLifetime))
 	return joinCR(bullets, brecs), joinCR(particles, precs)
 }
 
