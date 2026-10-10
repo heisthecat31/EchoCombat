@@ -9,7 +9,7 @@ package main
 //   - is echovr.exe the build the plugins were made for (their hook sites)?
 //   - what is in plugins/ (a dbgcore.dll moved there from another mod, a second
 //     loader, a stray copy of a plugin)
-//   - the end of PowerBoost.log / DroneFix.log / VeilNet.log
+//   - the end of PowerBoost.log / DroneFix.log / VeilNet.log (plugins built with ECHOCOMBAT_LOG)
 import (
 	"bytes"
 	"crypto/sha256"
@@ -89,7 +89,7 @@ func checkImports(path string) (bad int) {
 func tail(path string, n int) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Printf("  %s: none (the plugin never ran here)\n", filepath.Base(path))
+		fmt.Printf("  %s: none (release builds write no logs; build the plugins with ECHOCOMBAT_LOG for them)\n", filepath.Base(path))
 		return
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\r\n"), "\n")

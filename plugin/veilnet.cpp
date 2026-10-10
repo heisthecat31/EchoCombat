@@ -31,7 +31,8 @@
 // each hello with an 'A'. A client that has had no answer for SERVER_TIMEOUT is on a
 // server without EchoCombat: it hides the three new tac mods (UMBRAL VEIL, OVERCHARGE,
 // POINT) from the tac mod list until one comes (TacModsFor).
-// "-server" on the command line picks the server role. Log: VeilNet.log next to the DLL.
+// "-server" on the command line picks the server role. Log (built with
+// ECHOCOMBAT_LOG): VeilNet.log next to the DLL.
 //
 // POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
 // the u32 at +0x2104f80, every machine gets a "point token" (+0x2104ce0, same layout as
@@ -109,6 +110,9 @@ volatile LONG g_logged = 0;
 SRWLOCK g_lock = SRWLOCK_INIT;
 
 void Log(const char *fmt, ...) {
+    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
+    // nothing for it.
+#ifdef ECHOCOMBAT_LOG
     if (InterlockedIncrement(&g_logged) > 2000) return;
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
@@ -121,6 +125,9 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
+#else
+    (void)fmt;
+#endif
 }
 
 ULONGLONG InterruptTime() { return *(volatile ULONGLONG *)0x7ffe0008; }

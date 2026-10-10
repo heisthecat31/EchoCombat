@@ -102,8 +102,9 @@ Useful options:
 
 Run `python tools/deploy_and_launch.py --help` for the rest.
 
-Logs: each plugin writes `<install>/bin/win10/plugins/<Plugin>.log`; the game writes
-`<install>/_local/r14logs/`.
+Logs: the plugins write `<install>/bin/win10/plugins/<Plugin>.log` only when built with
+`ECHOCOMBAT_LOG` (add `/DECHOCOMBAT_LOG` to the `cl.exe` line of a `build_*.bat`); release
+builds write none. The game writes `<install>/_local/r14logs/`.
 
 ## Tuning: `config/mp_weapon_settings.json`
 

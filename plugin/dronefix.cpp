@@ -11,7 +11,7 @@
 //
 // The hook skips the update until a target is set, and contains an access violation inside it
 // rather than letting it take the game down. The prologue is verified first; on a mismatch
-// nothing is hooked. Log: DroneFix.log next to the DLL.
+// nothing is hooked. Log (built with ECHOCOMBAT_LOG): DroneFix.log next to the DLL.
 //
 // It also fires the drone's bullets from its gun. CR15NetAutoTargetCS aims by turning the
 // drone's ROOT transform toward the target (+Z at it) and spawns each bullet at that root:
@@ -81,6 +81,9 @@ volatile LONG g_skipped = 0;
 volatile LONG g_faults = 0;
 
 void Log(const char *fmt, ...) {
+    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
+    // nothing for it.
+#ifdef ECHOCOMBAT_LOG
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
     SYSTEMTIME t;
@@ -92,6 +95,9 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
+#else
+    (void)fmt;
+#endif
 }
 
 bool CallGuarded(uintptr_t cs) {

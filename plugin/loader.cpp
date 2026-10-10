@@ -12,7 +12,7 @@
 //
 // A DLL in plugins\ that is itself a plugin loader (another mod's dbgcore.dll,
 // moved there by the installer) is skipped: it would load every plugin a second
-// time and hook everything twice. Log: plugins\loader.log.
+// time and hook everything twice. Log (built with ECHOCOMBAT_LOG): plugins\loader.log.
 
 #include <windows.h>
 #include <stdint.h>
@@ -29,6 +29,9 @@ wchar_t g_dir[MAX_PATH];      // ...\bin\win10\plugins
 char g_log[MAX_PATH];
 
 void Log(const char *fmt, ...) {
+    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
+    // nothing for it.
+#ifdef ECHOCOMBAT_LOG
     FILE *f = nullptr;
     if (fopen_s(&f, g_log, "a") != 0 || !f) return;
     SYSTEMTIME t;
@@ -40,6 +43,9 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
+#else
+    (void)fmt;
+#endif
 }
 
 // True when the file is a plugin loader: it names "plugins" and imports LoadLibrary.

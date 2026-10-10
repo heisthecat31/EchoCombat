@@ -57,7 +57,8 @@
 // has used OVERCHARGE itself: the use marker names its own damageable).
 //
 // All prologues are checked first; on a mismatch nothing is hooked. "-server" on the
-// command line picks the server role. Log: PowerBoost.log next to the DLL.
+// command line picks the server role. Log (built with
+// ECHOCOMBAT_LOG): PowerBoost.log next to the DLL.
 
 #include <windows.h>
 #include <stdint.h>
@@ -229,6 +230,9 @@ char g_log_path[MAX_PATH];
 volatile LONG g_logged = 0;
 
 void Log(const char *fmt, ...) {
+    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
+    // nothing for it.
+#ifdef ECHOCOMBAT_LOG
     if (InterlockedIncrement(&g_logged) > 2000) return;
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
@@ -241,6 +245,9 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
+#else
+    (void)fmt;
+#endif
 }
 
 // Buffs (cs, index) for `seconds`. Unless `refresh`, a buff still running is left as is.

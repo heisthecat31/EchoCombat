@@ -45,27 +45,22 @@ What it writes into the game
     (OVERCHARGE's damage bonus, cheat death and link settings)
   * bin\win10\dbgcore.dll: the plugin loader, which loads bin\win10\plugins\.
     A dbgcore.dll that was already there (another mod) is moved into plugins\
-    so it still loads; an older plugin loader is replaced (kept as .bak). The
-    loader logs every plugin it loads, or why it could not, to
-    bin\win10\plugins\loader.log.
+    so it still loads; an older plugin loader is replaced (kept as .bak).
 
 UMBRAL VEIL or POINT shows up as an energy barrier, or a TRANSLOCATOR teleport
 shows no effect, for other players?
   VeilNet.dll tells the other players' games which wall is the veil or POINT, and
   when someone teleports. It goes through the game's own connection to the server
   (no extra ports), so every player and the server need it: install EchoCombat on
-  all of them. bin\win10\plugins\VeilNet.log on the server and on each player's PC
-  shows what was sent and received.
+  all of them.
 
 OVERCHARGE gives no damage bonus or cheat death?
   Those are decided on the server: the server needs EchoCombat installed.
-  bin\win10\plugins\PowerBoost.log on the server shows each use and boosted hit.
 
 Echo will not start on a PC (e.g. the server)?
-  Look at bin\win10\plugins\loader.log first, then run doctor.bat there. It
-  checks that the plugin loader and plugins can load on that PC, that echovr.exe
-  is the build they were made for, what is in bin\win10\plugins\, and shows the
-  plugin logs.
+  Run doctor.bat there. It checks that the plugin loader and plugins can load on
+  that PC, that echovr.exe is the build they were made for, and what is in
+  bin\win10\plugins\. (The plugins write no logs, so they cost slow PCs nothing.)
 
 Notes
   * The drone's bullet effects are patched at install time from your own game
