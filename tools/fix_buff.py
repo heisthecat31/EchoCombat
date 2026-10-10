@@ -62,16 +62,20 @@ from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
 from echocombat_config import section
 from fix_smoke import PE, rel32, u64, SCRIPTS, SCRIPT_RESOURCE, SCRIPT_CR, GLOBAL_LEVEL, PLAYER_ACTORS
 from veil_fx import SELF, add_section, transplant
+import oc_switch
+import equip_guard
 
 HEAL_SCRIPT = 0x6A0F689E5B91C666
 BUFF_SCRIPT = 0x4B65D1B0088D2682       # CSymbol64("mp_combat_ability_buff")
 BUFF = 0xC8C33E48386618B6              # CSymbol64("buff")
 BUFF_GEAR = {"name": "buff", "display_name": "OVERCHARGE"}   # was POWER BOOST
 
-#: Purplish red (it was dark gold; the names stayed). Material / light colours become
-#: max(rgb) * GOLD; the fullscreen tint becomes min + (max - min) * TINT.
-GOLD = (0.80, 0.06, 0.55)
-TINT = (1.00, 0.30, 0.75)
+#: Purple (it was dark gold, then purplish red; the names stayed). Material / light colours
+#: become max(rgb) * GOLD; the fullscreen tint becomes min + (max - min) * TINT. GOLD is the
+#: linear colour the hand arrows end up with (tools/rm_preview/buff_assets.py), so the beam
+#: glow and the arrows match.
+GOLD = (0.35, 0.02, 1.00)
+TINT = (0.75, 0.30, 1.00)
 
 #: Repair Matrix's particle effects have their green baked in; the buff script spawns
 #: recoloured copies of them instead (Repair Matrix keeps the originals).
@@ -79,8 +83,11 @@ TINT = (1.00, 0.30, 0.75)
 PARTICLES = {0x39424707BB2DF316: 0xFA379871313745A5,    # -> CSymbol64("fx_power_boost_beam")
              0xBE696D7D300CBAF7: 0xFA3798713B334AAC}    # -> CSymbol64("fx_power_boost_hand")
 BEAM = 0x39424707BB2DF316
-#: the recoloured copies (and the swap that showed them): off, both tac mods show
-#: Repair Matrix's green beam and crosses
+#: the purple copies (and the swap that shows them): off by default, both tac mods show
+#: Repair Matrix's green beam and crosses; --purple-fx turns them on. The copies are built
+#: by tools/rm_preview/buff_assets.py from what the effects' own shaders do: the hand's
+#: crosses become purple up arrows, the beam's crosses arrows and its sparks texture purple
+#: (its strands stay white; its glow is the script colours below).
 PURPLE_EFFECTS = False
 #: --fx-test: the stun mine's field effect, put in the beam copy's place
 FX_TEST_EFFECT = 0xDE22B615C9C69CDD
@@ -279,7 +286,7 @@ def buff_marker(dr: float, seconds: float, rez: bool = False) -> float:
 CTX_SAVE, DATA_SAVE = 0xE0, 0x100
 
 
-def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) -> bytes:
+def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int, count: bool = False) -> bytes:
     """execute_node replacement: one R15NetDamageableHeal on "self" of `amount`, then the
     original execute_node (its first 6 bytes replayed here, then a jump to `resume`), so
     the heal bubble still activates and the ability ends and recharges as before.
@@ -294,6 +301,8 @@ def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) ->
     jumps = []
     b += bytes.fromhex("80bbdb00000000 0f85"); jumps.append(len(b)); b += bytes(4)   # aborting
     b += bytes.fromhex("48837b1800 0f8f"); jumps.append(len(b)); b += bytes(4)       # already entered
+    if count:                                    # an OVERCHARGE use here: VeilNet tells every machine
+        b += bytes.fromhex("6548a16000000000000000 488b4010 f0ff80") + struct.pack("<I", oc_switch.OC_COUNTER_RVA)
     b += bytes.fromhex("4889de 488d7c2450 b9") + struct.pack("<I", CTX_SAVE // 8) + bytes.fromhex("f348a5")
     b += bytes.fromhex("488bb3b0000000 488dbc2430010000 b9") + struct.pack("<I", DATA_SAVE // 8) \
         + bytes.fromhex("f348a5")
@@ -311,7 +320,7 @@ def marker_stub(at: int, ctor: int, execute: int, amount: float, resume: int) ->
     return bytes(b)
 
 
-def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
+def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float, count: bool = False) -> bytes:
     """Phase 1: using POWER BOOST heals yourself with the marker (PowerBoost.dll then
     buffs you), then activates the heal bubble as before (which ends the ability)."""
     pe, wraith = PE(gold_pe), PE(wraith_pe)
@@ -334,7 +343,8 @@ def add_buff(gold_pe: bytes, wraith_pe: bytes, marker: float) -> bytes:
     stub += bytes.fromhex("488b5710 488b0f e8") + rel32(at + len(stub) + 12, va + node["bind"])
     stub += bytes.fromhex("4883c428 c3")
     blob[bind_off:bind_off + len(stub)] = stub
-    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker, ACTIVATE_NODE + len(ACTIVATE_OLD))
+    s_ = marker_stub(va + stub_off, va + node["ctor"], va + node["exec"], marker, ACTIVATE_NODE + len(ACTIVATE_OLD),
+                     count)
     blob[stub_off:stub_off + len(s_)] = s_
     pe.write(va, bytes(blob))
     pe.write(HEAL_BIND_CALL, b"\xe8" + rel32(HEAL_BIND_CALL + 5, at))
@@ -440,8 +450,11 @@ def main(argv) -> int:
     ap.add_argument("--no-rez", action="store_true",
                     help="linked teammates do not cheat death (sets ability_properties.buff.do_rez_buff to 0)")
     ap.add_argument("--tint", default=",".join(map(str, TINT)), help="r,g,b for the fullscreen tint")
+    ap.add_argument("--purple-fx", action="store_true",
+                    help="OVERCHARGE shows its own purple arrow effects (see PURPLE_EFFECTS)")
     args = ap.parse_args(argv[1:])
     gold = tuple(float(v) for v in args.gold.split(","))
+    purple_fx = PURPLE_EFFECTS or args.purple_fx
     tint = tuple(float(v) for v in args.tint.split(","))
 
     eq_path, equipment = load(args.base, EQUIPMENT)
@@ -480,30 +493,29 @@ def main(argv) -> int:
     # Repair Matrix's script stays stock and OVERCHARGE's spawns the originals.
     stock_heal = heal
     heal = read_buff_tuning(heal)
-    if PURPLE_EFFECTS:
-        hmz = stock_heal.find(b"MZ")
-        os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
-        open(os.path.join(args.out, SCRIPTS, f"{HEAL_SCRIPT:x}"), "wb").write(
-            stock_heal[:hmz] + gold_particle_refs(stock_heal[hmz:]))
-        print(f"{SCRIPTS}/{HEAL_SCRIPT:x}: Repair Matrix's script spawns the purple copies (shown for OVERCHARGE)")
-    for old, new in (PARTICLES.items() if PURPLE_EFFECTS else ()):
-        src_fx = FX_TEST_EFFECT if args.fx_test and old == BEAM else old
-        effect = open(os.path.join(args.src, PARTICLE_TYPE, f"{src_fx:x}"), "rb").read()
-        gold_effect, changed = gold_particles(effect)
-        gold_effect, more = purple_leftovers(gold_effect)
-        changed += more
-        for folder, data in ((PARTICLE_TYPE, gold_effect),
-                             (PARTICLE_COMPANION, open(os.path.join(args.src, PARTICLE_COMPANION, f"{src_fx:x}"), "rb").read())):
-            os.makedirs(os.path.join(args.out, folder), exist_ok=True)
-            open(os.path.join(args.out, folder, f"{new:x}"), "wb").write(data)
-        if src_fx != old:
-            print(f"particle {old:x}: FX TEST, copy {new:x} is the stun field effect {src_fx:x}")
-        print(f"particle {old:x} -> recoloured copy {new:x}: {len(changed)} colour(s) "
-              + ", ".join("(%.2f %.2f %.2f)" % c for _, c in changed))
+    hmz = stock_heal.find(b"MZ")
+    rm = stock_heal[hmz:]
+    if purple_fx:
+        # Repair Matrix's script draws both tac mods' visuals (tested): it picks OVERCHARGE's
+        # look at run time for an OVERCHARGE user's bubble (oc_switch.py, needs VeilNet.dll)
+        rm = oc_switch.oc_switch(rm, PARTICLES, CLASSES, ENTRY, gold, tint)
+        print(f"{SCRIPTS}/{HEAL_SCRIPT:x}: Repair Matrix's script shows OVERCHARGE's purple look for OVERCHARGE bubbles")
+    os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
+    open(os.path.join(args.out, SCRIPTS, f"{HEAL_SCRIPT:x}"), "wb").write(
+        stock_heal[:hmz] + equip_guard.heal_copy(rm, equip_guard.HEAL))   # fires only when equipped
+    if purple_fx:
+        sys.path.insert(0, os.path.join(_HERE, "rm_preview"))
+        import buff_assets
+        for f in buff_assets.write(args.src, args.out):
+            print("OVERCHARGE effects:", f)
     mz = heal.find(b"MZ")
+    # OVERCHARGE's own script only ever draws OVERCHARGE bubbles: with --purple-fx its
+    # beam / hand spawn the purple copies too (in case its visual nodes do show)
+    buff_pe = gold_particle_refs(heal[mz:]) if purple_fx else heal[mz:]
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
-        heal[:mz] + add_buff(gold_script(heal[mz:], gold, tint), wraith[wraith.find(b"MZ"):], marker))
+        heal[:mz] + equip_guard.heal_copy(add_buff(gold_script(buff_pe, gold, tint), wraith[wraith.find(b"MZ"):],
+                                                   marker, purple_fx), equip_guard.BUFF))
     print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s (marker {marker:.0f}); link "
           f"{tuning['len']} m / {tuning['init_angle']} deg (bubble radius {tuning['heal_radius']}), "
           f"heal {tuning['heal_amt_on_success']}, cheat death {'on' if rez else 'off'} (needs PowerBoost.dll on server and clients)")

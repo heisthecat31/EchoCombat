@@ -38,6 +38,7 @@ if _HERE not in sys.path:
 from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
 from echocombat_config import section
 from fix_smoke import BARRIER_SCRIPT, GLOBAL_LEVEL, PLAYER_ACTORS, SCRIPT_CR, SCRIPT_RESOURCE, SCRIPTS, u64
+import equip_guard
 from veil_fx import POINT_MARKER, POINT_RECORD, STUN_EXPLOSION, mark_param
 
 POINT_SCRIPT = 0x94BA7CA39FC97E1A      # CSymbol64("mp_combat_ability_point")
@@ -130,7 +131,8 @@ def main(argv) -> int:
     mz = barrier.find(b"MZ")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{POINT_SCRIPT:x}"), "wb").write(
-        barrier[:mz] + mark_param(barrier[mz:], POINT_MARKER, POINT_RECORD))
+        barrier[:mz] + equip_guard.barrier_copy(mark_param(barrier[mz:], POINT_MARKER, POINT_RECORD),
+                                                equip_guard.POINT))
     os.makedirs(os.path.join(args.out, SCRIPT_RESOURCE), exist_ok=True)
     open(os.path.join(args.out, SCRIPT_RESOURCE, f"{POINT_SCRIPT:x}"), "wb").write(bytes(4))
     print(f"{SCRIPTS}/{POINT_SCRIPT:x}: mp_combat_ability_point: a barrier wall that goes off as a "

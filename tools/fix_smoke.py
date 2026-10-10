@@ -165,9 +165,11 @@ def rel32(src_next, target):
     return struct.pack("<i", target - src_next)
 
 
-def add_branches(pe_bytes: bytes, branches) -> bytes:
+def add_branches(pe_bytes: bytes, branches, tail=None) -> bytes:
     """Chain new tac mods after wraith: wraith -> NEW_NODE -> NEW_NODE+1 -> ...;
-    branches = [(CSymbol64 of the tac mod's name, its script hash), ...]."""
+    branches = [(CSymbol64 of the tac mod's name, its script hash), ...]. `tail(last)`:
+    self-contained next_node code run first, for the last new node (it falls through
+    past its own end for any other node)."""
     pe = PE(pe_bytes)
     if pe.read(EXEC_ENTRY, 9) != EXEC_ENTRY_OLD:
         if pe.read(EXEC_ENTRY, 1) == b"\xe9":
@@ -222,6 +224,8 @@ def add_branches(pe_bytes: bytes, branches) -> bytes:
                    + b"\xb8" + struct.pack("<I", new) + b"\xc3")      # G: mov eax,new; ret
         assert len(stub_b) - base == 35 and to_l < 128
     stub_b += b"\x48\x83\xc8\xff\xc3"                              # L: or rax,-1; ret
+    if tail is not None:
+        stub_b = bytearray(tail(chain[-1])) + stub_b
     end = next_rva + len(stub_b)
 
     pe.grow_text(end - text_va)
@@ -259,10 +263,10 @@ def smoke_script(barrier_asset: bytes, det_asset: bytes, **veil) -> bytes:
     return barrier_asset[:mz] + add_smoke_fx(barrier_asset[mz:], det_asset[dmz:], **veil)
 
 
-def patch_controller(asset: bytes, extra=()) -> bytes:
+def patch_controller(asset: bytes, extra=(), tail=None) -> bytes:
     """The fifth branch (smoke), plus any `extra` (symbol, script) tac mods after it."""
     mz = asset.find(b"MZ")
-    return asset[:mz] + add_branches(asset[mz:], [(SMOKE, SMOKE_SCRIPT), *extra])
+    return asset[:mz] + add_branches(asset[mz:], [(SMOKE, SMOKE_SCRIPT), *extra], tail)
 
 
 def attach_smoke_script(blob: bytes) -> bytes:
@@ -341,7 +345,11 @@ def main(argv) -> int:
         if not args.with_buff:
             ap.error("--with-point needs --with-buff (POINT's branch comes after POWER BOOST's)")
         extra.append((0xE32DC7CAD6864AA4, 0x94BA7CA39FC97E1A))                    # point, its script
-    open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(patch_controller(ctrl, extra))
+    import equip_guard
+    ctrl = patch_controller(ctrl, extra, equip_guard.chain_tail)   # re-runs while it disagrees
+    cmz = ctrl.find(b"MZ")
+    ctrl = ctrl[:cmz] + equip_guard.controller(ctrl[cmz:])     # publishes the equipped tac mod
+    open(os.path.join(args.out, SCRIPTS, CONTROLLER), "wb").write(ctrl)
     print(f"{SCRIPTS}/{CONTROLLER}: fifth tac mod branch -> mp_combat_ability_smoke"
           + (", sixth -> mp_combat_ability_buff" if extra else "")
           + (", seventh -> mp_combat_ability_point" if args.with_point else ""))
@@ -366,7 +374,7 @@ def main(argv) -> int:
         from veil_fx import mark_param, network_wall
         mz, dmz = barrier.find(b"MZ"), det.find(b"MZ")
         open(os.path.join(args.out, SCRIPTS, f"{SMOKE_SCRIPT:x}"), "wb").write(
-            barrier[:mz] + mark_param(barrier[mz:]))
+            barrier[:mz] + equip_guard.barrier_copy(mark_param(barrier[mz:]), equip_guard.SMOKE))
         wall = open(os.path.join(args.src, SCRIPTS, WALL_SCRIPT), "rb").read()
         wmz = wall.find(b"MZ")
         open(os.path.join(args.out, SCRIPTS, WALL_SCRIPT), "wb").write(wall[:wmz] + network_wall(

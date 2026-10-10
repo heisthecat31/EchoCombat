@@ -39,6 +39,11 @@
 // other client gets a "translocator token" (+0x2104d20) that the next translocator puck
 // node to run there takes, showing the teleport effect and sound on its puck. The
 // teleporting machine shows its own and holds no token.
+//
+// OVERCHARGE goes as 'O' packets: each use bumps the u32 at +0x2104ca4 (the buff
+// script, tools/fix_buff.py), every machine gets an "overcharge token" (+0x2104ca8),
+// and the next heal bubble in Repair Matrix's script to take one shows OVERCHARGE's
+// purple look (tools/oc_switch.py).
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -46,6 +51,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 #include "detours.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -58,6 +64,9 @@ constexpr uintptr_t POINT_TOKEN_RVA = 0x2104ce0;
 constexpr uintptr_t POINT_COUNTER_RVA = 0x2104f80;
 constexpr uintptr_t LOC_TOKEN_RVA = 0x2104d20;
 constexpr uintptr_t LOC_COUNTER_RVA = 0x2104d40;
+constexpr uintptr_t OC_TOKEN_RVA = 0x2104ca8;
+constexpr uintptr_t OC_COUNTER_RVA = 0x2104ca4;
+constexpr uintptr_t EQUIP_RVA = 0x2104e80;          // tools/equip_guard.py: +00 equipped, +08 writer, +10 skips
 constexpr uintptr_t POINT_FIRED_RVA = 0x2104d44;    // POINTs whose stun went off here
 constexpr ULONGLONG TOKEN_LIFE = 15000000;      // 1.5 s, in 100 ns
 constexpr uint32_t MAGIC = 0x4c564345;          // "ECVL"
@@ -72,7 +81,7 @@ struct Shared {
 
 struct Packet {
     uint32_t magic;
-    uint8_t type;                               // 'H' hello, 'V' veil, 'P' point, 'T' teleport
+    uint8_t type;                               // 'H' hello, 'V' veil, 'P' point, 'T' teleport, 'O' overcharge
     uint8_t pad[3];
     uint32_t id;
     uint32_t magic2;
@@ -82,6 +91,7 @@ uint8_t *g_base;
 Shared *g_shared;
 Shared *g_point;                                // POINT's tokens (+10: walls that went off)
 Shared *g_loc;                                  // TRANSLOCATOR's tokens (+10: teleports shown)
+Shared *g_oc;                                   // OVERCHARGE's tokens (+10: bubbles shown purple)
 bool g_server;
 char g_log_path[MAX_PATH];
 volatile LONG g_logged = 0;
@@ -122,9 +132,26 @@ void AddToken(Shared *t) {
     t->expiry = now + TOKEN_LIFE;
 }
 
-Shared *Tokens(uint8_t type) { return type == 'P' ? g_point : type == 'T' ? g_loc : g_shared; }
-const char *What(uint8_t type) { return type == 'P' ? "point" : type == 'T' ? "teleport" : "veil"; }
-bool Carried(uint8_t type) { return type == 'V' || type == 'P' || type == 'T'; }
+Shared *Tokens(uint8_t type) {
+    return type == 'P' ? g_point : type == 'T' ? g_loc : type == 'O' ? g_oc : g_shared;
+}
+const char *What(uint8_t type) {
+    return type == 'P' ? "point" : type == 'T' ? "teleport" : type == 'O' ? "overcharge" : "veil";
+}
+bool Carried(uint8_t type) { return type == 'V' || type == 'P' || type == 'T' || type == 'O'; }
+
+const char *TacMod(uint64_t s) {
+    switch (s) {
+    case 0xe32dc7c9d4804fb5ull: return "UMBRAL VEIL (smoke)";
+    case 0xe32dc7cad6864aa4ull: return "POINT (point)";
+    case 0xc8c33e48386618b6ull: return "OVERCHARGE (buff)";
+    case 0xc8c33e4832761fbcull: return "Repair Matrix (heal)";
+    case 0x41d2d43513260b1aull: return "barrier (shield)";
+    case 0x41d2d4381430080cull: return "sensor";
+    case 0x41d2d02f1b2a1316ull: return "wraith";
+    default: return "?";
+    }
+}
 
 // The last ids seen, so a veil that arrives twice (the resend) gives one token.
 uint32_t g_seen[32];
@@ -291,24 +318,37 @@ int WSAAPI Hooked_recvfrom(SOCKET s, char *buf, int len, int flags, sockaddr *fr
 
 // Watches this machine's veil uses (client), says hello (client) and logs what the
 // barrier walls decided (both).
+void HookSelectionLogs();
+
 DWORD WINAPI Tick(LPVOID) {
     volatile LONG *uses = (volatile LONG *)(g_base + USE_COUNTER_RVA);
     volatile LONG *point_uses = (volatile LONG *)(g_base + POINT_COUNTER_RVA);
     volatile LONG *loc_uses = (volatile LONG *)(g_base + LOC_COUNTER_RVA);
+    volatile LONG *oc_uses = (volatile LONG *)(g_base + OC_COUNTER_RVA);
     LONG seen_uses = *uses, seen_veils = g_shared->veils, seen_barriers = g_shared->barriers;
     LONG seen_point_uses = *point_uses, seen_points = g_point->veils;
     LONG seen_loc_uses = *loc_uses, seen_locs = g_loc->veils;
+    LONG seen_oc_uses = *oc_uses, seen_ocs = g_oc->veils;
     volatile LONG *point_fired = (volatile LONG *)(g_base + POINT_FIRED_RVA);
     LONG seen_fired = *point_fired;
+    volatile uint64_t *equip = (volatile uint64_t *)(g_base + EQUIP_RVA);
+    volatile LONG *skips = (volatile LONG *)(g_base + EQUIP_RVA + 0x10);
+    volatile LONG *reruns = (volatile LONG *)(g_base + EQUIP_RVA + 0x20);
+    uint64_t seen_queried = equip[3], seen_writer = equip[1];
+    LONG seen_skips = *skips, seen_reruns = *reruns;
     sockaddr_in logged_server = {};
-    ULONGLONG next_hello = 0, next_pick = 0;
+    ULONGLONG next_hello = 0, next_pick = 0, next_hook = 0;
     for (;;) {
         Sleep(5);
+        if (!g_server && GetTickCount64() >= next_hook) {                // the selection is the client's own
+            next_hook = GetTickCount64() + 1000;
+            HookSelectionLogs();
+        }
         if (!g_server) {
-            for (int k = 0; k < 3; ++k) {
-                uint8_t type = "VPT"[k];
-                LONG u = k == 2 ? *loc_uses : k ? *point_uses : *uses;
-                LONG &seen = k == 2 ? seen_loc_uses : k ? seen_point_uses : seen_uses;
+            for (int k = 0; k < 4; ++k) {
+                uint8_t type = "VPTO"[k];
+                LONG u = k == 3 ? *oc_uses : k == 2 ? *loc_uses : k ? *point_uses : *uses;
+                LONG &seen = k == 3 ? seen_oc_uses : k == 2 ? seen_loc_uses : k ? seen_point_uses : seen_uses;
                 if (u == seen) continue;
                 seen = u;
                 uint32_t id = GetTickCount() * 2654435761u ^ GetCurrentProcessId() << 16 ^ (uint32_t)u ^ k;
@@ -347,6 +387,127 @@ DWORD WINAPI Tick(LPVOID) {
         if (pf != seen_fired) { seen_fired = pf; Log("POINT went off here: stun explosion activated (%ld so far)", pf); }
         LONG lc = g_loc->veils;
         if (lc != seen_locs) { seen_locs = lc; Log("a translocator puck took a teleport token: effect and sound shown (%ld so far)", lc); }
+        uint64_t eq = equip[0], qd = equip[3], wr = equip[1];
+        if (qd != seen_queried || wr != seen_writer) {
+            Log("controller enabled for: %s (controller %016llx%s; selected: %s)", TacMod(qd), wr,
+                seen_writer && wr != seen_writer ? ", A DIFFERENT CONTROLLER" : "", TacMod(eq));
+            seen_queried = qd;
+            seen_writer = wr;
+        }
+        LONG rr = *reruns;
+        if (rr != seen_reruns) {
+            if (rr) Log("controller chain ended on %s, selected %s: re-run %ld", TacMod(qd), TacMod(eq), rr);
+            seen_reruns = rr;
+        }
+        LONG sk = *skips;
+        if (sk != seen_skips) {
+            seen_skips = sk;
+            Log("a tac mod that is not the selected one (%s) was used: skipped (%ld so far)", TacMod(eq), sk);
+        }
+        LONG oc = g_oc->veils;
+        if (oc != seen_ocs) { seen_ocs = oc; Log("a heal bubble took an overcharge token: shown purple (%ld so far)", oc); }
+    }
+}
+
+// The tac mod the player selected, as the client sends it ("[NSUSER] sent profile
+// update: {"ability":"point"}"): stored at EQUIP_RVA for tools/equip_guard.py's checks
+// and the controller's re-run. Read from the game's log the moment it is picked. The
+// profile code is in the platform module (pnsovr.dll for Oculus, pnsrad.dll for the
+// others; echovr.exe has a copy too), each with its own copy of the logger: in each,
+// the logger is found from the code that logs that line (lea r8, <format>; ...; call
+// WriteLog; WriteLog calls PrintfImpl(level, flags, fmt, va_list)) and hooked.
+using printf_fn = void(*)(int, uint64_t, const char *, va_list);
+constexpr char kProfileFmt[] = "[NSUSER] sent profile update: %s";
+const wchar_t *const kLogModules[] = {nullptr, L"pnsovr.dll", L"pnsrad.dll"};   // nullptr: echovr.exe
+constexpr int kLogHooks = 3;
+printf_fn g_real_log[kLogHooks];
+bool g_log_tried[kLogHooks];
+
+uint64_t AbilitySymbol(const char *name, size_t n) {
+    static const struct { const char *name; uint64_t sym; } k[] = {
+        {"smoke", 0xe32dc7c9d4804fb5ull}, {"point", 0xe32dc7cad6864aa4ull}, {"buff", 0xc8c33e48386618b6ull},
+        {"heal", 0xc8c33e4832761fbcull}, {"shield", 0x41d2d43513260b1aull}, {"sensor", 0x41d2d4381430080cull},
+        {"wraith", 0x41d2d02f1b2a1316ull}};
+    for (const auto &e : k)
+        if (strlen(e.name) == n && memcmp(e.name, name, n) == 0) return e.sym;
+    return 0;
+}
+
+void SawLog(const char *fmt, va_list args) {
+    if (!fmt || strcmp(fmt, kProfileFmt) != 0) return;
+    va_list copy = args;
+    const char *json = va_arg(copy, const char *);
+    const char *a = json ? strstr(json, "\"ability\":\"") : nullptr;
+    if (!a) return;
+    a += 11;
+    const char *e = strchr(a, '"');
+    uint64_t sym = e ? AbilitySymbol(a, e - a) : 0;
+    if (!sym) return;
+    *(volatile LONG *)(g_base + EQUIP_RVA + 0x20) = 0;                // a new selection: re-runs allowed
+    *(volatile uint64_t *)(g_base + EQUIP_RVA) = sym;
+    Log("selected: %s", TacMod(sym));
+}
+
+template <int I> void HookedLog(int level, uint64_t flags, const char *fmt, va_list args) {
+    SawLog(fmt, args);
+    g_real_log[I](level, flags, fmt, args);
+}
+const printf_fn kHookedLog[kLogHooks] = {HookedLog<0>, HookedLog<1>, HookedLog<2>};
+
+// The PrintfImpl the module's profile update goes through, or nullptr.
+printf_fn FindProfileLogger(uint8_t *m) {
+    auto *dos = (IMAGE_DOS_HEADER *)m;
+    auto *nt = (IMAGE_NT_HEADERS64 *)(m + dos->e_lfanew);
+    size_t size = nt->OptionalHeader.SizeOfImage;
+    const uint8_t *str = nullptr;
+    auto *sec = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections && !str; ++i, ++sec) {
+        if (sec->Characteristics & IMAGE_SCN_MEM_EXECUTE) continue;
+        uint8_t *p = m + sec->VirtualAddress;
+        size_t n = sec->Misc.VirtualSize;
+        for (size_t o = 0; o + sizeof(kProfileFmt) <= n; ++o)
+            if (p[o] == '[' && memcmp(p + o, kProfileFmt, sizeof(kProfileFmt)) == 0) { str = p + o; break; }
+    }
+    if (!str) return nullptr;
+    sec = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+        if (!(sec->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        uint8_t *p = m + sec->VirtualAddress;
+        size_t n = sec->Misc.VirtualSize;
+        for (size_t o = 0; o + 7 <= n; ++o) {
+            if (p[o] != 0x4c || p[o + 1] != 0x8d || p[o + 2] != 0x05) continue;      // lea r8, [rip+x]
+            if (p + o + 7 + *(int32_t *)(p + o + 3) != str) continue;
+            for (size_t c = o + 7; c < o + 7 + 24 && c + 5 <= n; ++c) {               // the call after it
+                if (p[c] != 0xe8) continue;
+                uint8_t *wl = p + c + 5 + *(int32_t *)(p + c + 1);
+                // WriteLog: mov [rsp+18h], r8; mov [rsp+20h], r9; sub rsp, 28h; lea r9, [rsp+48h]; call PrintfImpl
+                static const uint8_t head[] = {0x4c, 0x89, 0x44, 0x24, 0x18, 0x4c, 0x89, 0x4c, 0x24, 0x20,
+                                               0x48, 0x83, 0xec, 0x28, 0x4c, 0x8d, 0x4c, 0x24, 0x48, 0xe8};
+                if (wl < m || wl + sizeof(head) + 4 > m + size || memcmp(wl, head, sizeof(head)) != 0) return nullptr;
+                return (printf_fn)(wl + sizeof(head) + 4 + *(int32_t *)(wl + sizeof(head)));
+            }
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+// Hooks each module's logger once it is loaded (the platform module can load late).
+void HookSelectionLogs() {
+    for (int i = 0; i < kLogHooks; ++i) {
+        if (g_log_tried[i]) continue;
+        HMODULE m = kLogModules[i] ? GetModuleHandleW(kLogModules[i]) : GetModuleHandleW(nullptr);
+        if (!m) continue;
+        g_log_tried[i] = true;
+        printf_fn f = FindProfileLogger((uint8_t *)m);
+        if (!f) continue;                                                  // no profile code in it
+        g_real_log[i] = f;
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourAttach(&(PVOID &)g_real_log[i], (PVOID)kHookedLog[i]);
+        LONG rc = DetourTransactionCommit();
+        Log(rc == NO_ERROR ? "watching tac mod selections in %ls" : "hooking the logger in %ls failed",
+            kLogModules[i] ? kLogModules[i] : L"echovr.exe");
     }
 }
 
@@ -355,7 +516,9 @@ DWORD WINAPI Install(LPVOID) {
     g_shared = (Shared *)(g_base + TOKEN_RVA);
     g_point = (Shared *)(g_base + POINT_TOKEN_RVA);
     g_loc = (Shared *)(g_base + LOC_TOKEN_RVA);
+    g_oc = (Shared *)(g_base + OC_TOKEN_RVA);
     g_server = strstr(GetCommandLineA(), " -server") != nullptr;
+    if (g_server) *(volatile LONG *)(g_base + EQUIP_RVA + 0x14) = 1;   // equip_guard: a client's check only
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_sendto, Hooked_sendto);

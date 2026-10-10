@@ -123,6 +123,10 @@ GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1"
                       "13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b",
                       "72e4349798ae3ea1")    # the last: the station's element index (gear_icons.INDEX_CANVAS)
 SOURCE = os.path.join(ROOT, "build", "source")
+#: what tools/rm_preview/buff_assets.py copies from: Repair Matrix's cross mesh (four assets)
+#: and the beam sparks' colour texture (two)
+BUFF_ARROW_SOURCES = [(t, "c90ff12470c68d3b") for t in ("37102e4b27955a14", "73d312a620da3824",
+                                                          "c2434c5a99e139ce", "e7a8ab5ceaef49cb")] +                      [(t, "3f39c6f7d0747367") for t in ("beac1969cb7b8861", "4a4c32c49300b8a0")]
 
 
 def run(cmd, **kw):
@@ -165,6 +169,7 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, STARBURST_SCRIPT),
                                                     ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
+        (t, a) for t, a in BUFF_ARROW_SOURCES] + [                     # OVERCHARGE's arrows / sparks (buff_assets.py)
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
         (t, atlas) for t in GEAR_ICON_TEXTURE_TYPES for atlas in GEAR_ICON_ATLASES]
     for t, asset in wanted:
@@ -196,7 +201,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = None, buff_charge: float = None, buff_fx_test: bool = False,
           buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
-          point_event: str = None):
+          point_event: str = None, buff_purple_fx: bool = False):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -216,11 +221,12 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
              *(("--with-point",) if point else ()),
              *(("--point-sound-preview",) if point and point_sound_preview else ()),
              *(("--point-event", point_event) if point and point_event else ()))
-        if buff:                              # POWER BOOST: Repair Matrix in purplish red, sixth tac mod
+        if buff:                              # OVERCHARGE: Repair Matrix in purple, sixth tac mod
             tool("fix_buff.py", "--base", STAGE, *src,
                  *(("--dr", str(buff_dr)) if buff_dr is not None else ()),
                  *(("--charge", str(buff_charge)) if buff_charge is not None else ()),
-                 *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)))
+                 *(("--fx-test",) if buff_fx_test else ()), *(() if buff_rez else ("--no-rez",)),
+                 *(("--purple-fx",) if buff_purple_fx else ()))
         if point:                             # POINT: a stun field where its wall lands, seventh tac mod
             tool("fix_point.py", "--base", STAGE, *src)
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
@@ -526,6 +532,8 @@ def main(argv) -> int:
                     help="OVERCHARGE recharge time in seconds; default: config/mp_weapon_settings.json")
     ap.add_argument("--no-buff-rez", action="store_true",
                     help="POWER BOOST without cheat death for linked teammates")
+    ap.add_argument("--buff-purple-fx", action="store_true",
+                    help="OVERCHARGE shows its own purple up-arrow effects (fix_buff --purple-fx)")
     ap.add_argument("--buff-fx-test", action="store_true",
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
@@ -563,7 +571,8 @@ def main(argv) -> int:
               + (() if not args.veil_anchor_sound else
                  ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
               not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
-              not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event)
+              not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
+              args.buff_purple_fx)
         for install in (args.server_install, args.client_install):
             repack(install)
             patch_side_package(install)
