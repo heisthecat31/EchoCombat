@@ -39,6 +39,11 @@ LEVELS = {
 }
 DONOR_BULLET = 0x12001003B8E9A2A6
 DRONE_BULLET = 0xA8F84E7DD40B806E
+#: The drone bullet's lifetime (its CR15NetBulletCR record +0x28; seconds: 3 on most bullets, 5 on
+#: the long-range ones). A shot every 0.15 s with 3 s bullets keeps ~20 per drone in flight and
+#: empties the pool ("No available bullets of type 0xA8F84E7DD40B806E"); at 120 m/s, 1 s still
+#: reaches 120 m, past any arena.
+DRONE_BULLET_LIFETIME = 1.0
 HDR = 0x38
 
 
@@ -78,6 +83,7 @@ def patch(bullets: bytes, particles: bytes) -> tuple[bytes, bytes]:
         precs.extend(copies)
 
     drone[0x58:0x68] = donor[0x58:0x68]
+    struct.pack_into("<f", drone, 0x28, DRONE_BULLET_LIFETIME)
     return join(bullets, brecs), join(particles, precs)
 
 
