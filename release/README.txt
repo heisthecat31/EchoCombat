@@ -14,7 +14,7 @@ What it adds
     small heal, damage reduction and +1 body / +2 head damage on your gun hits for
     10 s. The teammates in your aim cone when you use it get the heal, damage
     reduction and cheat death (a killing hit leaves them on 1 health) for 5 s.
-  * POINT (tac mod): place a wall that goes off as a stun field.
+  * NEUTRON (tac mod, was POINT): place a wall that goes off as a stun field.
   * TRANSLOCATOR: a teleport effect and sound everyone sees and hears.
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
@@ -25,7 +25,7 @@ Install
   (the ready-at-dawn-echo-arena folder; drag it into the window, or press
   Enter to take the install it found).
   Install on the game server as well as on every client: several features
-  (OVERCHARGE, UMBRAL VEIL, POINT, TRANSLOCATOR) run partly on the server.
+  (OVERCHARGE, UMBRAL VEIL, NEUTRON, TRANSLOCATOR) run partly on the server.
 
 Other mods are kept
   If another mod already repacked the game (packages\48037dc70b0ecab2_3, _4,
@@ -47,9 +47,9 @@ What it writes into the game
     A dbgcore.dll that was already there (another mod) is moved into plugins\
     so it still loads; an older plugin loader is replaced (kept as .bak).
 
-UMBRAL VEIL or POINT shows up as an energy barrier, or a TRANSLOCATOR teleport
+UMBRAL VEIL or NEUTRON shows up as an energy barrier, or a TRANSLOCATOR teleport
 shows no effect, for other players?
-  VeilNet.dll tells the other players' games which wall is the veil or POINT, and
+  VeilNet.dll tells the other players' games which wall is the veil or NEUTRON, and
   when someone teleports. It goes through the game's own connection to the server
   (no extra ports), so every player and the server need it: install EchoCombat on
   all of them.
@@ -67,7 +67,7 @@ Notes
     files, so they always match your install.
 
 Tuning (for server hosts building their own)
-  Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, POINT, TRANSLOCATOR
+  Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, NEUTRON, TRANSLOCATOR
   and OVERCHARGE) comes from one file in the EchoCombat source,
   config/mp_weapon_settings.json, shaped like the game's own mp_weapon_settings.json.
   It is packed into the game data when the release is built: edit it, then build the
