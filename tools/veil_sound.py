@@ -60,8 +60,11 @@ LOC_SOUND, LOC_SOUND_BANK = 159312186, 3901061564
 #: "play_echocombat_point"), POINT_COPIES of each.
 POINT_SND_EVENT, POINT_SND_ACTION, POINT_SND_SOUND = 3404182162, 771004983, 583511709
 POINT_SRC_BANK = "c823e2c9bc0168ad"
-#: POINT's sound: the arc mine's media (sound_candidates/arc6_818626942.wav), copied as is
-POINT_MEDIA = [818626942]
+#: POINT's sound: the arc mine's (sound_candidates/arc6_818626942.wav, cut: assets/point.wav)
+#: under a media id of its own, FNV-1 of "echocombat_point_media". It had kept the arc
+#: mine's, 818626942: Wwise finds media by id in every loaded bank, so in a match that loaded
+#: the arc mine's bank too, POINT's PCM sound got the arc mine's Vorbis media -- a fizz.
+POINT_MEDIA = [730560660]
 #: the largest bank the game loaded: 3,012,457 bytes played, 3,172,061 did not (3 MiB lies
 #: between)
 BANK_LIMIT = 3 * 1024 * 1024
