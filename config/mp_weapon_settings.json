@@ -1,7 +1,34 @@
 {
  "_about": "EchoCombat's values, in the shape of the game's mp_weapon_settings.json. Every deploy / release merges them into the game's own mp_weapon_settings (packed with the rest of the game data, so change a value here, then deploy or make the release again). Keys the game itself does not use (OVERCHARGE's damage_bonus_* / head_body_part / cheat_death_* / link_window_ms / heal_fraction, the veil_* smoke look, POINT's and the translocator's effect_* / sound_copies) are read by the build tools, and OVERCHARGE's by PowerBoost.dll through PowerBoost.ini.",
+ "damage_table": {
+  "magnum": {
+   "_why": "PROTOSTAR head hit 70 (45 x 1.5556; stock 1.5 x 50 = 75).",
+   "head": 1.5556
+  }
+ },
+ "weapon_properties": {
+  "smg": {
+   "_why": "QUARK: stock instability cooled from 0.05 s after a shot while it fires every 0.06 s, so per shot it gained +0.2 and lost 15/s x ~0.01 s: a +0.05 margin that frame timing tipped either way (some players never got spread, others hit the 3.5 max in a few shots). Cooling now waits 0.1 s (only once you stop firing, as on the other guns), and +0.05 per shot keeps the intended ramp: full spread after ~20 shots.",
+   "instability_cooldown_delay": 0.1,
+   "instability_per_shot": 0.05,
+   "_why_vent": "Venting from full heat takes 1.4 s (stock 120/s: ~0.8 s), with the heat cap of 100.",
+   "heat_venting_rate": 71.43
+  },
+  "chain": {
+   "_why": "BLAZAR: 60 shots before it overheats, 20% more (stock 2 heat a shot: 50), with the heat cap of 100.",
+   "heat_per_shot": 1.667
+  },
+  "magnum": {
+   "_why": "PROTOSTAR: 45 a body hit (stock 50; the head multiplier in damage_table makes 70 a head hit), 0.6 s between shots (stock 0.5), and 10% faster shots (44 m/s, stock 40).",
+   "projectile_damage": 45,
+   "refire_delay": 0.6,
+   "projectile_velocity": 44
+  }
+ },
  "grenade_properties": {
   "drone": {
+   "health": 60,
+   "death_effect_size": 0.5,
    "fire_rate": 0.2,
    "bullet_speed": 120,
    "bullet_damage": 2,
@@ -33,9 +60,9 @@
   },
   "smoke": {
    "veil_cloud_count": 4,
-   "veil_cloud_size": 6.0,
+   "veil_cloud_size": 4.5,
    "veil_cloud_lifetime": 5.0,
-   "veil_cloud_spread": 1.5,
+   "veil_cloud_spread": 1.125,
    "veil_cloud_emission": 4.0,
    "veil_puff_size": 3.5,
    "veil_opacity": 35.0,
