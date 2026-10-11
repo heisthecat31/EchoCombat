@@ -14,7 +14,7 @@ What it adds
     small heal, damage reduction and +1 body / +2 head damage on your gun hits for
     10 s. The teammates in your aim cone when you use it get the heal, damage
     reduction and cheat death (a killing hit leaves them on 1 health) for 5 s.
-  * POINT (tac mod): place a wall that goes off as a stun field.
+  * NEUTRON (tac mod, was POINT): place a wall that goes off as a stun field.
   * TRANSLOCATOR: a teleport effect and sound everyone sees and hears.
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
@@ -23,7 +23,7 @@ What it adds
 Install
   In the Echo VR launcher: Mods, More mods, EchoCombat, Get. Switch it off or
   Remove it there too. Install it on the game server as well as on every client:
-  several features (OVERCHARGE, UMBRAL VEIL, POINT, TRANSLOCATOR) run partly on the
+  several features (OVERCHARGE, UMBRAL VEIL, NEUTRON, TRANSLOCATOR) run partly on the
   server, and a player without it can't play in a match with it (and the other way
   round).
 
@@ -67,12 +67,12 @@ Installed with install.bat before?
   version again (it checks and repairs the game files), then delete
   bin\win10\dbgcore.dll if it is still there (nEVR does not start beside it).
 
-UMBRAL VEIL or POINT shows up as an energy barrier, or a TRANSLOCATOR teleport
+UMBRAL VEIL or NEUTRON shows up as an energy barrier, or a TRANSLOCATOR teleport
 shows no effect, for other players?
-  VeilNet.dll tells the other players' games which wall is the veil or POINT, and
+  VeilNet.dll tells the other players' games which wall is the veil or NEUTRON, and
   when someone teleports. It goes through the game's own connection to the server
   (no extra ports), so every player and the server need it. On a server without
-  EchoCombat, UMBRAL VEIL, OVERCHARGE and POINT are hidden from the tac mod list.
+  EchoCombat, UMBRAL VEIL, OVERCHARGE and NEUTRON are hidden from the tac mod list.
 
 OVERCHARGE gives no damage bonus or cheat death?
   Those are decided on the server: the server needs EchoCombat installed.
@@ -84,7 +84,7 @@ The new gear isn't there?
   (EchoCombat's own plugins write no logs, so they cost slow PCs nothing.)
 
 Tuning (for server hosts building their own)
-  Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, POINT, TRANSLOCATOR
+  Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, NEUTRON, TRANSLOCATOR
   and OVERCHARGE) comes from one file in the EchoCombat source,
   config/mp_weapon_settings.json, shaped like the game's own mp_weapon_settings.json.
   It is packed into the game data when the release is built: edit it, then build the

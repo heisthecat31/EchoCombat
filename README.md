@@ -10,7 +10,7 @@ and builds entirely from this repository. It changes none of the game's own file
 | **DRONE** | The cut drone ordnance, working: auto-targets and fires from its gun. Looks like the sidearm mounted on a CubeSat (`assets/drone/Drone4.glb`, built by `tools/fix_drone_model.py`). |
 | **UMBRAL VEIL** | New tac mod: a wall of smoke clouds (networked). |
 | **OVERCHARGE** | New tac mod (was POWER BOOST): a cone link to teammates. User: heal, damage reduction, +1 body / +2 head damage on guns. Linked teammates: heal, damage reduction, cheat death. Shown in purple (`--no-buff-purple-fx` for Repair Matrix's look). |
-| **POINT** | New tac mod: a placed wall that goes off as a stun field. |
+| **NEUTRON** | New tac mod (was POINT): a placed wall that goes off as a stun field. |
 | **TRANSLOCATOR** | A teleport effect and sound that everyone sees and hears. |
 | **STARBURST** | Fix for the stock divide-by-zero log spam while the gun is out. |
 | Gear icons | Station / HUD icons for the new gear. |
@@ -46,7 +46,7 @@ Both run under nEVR (`BugSplat64.dll`), the runtime the Echo VR launcher install
 |---|---|---|
 | `PowerBoost.dll` | server + clients | OVERCHARGE: links, damage reduction, cheat death, damage bonus |
 | `DroneFix.dll` | server + clients | drone fixes: no follow-update crash, bullets from the gun's muzzle, the CubeSat shown / hidden with the gun |
-| `VeilNet.dll` | server + clients | relays UMBRAL VEIL / POINT / TRANSLOCATOR / OVERCHARGE events between players; on a server without EchoCombat the client hides UMBRAL VEIL, OVERCHARGE and POINT |
+| `VeilNet.dll` | server + clients | relays UMBRAL VEIL / NEUTRON / TRANSLOCATOR / OVERCHARGE events between players; on a server without EchoCombat the client hides UMBRAL VEIL, OVERCHARGE and NEUTRON |
 | `CombatBots.dll` | server | AI bots (work in progress, not released) |
 
 ## Requirements
@@ -210,7 +210,7 @@ config/            mp_weapon_settings.json: every EchoCombat value
 data/extract/      the game files the build patches (63 assets, by type/name hash)
 data/gunpatch/     the combat gun patch the build starts from
 data/nav/          CombatBots nav per map
-assets/            UMBRAL VEIL / POINT sounds (wav)
+assets/            UMBRAL VEIL / NEUTRON sounds (wav)
 ICONS/             gear icon art
 plugin/            C++ nEVR plugins (nevr_plugin.h: the ABI they share)
 evrtool/           Go content-pack builder (vendor/ holds its dependencies)

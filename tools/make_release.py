@@ -109,7 +109,7 @@ def main() -> int:
     entry = {
         "id": PACK_ID,
         "name": "EchoCombat",
-        "summary": "New and fixed Echo Combat gear: DOT FIELD, DRONE, UMBRAL VEIL, OVERCHARGE, POINT, "
+        "summary": "New and fixed Echo Combat gear: DOT FIELD, DRONE, UMBRAL VEIL, OVERCHARGE, NEUTRON, "
                    "TRANSLOCATOR. Servers need it too.",
         "author": "heisthecat31",
         "version": args.version,
