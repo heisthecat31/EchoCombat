@@ -17,9 +17,9 @@
 // drone's ROOT transform toward the target (+Z at it) and spawns each bullet at that root:
 //   +0xce2550  CR15NetAutoTargetCS::FireBulletLocal(cs, handle, velocity, remote)
 //   +0xce27e3    call CTransformCS::get(transforms, &out, root)   -> the bullet's spawn pose
-// which is the middle of the drone, not the gun on its side (tools/fix_drone_model.py). That
-// one call is redirected to MuzzleTransform, which moves the pose by MUZZLE, the muzzle's
-// offset in the drone, turned the way AttackTarget turns the drone for this shot: +Z along
+// which is the middle of the drone, not the gun on its top (tools/fix_drone_model.py). That
+// one call is redirected to MuzzleTransform, which moves the pose by MUZZLE, the gun's
+// muzzle in the drone, turned the way AttackTarget turns the drone for this shot: +Z along
 // the bullet's velocity, +Y as near world up as it can be. (Not the root's rotation: that
 // is set through a deferred queue, so at the shot it can still be the last one, and differ
 // between the server and the clients.) FireBulletLocal is hooked only to hand its velocity
@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 #include "detours.h"
 
 namespace {
@@ -62,6 +63,9 @@ constexpr uint8_t ENABLE_ENTER_BYTES[] = { 0x40, 0x55, 0x56, 0x57, 0x48, 0x83, 0
 constexpr uint64_t NCA_MODEL = 0x38EE951A26FB816Aull;       // CSymbol64("ncaModel")
 constexpr uint64_t GUN = 0x72F91FFFA17C3C8Cull;
 constexpr uint64_t SATELLITE = 0x106C63A2927B7A4Dull;
+// the port on the body's front (fix_drone_model.py's PORT_COMP: a detonator part the drone's
+// script shows once deployed; 0xA977.. is the one it shows only in the hand)
+constexpr uint64_t PORT = 0x45B09F0FA9F7FA33ull;
 using enable_enter_fn = void(__fastcall *)(void *, const uint64_t *);
 enable_enter_fn Real_EnableEnter = nullptr;
 volatile LONG g_mirrored = 0;
@@ -126,8 +130,265 @@ void TickFrame() {
     g_last_frame = now;
 }
 
+// shared by the death and grab rules below
+constexpr uint64_t DRONE_ACTOR = 0x10E40287A9BF5A13ull;
+using disable_fn = void(__fastcall *)(void *system, uint32_t index, uint16_t flag);
+disable_fn Real_Disable = nullptr;
+
+// --- the drone dies when its health runs out --------------------------------------------
+// fix_drone_health.py gives the drone's damageable real health, and ProcessDamageServer kills
+// it at 0 (the dead flag, then the death routine DEATH_RVA), but for anything that is not a
+// player nothing happens after that. So: at each release, every component the drone's script
+// turns on (CEnableComponentNode::Enter -> ENABLE_COMP_RVA (component system, index)) goes
+// into that drone's group, its damageable first (a new life: health back to full and the dead
+// flag off, as nothing else ever revives an ordnance). When that damageable's death routine
+// runs (on the server; VeilNet.dll then tells the clients, DroneFix_Killed), the group's
+// components are turned off, and kept off whatever the script does, until the next release:
+// the drone is gone, and its life and cooldown run out as they would.
+constexpr uintptr_t ENABLE_COMP_RVA = 0x160070;                  // (component system, index, flag): enable
+constexpr uint8_t ENABLE_COMP_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x20, 0x55, 0x56, 0x41, 0x56 };
+constexpr uintptr_t DEATH_RVA = 0xccf3a0;                        // CR15NetDamageableCS death (cs, index)
+constexpr uint8_t DEATH_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10 };
+constexpr uint64_t R14_DAMAGEABLE = 0xC9DC08CFC2F5920Full;      // CSymbol64("R14NetDamageable")
+//: the drone death token (fix_drone_fx.py's DEATH_TOKEN_RVA): +00 count, +08 expiry, +10 shown
+constexpr uintptr_t DEATH_TOKEN_RVA = 0x2104D60;
+//: the system the drone's script turns off first when its lifetime ends (all of it): its sound
+constexpr uint64_t DRONE_SOUND = 0x5B8CC538E22AD937ull;
+// (test) each deployed drone killed on the server this long after release, as a hit to 0
+// health does (own-team bullets can't hit own ordnance, so it can't be shot alone); 0 = off
+constexpr ULONGLONG KILL_TEST_MS = 0;
+using enable_comp_fn = void(__fastcall *)(void *system, uint32_t index, uint16_t flag);
+using death_fn = void(__fastcall *)(void *cs, uint32_t index);
+enable_comp_fn Real_EnableComp = nullptr;
+death_fn Real_Death = nullptr;
+death_fn Death = nullptr;                                         // the hooked routine (test kill)
+thread_local int t_drone_enable = 0;                              // 1: a drone component on, 2: its damageable
+bool g_is_server = false;
+void *volatile g_death_fx = nullptr;                              // a dead drone's node context: its explosion due
+
+// fix_drone_fx.py's spawn and sound stubs (their addresses left by the drone script) with a
+// dead drone's node context: the detonator's explosion and POINT's sound on that drone. Its
+// node state kept round each, as the translocator's dispatcher hook does.
+void SpawnDeathFx(void *ctx) {
+    using stub_fn = void(__fastcall *)(void *);
+    auto slots = (stub_fn volatile *)((uint8_t *)GetModuleHandleW(nullptr) + DEATH_TOKEN_RVA + 0x28);
+    if (!slots[0]) { Log("drone explosion: no spawn stub (drone script unpatched?)"); return; }
+    __try {
+        auto state = (uint64_t *)((uint8_t *)ctx + 0x18);
+        uint64_t saved = *state;
+        for (int i = 0; i < 2; ++i)
+            if (stub_fn stub = slots[i]) { *state = 0; stub(ctx); }
+        *state = saved;
+        Log("drone explosion spawned (ctx %p)", ctx);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("drone explosion faulted and was contained (ctx %p)", ctx);
+    }
+}
+
+void DeathFxDue() {
+    if (void *ctx = InterlockedExchangePointer(&g_death_fx, nullptr)) SpawnDeathFx(ctx);
+}
+
+struct Comp { void *system; uint32_t index; };
+struct DroneGroup { uint8_t *dcs; uint32_t didx; ULONGLONG opened; bool dead; bool test_killed; int n; Comp comps[20];
+                    void *ctx; };                              // ctx: a node context of its script (its explosion)
+DroneGroup g_drones[8];
+SRWLOCK g_drones_lock = SRWLOCK_INIT;
+// drone components the script turns on just before its damageable (the models): no group yet
+struct Pending { Comp c; ULONGLONG at; };
+Pending g_pending[16];
+int g_npending = 0;
+
+uint8_t *DamageRecord(uint8_t *cs, uint32_t index) {
+    uint16_t slot = *(uint16_t *)(*(uint8_t **)(cs + 0xd0) + (uint64_t)(index & 0xffff) * 4);
+    return *(uint8_t **)(cs + 0x100) + slot * 0xb8ull;
+}
+
+void Revive(uint8_t *cs, uint32_t index) {                        // health back to full, not dead
+    __try {
+        uint8_t *rec = DamageRecord(cs, index);
+        uint8_t *cd = **(uint8_t ***)(cs + 0xc0) + *(uint16_t *)rec * 0x38ull;
+        *(float *)(rec + 0x20) = *(float *)(cd + 0x24);
+        rec[2] &= ~4;
+        Log("drone %u deployed: health %.0f", index & 0xffff, *(float *)(rec + 0x20));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("drone %u deployed: its damageable record is unreadable", index & 0xffff);
+    }
+}
+
+DroneGroup *Newest() {                                            // (under the lock)
+    DroneGroup *g = nullptr;
+    for (auto &d : g_drones)
+        if (d.dcs && !d.dead && GetTickCount64() - d.opened < 5000 && (!g || d.opened > g->opened)) g = &d;
+    return g;
+}
+
+void AddComp(DroneGroup *g, void *system, uint32_t index) {      // (under the lock)
+    for (int i = 0; i < g->n; ++i)
+        if (g->comps[i].system == system && g->comps[i].index == index) return;
+    if (g->n < 20) g->comps[g->n++] = { system, index };
+}
+
+// how long after its release a dead drone's script can still try to turn its parts on (the
+// stock lifetime is 20 s); the next one is out no sooner (cooldown 30 s)
+constexpr ULONGLONG DEAD_SWALLOW_MS = 25000;
+
+bool InDeadGroup(void *system, uint32_t index) {                  // (under the lock)
+    for (auto &d : g_drones) {
+        if (!d.dcs || !d.dead || GetTickCount64() - d.opened > DEAD_SWALLOW_MS) continue;
+        for (int i = 0; i < d.n; ++i)
+            if (d.comps[i].system == system && d.comps[i].index == index) return true;
+    }
+    return false;
+}
+
+void __fastcall Hooked_EnableComp(void *system, uint32_t index, uint16_t flag) {
+    int what = t_drone_enable;
+    AcquireSRWLockExclusive(&g_drones_lock);
+    bool swallow = false;
+    if (what == 2) {                                              // a release: this drone's new life
+        DroneGroup *g = nullptr;
+        for (auto &d : g_drones) if (d.dcs == system && d.didx == index) g = &d;
+        if (!g) for (auto &d : g_drones) if (!d.dcs) { g = &d; break; }
+        if (!g) { g = &g_drones[0]; for (auto &d : g_drones) if (d.opened < g->opened) g = &d; }
+        *g = {};
+        g->dcs = (uint8_t *)system;
+        g->didx = index;
+        g->opened = GetTickCount64();
+        g->comps[g->n++] = { system, index };
+        // this enable is the drone script's own node: the context the dispatcher just left
+        g->ctx = *(void *volatile *)((uint8_t *)GetModuleHandleW(nullptr) + DEATH_TOKEN_RVA + 0x20);
+        for (int i = 0; i < g_npending; ++i)                      // the models, turned on first
+            if (g->opened - g_pending[i].at < 3000) AddComp(g, g_pending[i].c.system, g_pending[i].c.index);
+        g_npending = 0;
+    } else {
+        swallow = InDeadGroup(system, index);                     // dead: the script can't bring it back
+        if (!swallow && what == 1) {
+            if (DroneGroup *g = Newest()) AddComp(g, system, index);
+            else {
+                if (g_npending == 16) g_npending = 0;
+                g_pending[g_npending++] = { { system, index }, GetTickCount64() };
+            }
+        }
+    }
+    ReleaseSRWLockExclusive(&g_drones_lock);
+    if (what == 2) Revive((uint8_t *)system, index);
+    if (!swallow) Real_EnableComp(system, index, flag);
+}
+
+// a touch interact the grab rule held back: part of the newest drone too
+void AddTouch(void *system, uint32_t index) {
+    AcquireSRWLockExclusive(&g_drones_lock);
+    if (DroneGroup *g = Newest()) AddComp(g, system, index);
+    ReleaseSRWLockExclusive(&g_drones_lock);
+}
+
+void SetGun(uint64_t actor, uint32_t shown);
+
+// Turns the drone whose damageable is (dcs, didx) off; dcs null: the one whose damageable
+// index is didx (a client told by the server).
+void Shutdown(uint8_t *dcs, uint32_t didx, const char *why) {
+    Comp comps[20];
+    int n = 0;
+    void *ctx = nullptr;
+    AcquireSRWLockExclusive(&g_drones_lock);
+    for (auto &d : g_drones) {
+        if (!d.dcs || d.dead) continue;
+        if (dcs ? (d.dcs == dcs && d.didx == didx) : ((d.didx & 0xffff) == (didx & 0xffff))) {
+            d.dead = true;
+            n = d.n;
+            ctx = d.ctx;
+            memcpy(comps, d.comps, sizeof(Comp) * n);
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_drones_lock);
+    if (!n) return;
+    SetGun(DRONE_ACTOR, 0);                                       // the port's override: hidden
+    for (int i = 0; i < n; ++i) Real_Disable(comps[i].system, comps[i].index, 1);
+    // the explosion, on the next follow update (the game thread). Clients only: a particle
+    // spawn on the headless server crashed it.
+    if (!g_is_server && ctx) InterlockedExchangePointer(&g_death_fx, ctx);
+    Log("drone %u %s: shut down (%d components off)%s", didx & 0xffff, why, n,
+        !g_is_server && ctx ? ", explosion" : "");
+}
+
+// The drone's own end (its lifetime, 20 s): its script turns off its sound system
+// (DRONE_SOUND, first), then its damageable and the rest. The same explosion as a kill, on
+// this machine (every client runs the script), not the server -- right away, on the
+// script's thread, before that first one goes off: on the next frame it was silent.
+void Expired() {
+    void *ctx = nullptr;
+    uint32_t didx = 0;
+    ULONGLONG age = 0;
+    AcquireSRWLockExclusive(&g_drones_lock);
+    DroneGroup *g = nullptr;
+    for (auto &d : g_drones)
+        if (d.dcs && !d.dead && (!g || d.opened > g->opened)) g = &d;
+    if (g && (age = GetTickCount64() - g->opened) > 1000) {
+        g->dead = true;
+        ctx = g->ctx;
+        didx = g->didx;
+    } else g = nullptr;
+    ReleaseSRWLockExclusive(&g_drones_lock);
+    if (!g) return;
+    Log("drone %u expired after %.1f s%s", didx & 0xffff, age / 1000.0, !g_is_server && ctx ? ", explosion" : "");
+    if (!g_is_server && ctx) SpawnDeathFx(ctx);
+}
+
+void __fastcall Hooked_Death(void *cs, uint32_t index) {
+    Real_Death(cs, index);
+    bool mine = false;
+    AcquireSRWLockShared(&g_drones_lock);
+    for (auto &d : g_drones) if (d.dcs == cs && d.didx == index && !d.dead) mine = true;
+    ReleaseSRWLockShared(&g_drones_lock);
+    if (!mine) return;
+    Shutdown((uint8_t *)cs, index, "destroyed");
+    if (g_is_server) {
+        using killed_fn = void(__cdecl *)(uint32_t);
+        static killed_fn tell = nullptr;
+        if (!tell)
+            if (HMODULE veilnet = GetModuleHandleW(L"VeilNet.dll"))
+                tell = (killed_fn)GetProcAddress(veilnet, "VeilNet_DroneKilled");
+        if (tell) tell(index & 0xffff);
+        else Log("drone %u: no VeilNet.dll, the clients won't see it go", index & 0xffff);
+    }
+}
+
+extern "C" __declspec(dllexport) void __cdecl DroneFix_Killed(uint32_t index) {   // VeilNet: the server says
+    if (Real_Disable) Shutdown(nullptr, index, "destroyed on the server");
+}
+
+void KillTestDue() {                                              // (test) kill as a 0-health hit does
+    if (!KILL_TEST_MS || !g_is_server || !Death) return;
+    uint8_t *cs = nullptr;
+    uint32_t index = 0;
+    AcquireSRWLockExclusive(&g_drones_lock);
+    for (auto &d : g_drones)
+        if (d.dcs && !d.dead && !d.test_killed && GetTickCount64() - d.opened >= KILL_TEST_MS) {
+            d.test_killed = true;
+            cs = d.dcs;
+            index = d.didx;
+            break;
+        }
+    ReleaseSRWLockExclusive(&g_drones_lock);
+    if (!cs) return;
+    __try {
+        uint8_t *rec = DamageRecord(cs, index);
+        if (rec[2] & 4) return;
+        *(float *)(rec + 0x20) = 0.0f;
+        rec[2] |= 4;
+        Log("[test] drone %u: health 0, killing it", index & 0xffff);
+        Death(cs, index);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("[test] killing drone %u faulted", index & 0xffff);
+    }
+}
+
 void __fastcall Hooked_FollowUpdate(uintptr_t cs) {
     TickFrame();
+    KillTestDue();
+    DeathFxDue();
     if (*(uintptr_t *)(cs + TARGET_BODY_SYSTEM) == 0) {
         if (InterlockedIncrement(&g_skipped) == 1)
             Log("follow update skipped: no orbit target set yet (cs %p)", (void *)cs);
@@ -138,19 +399,156 @@ void __fastcall Hooked_FollowUpdate(uintptr_t cs) {
             *(void **)(cs + TARGET_BODY_SYSTEM), *(uint16_t *)(cs + 0x190));
 }
 
+// Each drone's last gun state (by actor), so the port follows it whatever the drone's
+// script does with the port's component: that script is the detonator's, and shows / hides
+// its parts on its own (the part PORT is on is one it shows once the drone is deployed).
+struct GunState { uint64_t actor; uint32_t shown; };
+GunState g_guns[32];
+SRWLOCK g_guns_lock = SRWLOCK_INIT;
+
+void SetGun(uint64_t actor, uint32_t shown) {
+    AcquireSRWLockExclusive(&g_guns_lock);
+    int slot = -1;
+    for (int i = 0; i < 32 && slot < 0; ++i)
+        if (g_guns[i].actor == actor) slot = i;
+    for (int i = 0; i < 32 && slot < 0; ++i)
+        if (!g_guns[i].actor) slot = i;
+    if (slot < 0) {                                         // full: forget the oldest
+        memmove(g_guns, g_guns + 1, sizeof(g_guns) - sizeof(g_guns[0]));
+        slot = 31;
+    }
+    g_guns[slot] = { actor, shown };
+    ReleaseSRWLockExclusive(&g_guns_lock);
+}
+
+bool GunShown(uint64_t actor, uint32_t *shown) {
+    AcquireSRWLockShared(&g_guns_lock);
+    bool found = false;
+    for (int i = 0; i < 32 && !found; ++i)
+        if (g_guns[i].actor == actor) { *shown = g_guns[i].shown; found = true; }
+    ReleaseSRWLockShared(&g_guns_lock);
+    return found;
+}
+
+// --- the drone stays grabbable until it locks on ------------------------------------------
+// A moment after release the drone's script turns its R14TouchInteract component off, which
+// is what stops it being grabbed. CEnableComponentNode::Enter resolves the component and asks
+// for that through DISABLE_RVA (component system, component index); while capturing (the
+// drone's touch interact, from the hook below) that call is held back and the component kept,
+// with this drone's record reset (a new life). At the drone's first shot, the drone that has
+// not fired yet and was deployed last is the one shooting: its touch interact is turned off
+// then, so a drone that has locked onto someone can't be grabbed. The next release starts again.
+constexpr uint64_t R14_TOUCH_INTERACT = 0x2E40131422F7B1FCull;   // CSymbol64("R14TouchInteract")
+constexpr uintptr_t DISABLE_RVA = 0x9cb780;                      // (component system, index, flag): disable
+constexpr uint8_t DISABLE_BYTES[] = { 0x48, 0x83, 0xec, 0x78, 0x48, 0x8b, 0xc1 };
+thread_local bool t_capture = false;
+
+struct TouchRec { void *system; uint32_t index; uint32_t handle; ULONGLONG deployed; bool locked; };
+TouchRec g_touch[16];
+SRWLOCK g_touch_lock = SRWLOCK_INIT;
+
+void __fastcall Hooked_Disable(void *system, uint32_t index, uint16_t flag) {
+    if (!t_capture) {
+        Real_Disable(system, index, flag);
+        return;
+    }
+    AcquireSRWLockExclusive(&g_touch_lock);
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < 16 && slot < 0; ++i)
+        if (g_touch[i].system == system && g_touch[i].index == index) slot = i;
+    for (int i = 0; i < 16 && slot < 0; ++i)
+        if (!g_touch[i].system) slot = i;
+    for (int i = 1; i < 16; ++i)
+        if (g_touch[i].deployed < g_touch[oldest].deployed) oldest = i;
+    if (slot < 0) slot = oldest;
+    g_touch[slot] = { system, index, 0, GetTickCount64(), false };   // deployed, not locked on
+    ReleaseSRWLockExclusive(&g_touch_lock);
+    AddTouch(system, index);                                 // goes when the drone does
+    Log("drone deployed: stays grabbable until it locks on (touch interact %p #%u)", system, index);
+}
+
+// At a drone's shot: the first one locks that drone on, and turns its touch interact off.
+void LockedOn(uint32_t handle) {
+    if (!Real_Disable) return;
+    void *system = nullptr;
+    uint32_t index = 0;
+    AcquireSRWLockExclusive(&g_touch_lock);
+    int mine = -1, newest = -1;
+    for (int i = 0; i < 16; ++i) {
+        if (!g_touch[i].system) continue;
+        if (g_touch[i].handle == handle) mine = i;
+        else if (!g_touch[i].handle && !g_touch[i].locked
+                 && GetTickCount64() - g_touch[i].deployed < 120000
+                 && (newest < 0 || g_touch[i].deployed > g_touch[newest].deployed)) newest = i;
+    }
+    if (mine < 0 && newest >= 0) {
+        mine = newest;
+        g_touch[mine].handle = handle;
+    }
+    if (mine >= 0 && !g_touch[mine].locked) {
+        g_touch[mine].locked = true;
+        system = g_touch[mine].system;
+        index = g_touch[mine].index;
+    }
+    ReleaseSRWLockExclusive(&g_touch_lock);
+    if (system) {
+        Real_Disable(system, index, 1);
+        Log("drone %u locked on: no longer grabbable (touch interact %p #%u)", handle, system, index);
+    }
+}
+
+// For Hooked_EnableComp: what the drone's script is turning on in this call (restored after).
+struct EnableTag {
+    int saved;
+    explicit EnableTag(int v) : saved(t_drone_enable) { t_drone_enable = v; }
+    ~EnableTag() { t_drone_enable = saved; }
+};
+
+#ifdef ECHOCOMBAT_LOG
+volatile LONG g_dbg_enables = 0;
+#endif
+
 void __fastcall Hooked_EnableEnter(void *node, const uint64_t *data) {
+#ifdef ECHOCOMBAT_LOG
+    if (data[0] == DRONE_ACTOR && InterlockedIncrement(&g_dbg_enables) <= 400)
+        Log("[test] drone script: %s %016llx/%016llx", (uint32_t)data[4] ? "on " : "off", data[2], data[3]);
+#endif
+    if (data[0] == DRONE_ACTOR && (data[2] == DRONE_SOUND || data[2] == R14_DAMAGEABLE) && !(uint32_t)data[4]
+        && Real_EnableComp)
+        Expired();
+    EnableTag tag(data[0] == DRONE_ACTOR && (uint32_t)data[4] ? (data[2] == R14_DAMAGEABLE ? 2 : 1) : 0);
+    if (data[0] == DRONE_ACTOR && data[2] == R14_TOUCH_INTERACT && !(uint32_t)data[4] && Real_Disable) {
+        t_capture = true;                                   // the engine resolves it; Hooked_Disable keeps it
+        Real_EnableEnter(node, data);
+        t_capture = false;
+        return;
+    }
+    if (data[2] == NCA_MODEL && data[3] == PORT) {          // the script's own say: the gun's instead
+        uint32_t shown;
+        if (GunShown(data[0], &shown) && shown != (uint32_t)data[4]) {
+            uint64_t copy[5];
+            memcpy(copy, data, sizeof copy);
+            copy[4] = shown;
+            Real_EnableEnter(node, copy);
+            return;
+        }
+    }
     Real_EnableEnter(node, data);
     if (data[2] == NCA_MODEL && data[3] == GUN) {
+        SetGun(data[0], (uint32_t)data[4]);
         uint64_t copy[5];                                   // actor, scope, system, component, enable
         memcpy(copy, data, sizeof copy);
         copy[3] = SATELLITE;
         Real_EnableEnter(node, copy);
+        copy[3] = PORT;
+        Real_EnableEnter(node, copy);
         if (InterlockedIncrement(&g_mirrored) <= 5)
-            Log("drone gun %s: satellite too", (uint32_t)data[4] ? "shown" : "hidden");
+            Log("drone gun %s: body and port too", (uint32_t)data[4] ? "shown" : "hidden");
     }
 }
 
 void __fastcall Hooked_FireLocal(void *cs, uint32_t handle, const float *velocity, int remote) {
+    LockedOn(handle);
     t_velocity = velocity;
     t_remote = remote;
     Real_FireLocal(cs, handle, velocity, remote);
@@ -249,10 +647,56 @@ void InstallEnableMirror(uintptr_t base) {
                        : "EnableComponentNode hook failed (+0x%llx)", (unsigned long long)ENABLE_ENTER_RVA);
 }
 
+void InstallGrabRule(uintptr_t base) {
+    auto target = (uint8_t *)(base + DISABLE_RVA);
+    if (memcmp(target, DISABLE_BYTES, sizeof(DISABLE_BYTES)) != 0) {
+        Log("component disable prologue mismatch at +0x%llx -- the drone can't be grabbed after release, as stock",
+            (unsigned long long)DISABLE_RVA);
+        return;
+    }
+    disable_fn real = (disable_fn)target;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID &)real, Hooked_Disable);
+    LONG rc = DetourTransactionCommit();
+    if (rc == NO_ERROR) Real_Disable = real;
+    Log(rc == NO_ERROR ? "hooked component disable: a drone stays grabbable until it locks on (+0x%llx)"
+                       : "component disable hook failed (+0x%llx)", (unsigned long long)DISABLE_RVA);
+}
+
+void InstallDeathRule(uintptr_t base) {
+    g_is_server = strstr(GetCommandLineA(), "-server") != nullptr;
+    auto en = (uint8_t *)(base + ENABLE_COMP_RVA), death = (uint8_t *)(base + DEATH_RVA);
+    if (memcmp(en, ENABLE_COMP_BYTES, sizeof(ENABLE_COMP_BYTES)) || memcmp(death, DEATH_BYTES, sizeof(DEATH_BYTES))) {
+        Log("component enable / death prologue mismatch -- the drone can't be shot down");
+        return;
+    }
+    enable_comp_fn real_en = (enable_comp_fn)en;
+    death_fn real_death = (death_fn)death;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID &)real_en, Hooked_EnableComp);
+    DetourAttach(&(PVOID &)real_death, Hooked_Death);
+    LONG rc = DetourTransactionCommit();
+    if (rc != NO_ERROR) {
+        Log("component enable / death hook failed -- the drone can't be shot down");
+        return;
+    }
+    Real_EnableComp = real_en;
+    Real_Death = real_death;
+    Death = (death_fn)death;                                // through the hook (the test kill)
+    Log("hooked component enable and damageable death: a drone is destroyed when its health runs out (%s)",
+        g_is_server ? "server" : "client");
+    if (KILL_TEST_MS && g_is_server)
+        Log("[test] each deployed drone is killed %llu ms after release", KILL_TEST_MS);
+}
+
 void Install() {
     auto base = (uintptr_t)GetModuleHandleW(nullptr);
+    InstallDeathRule(base);
     InstallMuzzle(base);
     InstallEnableMirror(base);
+    InstallGrabRule(base);
     auto target = (uint8_t *)(base + FOLLOW_UPDATE_RVA);
     if (memcmp(target, FOLLOW_UPDATE_BYTES, sizeof(FOLLOW_UPDATE_BYTES)) != 0) {
         Log("prologue mismatch at +0x%llx -- wrong echovr build, not hooking", (unsigned long long)FOLLOW_UPDATE_RVA);

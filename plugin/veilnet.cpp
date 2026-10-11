@@ -93,7 +93,7 @@ struct Shared {
 
 struct Packet {
     uint32_t magic;
-    uint8_t type;                               // 'H' hello, 'A' its answer, 'V' veil, 'P' point, 'T' teleport, 'O' overcharge
+    uint8_t type;                               // 'H' hello, 'A' its answer, 'V' veil, 'P' point, 'T' teleport, 'O' overcharge, 'K' a drone killed (server -> clients)
     uint8_t pad[3];
     uint32_t id;
     uint32_t magic2;
@@ -288,6 +288,18 @@ int Relay(const sockaddr_in &from, uint8_t type, uint32_t id) {
     return n;
 }
 
+// DroneFix.dll on the server, when a drone's health runs out: every client shuts that drone
+// down too ('K', the drone's damageable index in the low 16 bits of the id).
+volatile LONG g_kills = 0;
+extern "C" __declspec(dllexport) void __cdecl VeilNet_DroneKilled(uint32_t index) {
+    if (!g_server) return;
+    uint32_t id = ((uint32_t)InterlockedIncrement(&g_kills) << 16) | (index & 0xffff);
+    FirstTime(id);
+    sockaddr_in nobody = {};
+    int n = Relay(nobody, 'K', id);
+    Log("drone %u killed: told %d client(s)", index & 0xffff, n);
+}
+
 volatile ULONGLONG g_last_answer = 0;           // client: when the server last answered a hello
 
 void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
@@ -304,6 +316,14 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     } else if (p.type == 'A') {
         Dest d;                                          // only the current server's answer counts
         if (ServerDest(d) && Same(d.addr, from)) g_last_answer = GetTickCount64();
+    } else if (p.type == 'K' && FirstTime(p.id)) {          // a drone the server killed: DroneFix shuts it down
+        using killed_fn = void(__cdecl *)(uint32_t);
+        static killed_fn killed = nullptr;
+        if (!killed)
+            if (HMODULE dronefix = GetModuleHandleW(L"DroneFix.dll"))
+                killed = (killed_fn)GetProcAddress(dronefix, "DroneFix_Killed");
+        if (killed) killed(p.id & 0xffff);
+        Log("drone %u killed on the server: shut down here%s", p.id & 0xffff, killed ? "" : " (no DroneFix.dll)");
     } else if (Carried(p.type) && FirstTime(p.id)) {
         AddToken(Tokens(p.type));
         Log("%s %08x from the server: token here", What(p.type), p.id);
