@@ -137,7 +137,8 @@ DOT_BUBBLE_SOURCES = [(t, m) for m in ("7e824dad4cd4ef3",) for t in (
 #: what tools/fix_drone_model.py builds the drone's CubeSat from (its source_files())
 DRONE_MODEL_SOURCES = [(t, "171942614d4df2b3") for t in (
     "230554bc3beca38c", "73d312a620da3824", "7b9a4c9fd03f37eb", "b7d338793fa37832",
-    "4e426f88c1b5d7ac", "a388ea69e5108f4c")] + [
+    "4e426f88c1b5d7ac", "a388ea69e5108f4c",
+    "c2434c5a99e139ce")] + [                          # (the blank keeps the donor's texture streaming)
     (t, "c0fb34e681a628f1") for t in ("4984e2bbb2ddb256", "43ddbd692282a6a7")] + [
     ("4a4c32c49300b8a0", "d8b84ca5707d3bd2")]
 #: what tools/rm_preview/buff_assets.py copies from: Repair Matrix's cross mesh (four assets)

@@ -213,6 +213,85 @@ void SpawnDeathFx(void *ctx) {
     }
 }
 
+// --- NEUTRON's effects, run here instead of inside its wall's node ---
+// tools/veil_fx.py (defer_stub): where FX_DEFER_RVA is set (here, on clients), the NEUTRON
+// wall's node queues its charge-up indicator, burst, stun explosion and sound -- {ctx, stub |
+// kind} -- instead of running another node's Execute inside its own (what crashed clients).
+// Run on the follow update: one per wall node per frame, lowest kind first (charge, burst,
+// sound; the stun explosion is left to the server), one sound per wall (both its nodes may
+// queue one), the node's own state kept round each, as for the drone's explosion.
+constexpr uintptr_t FX_QUEUE_RVA = 0x2104DA0;                    // veil_fx.FX_QUEUE_RVA
+constexpr int FX_QUEUE_LEN = 6;
+constexpr uintptr_t FX_DEFER_RVA = 0x2104E20;                    // veil_fx.FX_DEFER_RVA
+constexpr int FX_BOOM = 2, FX_SOUND = 3;
+struct WallFx { void *volatile ctx; volatile uintptr_t stub; };
+struct WallSound { uintptr_t wall; ULONGLONG at; };
+WallSound g_wall_sounds[8];
+
+uintptr_t WallOf(void *ctx) {                                     // the wall's script data: [[ctx]+68h]
+    __try { return *(uintptr_t *)(*(uint8_t **)ctx + 0x68); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+bool SoundAgain(uintptr_t wall, ULONGLONG now) {                 // this wall's sound already played
+    WallSound *oldest = &g_wall_sounds[0];
+    for (auto &w : g_wall_sounds) {
+        if (w.wall == wall && now - w.at < 3000) return true;
+        if (w.at < oldest->at) oldest = &w;
+    }
+    *oldest = { wall, now };
+    return false;
+}
+
+void RunWallFx(void *ctx, uintptr_t stub) {
+    using stub_fn = void(__fastcall *)(void *);
+    __try {
+        auto state = (uint64_t *)((uint8_t *)ctx + 0x18);
+        uint64_t saved = *state;
+        *state = 0;
+        ((stub_fn)stub)(ctx);
+        *state = saved;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("NEUTRON effect faulted and was contained (ctx %p)", ctx);
+    }
+}
+
+void WallFxDue() {
+    if (g_is_server) return;
+    auto q = (WallFx *)((uint8_t *)GetModuleHandleW(nullptr) + FX_QUEUE_RVA);
+    void *ran[FX_QUEUE_LEN];
+    int nran = 0;
+    ULONGLONG now = GetTickCount64();
+    static ULONGLONG last = 0;
+    bool stale = last && now - last > 500;                        // not run for a while: those walls may be gone
+    last = now;
+    if (stale) {
+        for (int i = 0; i < FX_QUEUE_LEN; ++i)
+            if (q[i].ctx && q[i].stub) { q[i].stub = 0; InterlockedExchangePointer(&q[i].ctx, nullptr); }
+        return;
+    }
+    for (int i = 0; i < FX_QUEUE_LEN; ++i) {
+        void *ctx = q[i].ctx;
+        uintptr_t st = q[i].stub;
+        if (!ctx || !st) continue;                                // free, or still being written
+        bool done = false;
+        for (int k = 0; k < nran; ++k) done |= ran[k] == ctx;
+        if (done) continue;
+        int best = i;                                             // this node's lowest kind first
+        for (int j = i + 1; j < FX_QUEUE_LEN; ++j)
+            if (q[j].ctx == ctx && q[j].stub && (q[j].stub & 3) < (q[best].stub & 3)) best = j;
+        st = q[best].stub;
+        ran[nran++] = ctx;
+        int kind = (int)(st & 3);
+        // The stun explosion is the server's alone: its explosion is the one that stuns (with
+        // none there, nobody was). Activated here too, a client it stunned crashed -- only
+        // the team the NEUTRON's owner wasn't on ever did.
+        bool run = kind == FX_BOOM ? false : kind != FX_SOUND || !SoundAgain(WallOf(ctx), now);
+        if (run) RunWallFx(ctx, st & ~(uintptr_t)0xF);
+        q[best].stub = 0;
+        InterlockedExchangePointer(&q[best].ctx, nullptr);
+    }
+}
+
 void DeathFxDue() {
     void *spawn[8];
     int nspawn = 0;
@@ -278,6 +357,10 @@ void AddComp(DroneGroup *g, void *system, uint32_t index) {      // (under the l
 // how long after its release a dead drone's script can still try to turn its parts on (the
 // stock lifetime is 20 s); the next one is out no sooner (cooldown 30 s)
 constexpr ULONGLONG DEAD_SWALLOW_MS = 25000;
+// when a drone last died (0: none yet): an enable that isn't a drone's own goes straight
+// through, no lock, unless one did within DEAD_SWALLOW_MS (every component enable in the
+// game comes through Hooked_EnableComp)
+volatile ULONGLONG g_last_death = 0;
 
 bool InDeadGroup(void *system, uint32_t index) {                  // (under the lock)
     for (auto &d : g_drones) {
@@ -290,6 +373,10 @@ bool InDeadGroup(void *system, uint32_t index) {                  // (under the 
 
 void __fastcall Hooked_EnableComp(void *system, uint32_t index, uint16_t flag) {
     int what = t_drone_enable;
+    if (!what) {
+        ULONGLONG died = g_last_death;
+        if (!died || GetTickCount64() - died > DEAD_SWALLOW_MS) { Real_EnableComp(system, index, flag); return; }
+    }
     AcquireSRWLockExclusive(&g_drones_lock);
     bool swallow = false;
     if (what == 2) {                                              // a release: this drone's new life
@@ -342,6 +429,7 @@ void Shutdown(uint8_t *dcs, uint32_t didx, const char *why) {
         if (!d.dcs || d.dead) continue;
         if (dcs ? (d.dcs == dcs && d.didx == didx) : ((d.didx & 0xffff) == (didx & 0xffff))) {
             d.dead = true;
+            g_last_death = GetTickCount64();
             n = d.n;
             ctx = d.ctx;
             memcpy(comps, d.comps, sizeof(Comp) * n);
@@ -382,6 +470,7 @@ void ExpiredDamageable(void *system, uint32_t index) {            // (Hooked_Dis
         if (d.dcs == system && d.didx == index) {
             alive = !d.dead;
             d.dead = true;
+            g_last_death = GetTickCount64();
             age = GetTickCount64() - d.opened;
             break;
         }
@@ -450,6 +539,7 @@ void __fastcall Hooked_FollowUpdate(uintptr_t cs) {
     TickFrame();
     KillTestDue();
     DeathFxDue();
+    WallFxDue();
     if (*(uintptr_t *)(cs + TARGET_BODY_SYSTEM) == 0) {
         if (InterlockedIncrement(&g_skipped) == 1)
             Log("follow update skipped: no orbit target set yet (cs %p)", (void *)cs);
@@ -791,6 +881,10 @@ void Install() {
     LONG rc = DetourTransactionCommit();
     Log(rc == NO_ERROR ? "hooked CR15NetFollowPlayerCS update (+0x%llx)" : "hook failed (+0x%llx)",
         (unsigned long long)FOLLOW_UPDATE_RVA);
+    if (rc == NO_ERROR && !g_is_server) {                         // NEUTRON's effects come here now
+        *(volatile LONG *)(base + FX_DEFER_RVA) = 1;
+        Log("NEUTRON's effects run on the follow update, not inside its wall's node");
+    }
 }
 
 } // namespace

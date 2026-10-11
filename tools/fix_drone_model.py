@@ -168,7 +168,7 @@ def swap(data: bytes, old: int, new: int, count: int = 1) -> bytes:
 
 def source_files() -> list:
     """(type, name) of every game file this reads besides the level tables."""
-    return ([(t, DONOR) for t in DONOR_AS_IS + (MESHLIST, SCENE)]
+    return ([(t, DONOR) for t in DONOR_AS_IS + (MESHLIST, SCENE, TEXSTREAM)]
             + [(t, f"{SHADERSET_DONOR:x}") for t in SHADERSET_TYPES]
             + [(TEXTURE_DESC, DESC_TEMPLATE)])
 
@@ -372,7 +372,13 @@ def texstream_record(textures: list) -> bytes:
 
 
 # --- assembling a model ---------------------------------------------------------------
-def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, bounds, textures: dict) -> list:
+def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, bounds, textures: dict,
+                 own_material: bool = True) -> list:
+    """The model's files. own_material False (the blank): the donor's own material and shader
+    set, kept: the drone's script sets two of its properties (0xFD0268DFE1C80980,
+    0x8B6F20C39D3F428B: the detonator parts' light) on every part each time, and on our
+    material, which has neither, each drone in the match logged "Unable to find property"
+    for each blank part -- 114 lines in one frame at a time."""
     ml = bytearray(read(MESHLIST, DONOR))
     if struct.unpack_from("<I", ml, 0)[0] != 1 or ml[D_VB:D_VB + 4] != b"\0\0\x08\x03":
         raise ValueError("the donor mesh list is not the one this expects")
@@ -385,6 +391,13 @@ def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, boun
     struct.pack_into("<4I", ml, D_IB, nv * (S0_STRIDE + S1_STRIDE), ni, 2, 0)
     struct.pack_into("<I", ml, D_GPU_SIZE, len(gpu))
 
+    fn = f"{model:x}"
+    if not own_material:
+        scene = bytearray(read(SCENE, DONOR))
+        struct.pack_into("<6f", scene, D_SCENE_BOUNDS, *bounds[:6])
+        return ([(MESHLIST, fn, bytes(ml)), (MESHLIST_GPU, fn, gpu), (SCENE, fn, bytes(scene)),
+                 (TEXSTREAM, fn, read(TEXSTREAM, DONOR))]
+                + [(t, fn, read(t, DONOR)) for t in DONOR_AS_IS])
     shaderset = int(symbol64(name + "_shaders"), 16)
     scene = bytearray(swap(swap(read(SCENE, DONOR), D_MATERIAL, MATERIAL, 2), D_SHADERSET, shaderset))
     struct.pack_into("<6f", scene, D_SCENE_BOUNDS, *bounds[:6])
@@ -392,7 +405,6 @@ def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, boun
     for slot, tex in textures.items():
         shaders = swap(shaders, SLOTS[slot], tex)
 
-    fn = f"{model:x}"
     out = [(MESHLIST, fn, bytes(ml)), (MESHLIST_GPU, fn, gpu), (SCENE, fn, bytes(scene)),
            (TEXSTREAM, fn, texstream_record(list(textures.values())))]
     out += [(t, fn, read(t, DONOR)) for t in DONOR_AS_IS]          # its CPhysicsResource: empty
@@ -427,7 +439,7 @@ def drone_assets(read) -> list:
         if model == BODY_MODEL:                              # the blank: the body, one degenerate triangle
             blank_gpu = gpu[:nv * (S0_STRIDE + S1_STRIDE)] + b"\0" * 6
             out += [a for a in model_assets(read, BLANK_MODEL, "echocombat_drone_blank", blank_gpu, nv, 3,
-                                            bounds, textures)]
+                                            bounds, textures, own_material=False)]
     return out
 
 

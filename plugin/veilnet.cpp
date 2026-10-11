@@ -373,6 +373,12 @@ bool OursAtEnd(uint8_t *entries, uint64_t full) {
     return true;
 }
 
+// The tac mod the player has selected (EQUIP_RVA, from their profile update) is one of ours.
+bool OurSelected() {
+    uint64_t sym = *(volatile uint64_t *)(g_base + EQUIP_RVA);
+    return sym == 0xe32dc7c9d4804fb5ull || sym == 0xe32dc7cad6864aa4ull || sym == 0xc8c33e48386618b6ull;   // smoke, point, buff
+}
+
 // The list is rebuilt (and its old one freed) on the game's thread: everything here is
 // guarded. 0: unchanged, 1: shown, 2: hidden.
 int TacModsGuarded(bool server_has_it, uint64_t *now_count) {
@@ -392,6 +398,10 @@ int TacModsGuarded(bool server_has_it, uint64_t *now_count) {
         uint64_t full = g_list_full;
         if (full < 3 || full > capacity || !OursAtEnd(entries, full)) return 0;
         uint64_t want = server_has_it ? full : full - 3;
+        // One of ours selected: the list stays whole. Cut short, the selection pointed past
+        // its end (a loading match hides them until its server answers): kept, it is only
+        // an EchoCombat tac mod on a server without it, as before the gate.
+        if (!server_has_it && OurSelected()) want = full;
         if (*count == want) return 0;
         *count = want;
         *now_count = want;
@@ -431,7 +441,7 @@ DWORD WINAPI Tick(LPVOID) {
     sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0, next_pick = 0, next_hook = 0, next_tacmods = 0;
     for (;;) {
-        Sleep(5);
+        Sleep(10);                                       // (5 ms: 200 wakeups a second, for checks that need far fewer)
         if (!g_server && GetTickCount64() >= next_hook) {                // the selection is the client's own
             next_hook = GetTickCount64() + 1000;
             HookSelectionLogs();

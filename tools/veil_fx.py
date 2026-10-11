@@ -645,6 +645,58 @@ def show_dispatch(at: int, decide: int, show_tramp: int, point: int) -> bytes:
     return bytes(b)
 
 
+#: POINT's effects out of its node. point_block ran the charge-up indicator, the burst, the
+#: stun explosion and the sound inside the wall's own node: another node's Execute run
+#: from inside a node is what crashed every client when a drone's lifetime ran out
+#: (1.1.4), and POINT crashed clients too. On a machine whose DroneFix.dll says so
+#: (FX_DEFER_RVA != 0: clients), each goes into FX_QUEUE_RVA instead -- {ctx, stub | kind}
+#: x FX_QUEUE_LEN -- and DroneFix runs it on its follow update, outside any node, one per
+#: wall per frame, in kind order (charge, burst, explosion, sound; one sound per wall).
+#: Elsewhere (the server; a client without that DroneFix) they run in the node as before.
+FX_QUEUE_RVA = 0x2104DA0                    # 6 x 16 bytes, to 0x2104E00
+FX_QUEUE_LEN = 6
+FX_DEFER_RVA = 0x2104E20                    # dword, set by DroneFix.dll on clients
+FX_CHARGE, FX_BURST, FX_BOOM, FX_SOUND = range(4)
+
+
+def defer_stub(at: int, stub: int, kind: int, tail: bool = False) -> bytes:
+    """A stand-in for `stub` (rcx = ctx): queued for DroneFix where FX_DEFER_RVA is set, else
+    straight on into the stub. `tail`: reached by a jmp in place of the node's own return
+    (the sound): queued, the node is done (eax 0); a state a direct run left is cleared."""
+    b = bytearray(bytes.fromhex("6548a16000000000000000 4c8b5010 4183ba") + struct.pack("<I", FX_DEFER_RVA)
+                  + bytes.fromhex("00 0f84"))
+    to_direct = len(b)
+    b += bytes(4)
+    to_clear = None
+    if tail:
+        b += bytes.fromhex("48837918 00 0f85")                       # cmp qword [rcx+18h], 0; jne clear
+        to_clear = len(b)
+        b += bytes(4)
+    b += bytes.fromhex("4d8d82") + struct.pack("<I", FX_QUEUE_RVA)   # lea r8, [r10+queue]
+    b += bytes.fromhex("41b9") + struct.pack("<I", FX_QUEUE_LEN)     # mov r9d, n
+    loop = len(b)
+    b += bytes.fromhex("31c0 f0490fb108 74")                         # xor eax, eax; lock cmpxchg [r8], rcx; je got
+    to_got = len(b)
+    b += b"\0"
+    b += bytes.fromhex("4983c010 41ffc9 75")                         # add r8, 16; dec r9d; jnz loop
+    b += bytes([(loop - (len(b) + 1)) & 0xFF])
+    b += b"\xeb"                                                     # full: dropped
+    to_done = len(b)
+    b += b"\0"
+    b[to_got] = len(b) - (to_got + 1)
+    b += bytes.fromhex("488d05") + rel32(at + len(b) + 7, stub)      # lea rax, [stub]
+    b += bytes.fromhex("4883c8") + bytes([kind])                     # or rax, kind
+    b += bytes.fromhex("49894008")                                   # mov [r8+8], rax
+    b[to_done] = len(b) - (to_done + 1)
+    b += bytes.fromhex("31c0 c3")
+    if tail:
+        b[to_clear:to_clear + 4] = struct.pack("<i", len(b) - (to_clear + 4))
+        b += bytes.fromhex("48c7411800000000 31c0 c3")               # mov qword [rcx+18h], 0
+    b[to_direct:to_direct + 4] = struct.pack("<i", len(b) - (to_direct + 4))
+    b += b"\xe9" + rel32(at + len(b) + 5, stub)
+    return bytes(b)
+
+
 def point_block(at: int, delay: int, spawn: int, explode: int, sound: int, charge: int = None) -> bytes:
     """The wall's EnablePhysics node for a POINT wall (rbx = ctx; push rbx; sub rsp, 20h
     done): wait `delay` (100 ns) from the first run (showing `charge`, the charge-up
@@ -902,7 +954,8 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
              "phys_flag": 96, "phys_tramp": 16, "phys_off": 48}
     if point:
         sizes.update({"bind": 96, "phys": 192, "point": 384, "point_spawn": 512, "point_charge": 512, "point_boom": 96,
-                      "point_sound": 192, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
+                      "point_sound": 192, "d_charge": 112, "d_burst": 112, "d_boom": 112,
+                      "d_sound": 128, "show_disp": 96, "show_tramp": 16, "mute": 48, "snd_tramp": 16,
                       "events": 4 * len(ARC_EVENTS) + 4})
     for name, size in sizes.items():
         blob += bytes(-len(blob) % 16)
@@ -991,8 +1044,12 @@ def network_wall(wall_pe: bytes, det_pe: bytes, count: int = 7, scale: float = 6
         for j in (busy, fresh):
             p[j:j + 4] = rel32(at["phys"] + j + 4, at["point"])
         p[to_point:to_point + 4] = struct.pack("<i", skip - (to_point + 4))
-        put("point", point_block(at["point"], int(point["charge_up_time"] * 1e7), at["point_spawn"],
-                                 at["point_boom"], at["point_sound"], at["point_charge"]))
+        put("point", point_block(at["point"], int(point["charge_up_time"] * 1e7), at["d_burst"],
+                                 at["d_boom"], at["d_sound"], at["d_charge"]))
+        put("d_charge", defer_stub(at["d_charge"], at["point_charge"], FX_CHARGE))
+        put("d_burst", defer_stub(at["d_burst"], at["point_spawn"], FX_BURST))
+        put("d_boom", defer_stub(at["d_boom"], at["point_boom"], FX_BOOM))
+        put("d_sound", defer_stub(at["d_sound"], at["point_sound"], FX_SOUND, tail=True))
         put("show_tramp", WALL_SHOW_NODE_OLD + b"\xe9" + rel32(at["show_tramp"] + 11, WALL_SHOW_NODE + 6))
         put("show_disp", show_dispatch(at["show_disp"], at["decide"], at["show_tramp"], at["point"]))
         put("mute", mute_stub(at["mute"]))
