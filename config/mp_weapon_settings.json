@@ -29,7 +29,7 @@
   "drone": {
    "health": 60,
    "death_effect_size": 0.5,
-   "fire_rate": 0.2,
+   "fire_rate": 0.28,
    "bullet_speed": 120,
    "bullet_damage": 2,
    "cooldown": 30

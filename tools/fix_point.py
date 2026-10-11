@@ -43,7 +43,7 @@ from veil_fx import POINT_MARKER, POINT_RECORD, STUN_EXPLOSION, mark_param
 
 POINT_SCRIPT = 0x94BA7CA39FC97E1A      # CSymbol64("mp_combat_ability_point")
 POINT = 0xE32DC7CAD6864AA4             # CSymbol64("point")
-POINT_GEAR = {"name": "point", "display_name": "POINT"}
+POINT_GEAR = {"name": "point", "display_name": "NEUTRON"}   # was POINT
 
 EXPLOSION_TYPE = "4af215b19b297c34"    # the explosion component tables, one per level
 LEVELS = ["42670f2bed45703c", "43e2da7914642604", "43e2da7a0c623a19",

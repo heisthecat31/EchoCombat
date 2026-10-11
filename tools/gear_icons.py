@@ -69,7 +69,7 @@ ATLASES = {
 ITEMS = [
     ("ABILITY", "heal", "REPAIR MATRIX"), ("ABILITY", "sensor", "THREAT SCANNER"),
     ("ABILITY", "shield", "ENERGY BARRIER"), ("ABILITY", "wraith", "PHASE SHIFT"),
-    ("ABILITY", "smoke", "UMBRAL VEIL"), ("ABILITY", "buff", "OVERCHARGE"), ("ABILITY", "point", "POINT"),
+    ("ABILITY", "smoke", "UMBRAL VEIL"), ("ABILITY", "buff", "OVERCHARGE"), ("ABILITY", "point", "NEUTRON"),
     ("GRENADE", "det", "DETONATOR"), ("GRENADE", "stun", "STUN FIELD"), ("GRENADE", "arc", "ARC MINE"),
     ("GRENADE", "burst", "INSTANT REPAIR"), ("GRENADE", "loc", "TRANSLOCATOR"), ("GRENADE", "dot", "DOT FIELD"),
     ("GRENADE", "drone", "DRONE"),
