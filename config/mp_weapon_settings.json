@@ -30,6 +30,7 @@
    "health": 60,
    "death_effect_size": 0.5,
    "fire_rate": 0.28,
+   "max_target_distance": 20,
    "bullet_speed": 120,
    "bullet_damage": 2,
    "cooldown": 30
@@ -60,9 +61,9 @@
   },
   "smoke": {
    "veil_cloud_count": 4,
-   "veil_cloud_size": 4.5,
-   "veil_cloud_lifetime": 5.0,
-   "veil_cloud_spread": 1.125,
+   "veil_cloud_size": 3.9,
+   "veil_cloud_lifetime": 6.0,
+   "veil_cloud_spread": 0.975,
    "veil_cloud_emission": 4.0,
    "veil_puff_size": 3.5,
    "veil_opacity": 35.0,
