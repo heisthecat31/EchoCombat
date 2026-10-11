@@ -167,7 +167,35 @@ death_fn Real_Death = nullptr;
 death_fn Death = nullptr;                                         // the hooked routine (test kill)
 thread_local int t_drone_enable = 0;                              // 1: a drone component on, 2: its damageable
 bool g_is_server = false;
-void *volatile g_death_fx = nullptr;                              // a dead drone's node context: its explosion due
+struct Comp { void *system; uint32_t index; };
+
+// Explosions due, run on the follow update (the game thread, outside any script node: run
+// from inside one -- the drone script's own disable node, as the expiry first did -- a
+// node's Execute overwrites the running node's per-thread storage, and every client in a
+// match crashed when a drone's lifetime ran out). An expiry also holds back the drone's
+// sound system going off (`sound`) until its explosion's sound has played.
+struct DeathFx { void *ctx; ULONGLONG at; bool spawned; int nsound; Comp sound[8]; };
+DeathFx g_fx[8];
+SRWLOCK g_fx_lock = SRWLOCK_INIT;
+constexpr ULONGLONG FX_SOUND_HOLD_MS = 2500;                      // the explosion's sound, then the sound system off
+
+void QueueDeathFx(void *ctx, const Comp *sound, int nsound) {
+    AcquireSRWLockExclusive(&g_fx_lock);
+    DeathFx *f = nullptr;
+    for (auto &x : g_fx) if (!x.ctx) { f = &x; break; }
+    if (f) {
+        *f = {};
+        f->ctx = ctx;
+        f->at = GetTickCount64();
+        f->nsound = nsound < 8 ? nsound : 8;
+        memcpy(f->sound, sound, sizeof(Comp) * f->nsound);
+    }
+    ReleaseSRWLockExclusive(&g_fx_lock);
+    if (!f) {                                                     // (8 at once: no explosion, sound off now)
+        for (int i = 0; i < nsound; ++i) Real_Disable(sound[i].system, sound[i].index, 1);
+        Log("drone explosion queue full: skipped");
+    }
+}
 
 // fix_drone_fx.py's spawn and sound stubs (their addresses left by the drone script) with a
 // dead drone's node context: the detonator's explosion and POINT's sound on that drone. Its
@@ -189,10 +217,28 @@ void SpawnDeathFx(void *ctx) {
 }
 
 void DeathFxDue() {
-    if (void *ctx = InterlockedExchangePointer(&g_death_fx, nullptr)) SpawnDeathFx(ctx);
+    void *spawn[8];
+    int nspawn = 0;
+    Comp off[64];
+    int noff = 0;
+    ULONGLONG now = GetTickCount64();
+    AcquireSRWLockExclusive(&g_fx_lock);
+    for (auto &f : g_fx) {
+        if (!f.ctx) continue;
+        if (!f.spawned) {
+            spawn[nspawn++] = f.ctx;
+            f.spawned = true;
+            f.at = now;
+        }
+        if (now - f.at >= FX_SOUND_HOLD_MS || !f.nsound) {
+            for (int i = 0; i < f.nsound && noff < 64; ++i) off[noff++] = f.sound[i];
+            f = {};
+        }
+    }
+    ReleaseSRWLockExclusive(&g_fx_lock);
+    for (int i = 0; i < nspawn; ++i) SpawnDeathFx(spawn[i]);
+    for (int i = 0; i < noff; ++i) Real_Disable(off[i].system, off[i].index, 1);
 }
-
-struct Comp { void *system; uint32_t index; };
 struct DroneGroup { uint8_t *dcs; uint32_t didx; ULONGLONG opened; bool dead; bool test_killed; int n; Comp comps[20];
                     void *ctx; };                              // ctx: a node context of its script (its explosion)
 DroneGroup g_drones[8];
@@ -311,32 +357,47 @@ void Shutdown(uint8_t *dcs, uint32_t didx, const char *why) {
     for (int i = 0; i < n; ++i) Real_Disable(comps[i].system, comps[i].index, 1);
     // the explosion, on the next follow update (the game thread). Clients only: a particle
     // spawn on the headless server crashed it.
-    if (!g_is_server && ctx) InterlockedExchangePointer(&g_death_fx, ctx);
+    if (!g_is_server && ctx) QueueDeathFx(ctx, nullptr, 0);
     Log("drone %u %s: shut down (%d components off)%s", didx & 0xffff, why, n,
         !g_is_server && ctx ? ", explosion" : "");
 }
 
 // The drone's own end (its lifetime, 20 s): its script turns off its sound system
-// (DRONE_SOUND, first), then its damageable and the rest. The same explosion as a kill, on
-// this machine (every client runs the script), not the server -- right away, on the
-// script's thread, before that first one goes off: on the next frame it was silent.
-void Expired() {
-    void *ctx = nullptr;
-    uint32_t didx = 0;
+// (DRONE_SOUND) first, then its damageable and the rest, on the script's thread. The sound
+// system's disables are held back (t_expiry, Hooked_Disable); the damageable's names the
+// drone (ExpiredDamageable): still alive -> its explosion is queued, with the held-back
+// sound system to go off after it; already dead (shot down: its explosion was then) -> the
+// sound system goes off now. Every client runs the script; the server gets no explosion.
+struct Expiry { void *ctx; int nsound; Comp sound[8]; bool open; };
+thread_local Expiry t_expiry = {};
+thread_local int t_expiry_step = 0;                               // 1: sound system going off, 2: damageable
+
+void ExpiryHold(void *system, uint32_t index) {                   // (Hooked_Disable, t_expiry_step 1)
+    if (t_expiry.nsound < 8) t_expiry.sound[t_expiry.nsound++] = { system, index };
+    else Real_Disable(system, index, 1);
+}
+
+void ExpiredDamageable(void *system, uint32_t index) {            // (Hooked_Disable, t_expiry_step 2)
+    bool alive = false;
     ULONGLONG age = 0;
     AcquireSRWLockExclusive(&g_drones_lock);
-    DroneGroup *g = nullptr;
     for (auto &d : g_drones)
-        if (d.dcs && !d.dead && (!g || d.opened > g->opened)) g = &d;
-    if (g && (age = GetTickCount64() - g->opened) > 1000) {
-        g->dead = true;
-        ctx = g->ctx;
-        didx = g->didx;
-    } else g = nullptr;
+        if (d.dcs == system && d.didx == index) {
+            alive = !d.dead;
+            d.dead = true;
+            age = GetTickCount64() - d.opened;
+            break;
+        }
     ReleaseSRWLockExclusive(&g_drones_lock);
-    if (!g) return;
-    Log("drone %u expired after %.1f s%s", didx & 0xffff, age / 1000.0, !g_is_server && ctx ? ", explosion" : "");
-    if (!g_is_server && ctx) SpawnDeathFx(ctx);
+    Expiry e = t_expiry;
+    t_expiry = {};
+    if (alive && !g_is_server && e.open && e.ctx) {
+        QueueDeathFx(e.ctx, e.sound, e.nsound);
+        Log("drone %u expired after %.1f s, explosion", index & 0xffff, age / 1000.0);
+    } else {
+        for (int i = 0; i < e.nsound; ++i) Real_Disable(e.sound[i].system, e.sound[i].index, 1);
+        if (alive) Log("drone %u expired after %.1f s", index & 0xffff, age / 1000.0);
+    }
 }
 
 void __fastcall Hooked_Death(void *cs, uint32_t index) {
@@ -450,7 +511,16 @@ struct TouchRec { void *system; uint32_t index; uint32_t handle; ULONGLONG deplo
 TouchRec g_touch[16];
 SRWLOCK g_touch_lock = SRWLOCK_INIT;
 
+void ExpiryHold(void *system, uint32_t index);
+void ExpiredDamageable(void *system, uint32_t index);
+
 void __fastcall Hooked_Disable(void *system, uint32_t index, uint16_t flag) {
+    if (t_expiry_step == 1 && !g_is_server) { ExpiryHold(system, index); return; }
+    if (t_expiry_step == 2) {
+        Real_Disable(system, index, flag);
+        ExpiredDamageable(system, index);
+        return;
+    }
     if (!t_capture) {
         Real_Disable(system, index, flag);
         return;
@@ -516,9 +586,20 @@ void __fastcall Hooked_EnableEnter(void *node, const uint64_t *data) {
     if (data[0] == DRONE_ACTOR && InterlockedIncrement(&g_dbg_enables) <= 400)
         Log("[test] drone script: %s %016llx/%016llx", (uint32_t)data[4] ? "on " : "off", data[2], data[3]);
 #endif
-    if (data[0] == DRONE_ACTOR && (data[2] == DRONE_SOUND || data[2] == R14_DAMAGEABLE) && !(uint32_t)data[4]
-        && Real_EnableComp)
-        Expired();
+    if (data[0] == DRONE_ACTOR && !(uint32_t)data[4] && Real_EnableComp && Real_Disable
+        && (data[2] == DRONE_SOUND || data[2] == R14_DAMAGEABLE)) {
+        if (data[2] == DRONE_SOUND) {                       // the end begins: this node's context
+            for (int i = 0; i < t_expiry.nsound; ++i)        // (an unfinished one before: let it go)
+                Real_Disable(t_expiry.sound[i].system, t_expiry.sound[i].index, 1);
+            t_expiry = {};
+            t_expiry.open = true;
+            t_expiry.ctx = *(void *volatile *)((uint8_t *)GetModuleHandleW(nullptr) + DEATH_TOKEN_RVA + 0x20);
+        }
+        t_expiry_step = data[2] == DRONE_SOUND ? 1 : 2;
+        Real_EnableEnter(node, data);
+        t_expiry_step = 0;
+        return;
+    }
     EnableTag tag(data[0] == DRONE_ACTOR && (uint32_t)data[4] ? (data[2] == R14_DAMAGEABLE ? 2 : 1) : 0);
     if (data[0] == DRONE_ACTOR && data[2] == R14_TOUCH_INTERACT && !(uint32_t)data[4] && Real_Disable) {
         t_capture = true;                                   // the engine resolves it; Hooked_Disable keeps it
