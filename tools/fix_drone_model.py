@@ -61,6 +61,7 @@ if _HERE not in sys.path:
 
 import cr_table as ct
 from le_symbol_names import symbol64
+from echocombat_config import section                         # noqa: E402
 
 ROOT = os.path.dirname(_HERE)
 GLB = os.path.join(ROOT, "assets", "drone", "Drone4.glb")
@@ -79,8 +80,10 @@ GUN = 0x72F91FFFA17C3C8C               # the sidearm's model component (model 82
 #: the actor's main model ("ncaModel", the same id on every actor): the grenade shell
 #: 3ce2965d2a7b3975, flagged not drawn (model instance +0x18 bit 0x10 clear, as on 10 of the
 #: level's 649 main models). Each model carries its own CPhysicsResource and this one's is
-#: the drone's only collision: swapped out, the drone had no physics body, and grabbing it
-#: crashed (echovr+0xd83dd7, null +0x8f8). Left as it is.
+#: the drone's only collision (every ordnance's: a ~10 cm convex hull): swapped for a model
+#: with no physics, the drone had no physics body, and grabbing it crashed (echovr+0xd83dd7,
+#: null +0x8f8). It gets HITBOX_MODEL instead: drawn as nothing, with the shell's collision
+#: scaled by HIT_SCALE, so bullets hit a drone more easily than an arc mine (whose hull it is).
 MAIN = 0x38EE951A26FB816A
 #: the shell's drawn copy -> the body (its texture streaming record has the same id)
 SAT_COMP = SAT_TEXSTREAM = 0x106C63A2927B7A4D
@@ -99,6 +102,14 @@ DONOR_AS_IS = ("230554bc3beca38c", "73d312a620da3824", "7b9a4c9fd03f37eb", "b7d3
 BODY_MODEL = int(symbol64("echocombat_drone_cubesat"), 16)
 PORT_MODEL = int(symbol64("echocombat_drone_cubesat_port"), 16)
 BLANK_MODEL = int(symbol64("echocombat_drone_blank"), 16)
+HITBOX_MODEL = int(symbol64("echocombat_drone_hitbox"), 16)
+SHELL = "3ce2965d2a7b3975"             # the ordnance shell (every ordnance's MAIN model)
+PHYSICS = "b7d338793fa37832"           # CPhysicsResource
+#: the hitbox's size against the shell's (config/mp_weapon_settings.json grenade_properties.drone):
+#: 1 (as stock). The shell's collision is a flat 12-sided disc (19 cm, 2 mm thick) at the
+#: drone's origin, the sidearm's place, and scaling it only made a bigger disc there; the
+#: CubeSat beside it is hit by DroneFix.dll's sphere instead (dronefix.cpp DroneHitsDue).
+HIT_SCALE = float(section("grenade_properties", "drone").get("hit_scale", 1.0))
 #: glb mesh name -> (model, its name, texture size). The port fills the opening in the
 #: body's +Z face (the body has a hole there for it), so both go in.
 MESHES = {"mesh_119.004": (BODY_MODEL, "echocombat_drone_cubesat", 1024),
@@ -168,7 +179,7 @@ def swap(data: bytes, old: int, new: int, count: int = 1) -> bytes:
 
 def source_files() -> list:
     """(type, name) of every game file this reads besides the level tables."""
-    return ([(t, DONOR) for t in DONOR_AS_IS + (MESHLIST, SCENE)]
+    return ([(t, DONOR) for t in DONOR_AS_IS + (MESHLIST, SCENE, TEXSTREAM)]
             + [(t, f"{SHADERSET_DONOR:x}") for t in SHADERSET_TYPES]
             + [(TEXTURE_DESC, DESC_TEMPLATE)])
 
@@ -372,7 +383,13 @@ def texstream_record(textures: list) -> bytes:
 
 
 # --- assembling a model ---------------------------------------------------------------
-def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, bounds, textures: dict) -> list:
+def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, bounds, textures: dict,
+                 own_material: bool = True) -> list:
+    """The model's files. own_material False (the blank): the donor's own material and shader
+    set, kept: the drone's script sets two of its properties (0xFD0268DFE1C80980,
+    0x8B6F20C39D3F428B: the detonator parts' light) on every part each time, and on our
+    material, which has neither, each drone in the match logged "Unable to find property"
+    for each blank part -- 114 lines in one frame at a time."""
     ml = bytearray(read(MESHLIST, DONOR))
     if struct.unpack_from("<I", ml, 0)[0] != 1 or ml[D_VB:D_VB + 4] != b"\0\0\x08\x03":
         raise ValueError("the donor mesh list is not the one this expects")
@@ -385,6 +402,13 @@ def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, boun
     struct.pack_into("<4I", ml, D_IB, nv * (S0_STRIDE + S1_STRIDE), ni, 2, 0)
     struct.pack_into("<I", ml, D_GPU_SIZE, len(gpu))
 
+    fn = f"{model:x}"
+    if not own_material:
+        scene = bytearray(read(SCENE, DONOR))
+        struct.pack_into("<6f", scene, D_SCENE_BOUNDS, *bounds[:6])
+        return ([(MESHLIST, fn, bytes(ml)), (MESHLIST_GPU, fn, gpu), (SCENE, fn, bytes(scene)),
+                 (TEXSTREAM, fn, read(TEXSTREAM, DONOR))]
+                + [(t, fn, read(t, DONOR)) for t in DONOR_AS_IS])
     shaderset = int(symbol64(name + "_shaders"), 16)
     scene = bytearray(swap(swap(read(SCENE, DONOR), D_MATERIAL, MATERIAL, 2), D_SHADERSET, shaderset))
     struct.pack_into("<6f", scene, D_SCENE_BOUNDS, *bounds[:6])
@@ -392,13 +416,26 @@ def model_assets(read, model: int, name: str, gpu: bytes, nv: int, ni: int, boun
     for slot, tex in textures.items():
         shaders = swap(shaders, SLOTS[slot], tex)
 
-    fn = f"{model:x}"
     out = [(MESHLIST, fn, bytes(ml)), (MESHLIST_GPU, fn, gpu), (SCENE, fn, bytes(scene)),
            (TEXSTREAM, fn, texstream_record(list(textures.values())))]
     out += [(t, fn, read(t, DONOR)) for t in DONOR_AS_IS]          # its CPhysicsResource: empty
     out += [(SHADERSET_TYPES[0], f"{shaderset:x}", shaders),
             (SHADERSET_TYPES[1], f"{shaderset:x}", read(SHADERSET_TYPES[1], f"{SHADERSET_DONOR:x}"))]
     return out
+
+
+def scale_physics(blob: bytes, s: float) -> bytes:
+    """The shell's CPhysicsResource (a convex hull) scaled by s: every length in it -- its two
+    bounding boxes, radius, both vertex lists, edge lengths, face centres (0x70-0xd70, all
+    0.001-0.3 m). Its normals and the other unitless values (0.5774, 2/3, 1, 2) are left."""
+    if len(blob) != 4356 or abs(struct.unpack_from("<f", blob, 0xC4)[0] - 0.0956) > 0.001:
+        raise ValueError("the shell's collision is not the one this expects")
+    out = bytearray(blob)
+    for o in range(0x70, 0xD70, 4):
+        f = struct.unpack_from("<f", out, o)[0]
+        if 0.0009 < abs(f) < 0.3:
+            struct.pack_into("<f", out, o, f * s)
+    return bytes(out)
 
 
 def drone_assets(read) -> list:
@@ -427,13 +464,18 @@ def drone_assets(read) -> list:
         if model == BODY_MODEL:                              # the blank: the body, one degenerate triangle
             blank_gpu = gpu[:nv * (S0_STRIDE + S1_STRIDE)] + b"\0" * 6
             out += [a for a in model_assets(read, BLANK_MODEL, "echocombat_drone_blank", blank_gpu, nv, 3,
-                                            bounds, textures)]
+                                            bounds, textures, own_material=False)]
+            hitbox = model_assets(read, HITBOX_MODEL, "echocombat_drone_hitbox", blank_gpu, nv, 3,
+                                  bounds, textures, own_material=False)
+            physics = scale_physics(read(PHYSICS, SHELL), HIT_SCALE)
+            out += [(t, n, physics if t == PHYSICS else d) for t, n, d in hitbox]
+            print(f"echocombat_drone_hitbox ({HITBOX_MODEL:x}): the shell's collision x{HIT_SCALE:g}")
     return out
 
 
 # --- the level tables -----------------------------------------------------------------
 #: drone component -> the model it shows
-SHOWS = {SAT_COMP: BODY_MODEL, PORT_COMP: PORT_MODEL, **{c: BLANK_MODEL for c in STUBBED}}
+SHOWS = {SAT_COMP: BODY_MODEL, PORT_COMP: PORT_MODEL, MAIN: HITBOX_MODEL, **{c: BLANK_MODEL for c in STUBBED}}
 
 
 def model_table(blob: bytes) -> tuple[bytes, bool]:

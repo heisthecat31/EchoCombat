@@ -1,5 +1,8 @@
 """OVERCHARGE's own look, chosen at run time inside Repair Matrix's script.
 
+RETIRED: since OVERCHARGE has its own heal bubble (fix_buff.OC_BUBBLE) its own script draws
+it, and this is no longer applied; only OC_COUNTER_RVA / OC_TOKEN_RVA are still used.
+
 Tested in game (2026-10-10): whichever tac mod is used, the heal bubble's visuals are
 drawn by Repair Matrix's script (mp_combat_ability_heal, 6a0f689e5b91c666); the buff
 script's visual nodes never show. So the choice is made there, per player:

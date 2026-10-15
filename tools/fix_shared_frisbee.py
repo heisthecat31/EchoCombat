@@ -9,7 +9,7 @@ frisbee component, so every throw logged
     ~ Scriptnode can't find actor/component ~ ... Target Component: 0x84C65832F0B8B181
 
 This rewrites the condition (expression_93def80d_condition) to "type != arc
-and type != dot". The 23-byte compare
+and type != dot and type != drone" (1.1.7: the drone too). The 23-byte compare
 
     movabs rax, CSymbol64("arc"); cmp [rsp+0x28], rax; sete cl; test cl, cl; sete al
 
@@ -40,11 +40,16 @@ DOT = 0xC8E8D0B1A894EDFE               # CSymbol64("dot")
 OLD = (b"\x48\xb8" + struct.pack("<Q", ARC)            # movabs rax, arc
        + bytes.fromhex("4839442428")                    # cmp [rsp+0x28], rax
        + bytes.fromhex("0f94c1 84c9 0f94c0"))            # sete cl; test cl, cl; sete al
-NEW = (bytes.fromhex("488b442428")                       # mov rax, [rsp+0x28]
-       + b"\x3d" + struct.pack("<I", ARC & 0xFFFFFFFF)   # cmp eax, arc
-       + bytes.fromhex("7405")                           # je +5 (to setne, ZF=1 -> 0)
-       + b"\x3d" + struct.pack("<I", DOT & 0xFFFFFFFF)   # cmp eax, dot
-       + bytes.fromhex("0f95c0 909090"))                 # setne al; nop x3
+DRONE = 0xE32DC7DECB804AB5             # CSymbol64("drone")
+#: the drone has no frisbee either (it logged the same on every throw): the low 16 bits,
+#: unique among the seven too (f0e9 edfe e7fe ede9 0bbe 57a4 4ab5), so three compares fit
+NEW = (bytes.fromhex("8b442428")                                     # mov eax, [rsp+0x28]
+       + bytes.fromhex("663d") + struct.pack("<H", ARC & 0xFFFF)     # cmp ax, arc
+       + bytes.fromhex("740a")                                       # je setne (ZF=1 -> 0)
+       + bytes.fromhex("663d") + struct.pack("<H", DOT & 0xFFFF)     # cmp ax, dot
+       + bytes.fromhex("7404")                                       # je setne
+       + bytes.fromhex("663d") + struct.pack("<H", DRONE & 0xFFFF)   # cmp ax, drone
+       + bytes.fromhex("0f95c0"))                                    # setne al
 
 
 def rva_to_raw(pe: bytes, rva: int) -> int:
@@ -78,7 +83,7 @@ def main(argv) -> int:
     asset = open(os.path.join(args.src, SCRIPTS, SHARED_SCRIPT), "rb").read()
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, SHARED_SCRIPT), "wb").write(patch(asset))
-    print(f"{SCRIPTS}/{SHARED_SCRIPT}: frisbee enable skipped for arc and dot")
+    print(f"{SCRIPTS}/{SHARED_SCRIPT}: frisbee enable skipped for arc, dot and drone")
     return 0
 
 

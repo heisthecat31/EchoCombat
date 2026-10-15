@@ -27,11 +27,12 @@
  },
  "grenade_properties": {
   "drone": {
-   "health": 60,
+   "health": 70,
+   "hit_scale": 1.0,
    "death_effect_size": 0.5,
    "fire_rate": 0.28,
    "max_target_distance": 20,
-   "bullet_speed": 120,
+   "bullet_speed": 70,
    "bullet_damage": 2,
    "cooldown": 30
   },
@@ -43,7 +44,7 @@
    "effect_size": 2.0,
    "effect_lifetime": 2.5,
    "effect_time": 2.5,
-   "sound_copies": 16
+   "sound_copies": 12
   }
  },
  "ability_properties": {
@@ -60,10 +61,10 @@
    "link_window_ms": 500
   },
   "smoke": {
-   "veil_cloud_count": 4,
-   "veil_cloud_size": 3.9,
-   "veil_cloud_lifetime": 6.0,
-   "veil_cloud_spread": 0.975,
+   "veil_cloud_count": 1,
+   "veil_cloud_size": 5.0,
+   "veil_cloud_lifetime": 8.0,
+   "veil_cloud_spread": 0.0,
    "veil_cloud_emission": 4.0,
    "veil_puff_size": 3.5,
    "veil_opacity": 35.0,

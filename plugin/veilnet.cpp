@@ -377,6 +377,12 @@ bool OursAtEnd(uint8_t *entries, uint64_t full) {
     return true;
 }
 
+// The tac mod the player has selected (EQUIP_RVA, from their profile update) is one of ours.
+bool OurSelected() {
+    uint64_t sym = *(volatile uint64_t *)(g_base + EQUIP_RVA);
+    return sym == 0xe32dc7c9d4804fb5ull || sym == 0xe32dc7cad6864aa4ull || sym == 0xc8c33e48386618b6ull;   // smoke, point, buff
+}
+
 // The list is rebuilt (and its old one freed) on the game's thread: everything here is
 // guarded. 0: unchanged, 1: shown, 2: hidden.
 int TacModsGuarded(bool server_has_it, uint64_t *now_count) {
@@ -396,6 +402,10 @@ int TacModsGuarded(bool server_has_it, uint64_t *now_count) {
         uint64_t full = g_list_full;
         if (full < 3 || full > capacity || !OursAtEnd(entries, full)) return 0;
         uint64_t want = server_has_it ? full : full - 3;
+        // One of ours selected: the list stays whole. Cut short, the selection pointed past
+        // its end (a loading match hides them until its server answers): kept, it is only
+        // an EchoCombat tac mod on a server without it, as before the gate.
+        if (!server_has_it && OurSelected()) want = full;
         if (*count == want) return 0;
         *count = want;
         *now_count = want;
@@ -435,7 +445,7 @@ DWORD WINAPI Tick(LPVOID) {
     sockaddr_in logged_server = {};
     ULONGLONG next_hello = 0, next_pick = 0, next_hook = 0, next_tacmods = 0;
     while (!g_stop) {
-        Sleep(5);
+        Sleep(10);                                       // (5 ms: 200 wakeups a second, for checks that need far fewer)
         if (!g_server && GetTickCount64() >= next_hook) {                // the selection is the client's own
             next_hook = GetTickCount64() + 1000;
             HookSelectionLogs();
@@ -661,6 +671,52 @@ void Uninstall() {
     Log("unhooked");
 }
 
+// A clean exit. CR15Game's shutdown (+0x1223a0, its vslot 7, run once by Main_ as the game
+// quits) logs the player out, then hands over to the engine's own teardown (+0x512590, the
+// call at +0x122755). That teardown frees every resource, and one GPU particle effect's
+// instance list is broken by then (+0x633643 reads through -1), so nearly every close with
+// EchoCombat's data ended in an access violation and a BugSplat report. The call ends the
+// process there instead (the logout and everything before it has run). The stub calls
+// TerminateProcess itself and is never freed, so it outlives this DLL: nothing to undo.
+constexpr uintptr_t TEARDOWN_CALL_RVA = 0x122752;
+constexpr uint8_t TEARDOWN_CALL_BYTES[] = { 0x48, 0x8b, 0xcf, 0xe8, 0x36, 0xfe, 0x3e, 0x00 };   // mov rcx, rdi; call +0x512590
+
+void InstallQuickExit() {
+    static bool done;
+    if (done) return;
+    uint8_t *base = (uint8_t *)GetModuleHandleW(nullptr);
+    uint8_t *call = base + TEARDOWN_CALL_RVA + 3;
+    if (memcmp(base + TEARDOWN_CALL_RVA, TEARDOWN_CALL_BYTES, sizeof TEARDOWN_CALL_BYTES) != 0) {
+        Log("shutdown call not found (another build?): the game exits as stock");
+        return;
+    }
+    uint8_t *stub = nullptr;                              // a call rel32 reaches +-2 GB
+    for (uintptr_t at = ((uintptr_t)base & ~0xffffull) - 0x10000; at > (uintptr_t)base - 0x70000000; at -= 0x10000)
+        if ((stub = (uint8_t *)VirtualAlloc((void *)at, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE))) break;
+    if (!stub) {
+        Log("no room for the shutdown stub: the game exits as stock");
+        return;
+    }
+    uint8_t code[] = {
+        0x48, 0xc7, 0xc1, 0xff, 0xff, 0xff, 0xff,         // mov rcx, -1 (this process)
+        0x31, 0xd2,                                       // xor edx, edx (exit code 0)
+        0x48, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0,               // mov rax, TerminateProcess
+        0xff, 0xe0,                                       // jmp rax
+    };
+    uint64_t fn = (uint64_t)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "TerminateProcess");
+    if (!fn) return;
+    memcpy(code + 11, &fn, 8);
+    memcpy(stub, code, sizeof code);
+    int32_t rel = (int32_t)(stub - (call + 5));
+    DWORD old;
+    if (!VirtualProtect(call, 5, PAGE_EXECUTE_READWRITE, &old)) return;
+    memcpy(call + 1, &rel, 4);
+    VirtualProtect(call, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), call, 5);
+    done = true;
+    Log("clean exit: the engine's teardown is skipped once the game has shut down");
+}
+
 } // namespace
 
 ECHOCOMBAT_EXPORT NvrPluginInfo NvrPluginGetInfo(void) {
@@ -675,6 +731,7 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
     EchoCombatLogPath(g_log_path, sizeof(g_log_path), "VeilNet");
+    InstallQuickExit();
     return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
 }
 
