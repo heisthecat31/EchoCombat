@@ -39,9 +39,14 @@ behaviour and tuning, recoloured from green to purplish red (the code still says
    dr_duration / conn_time. PowerBoost.dll narrows the bubble's radius check to
    the init_angle cone of the owner's aim and gives each linked teammate the dr
    buff; the bubble's tethers are the (recoloured) link.
-7. The revive (do_rez_buff) is cheat death: a linked teammate survives the first hit
-   that would kill them at 1 health, with a short grace after it, once per buff. The
-   marker carries it (REZ_FLAG); PowerBoost.dll does the rest on the server.
+7. The revive (do_rez_buff) is cheat death: while linked, a teammate survives every hit
+   that would kill them at 1 health, for cheat_death_seconds from their first link in
+   the use (a relink carries on to the same end; leaving the cone ends it). The marker
+   carries it (REZ_FLAG); PowerBoost.dll does the rest on the server. Server and clients
+   need the same PowerBoost.dll: an older server takes the unlink marker for a heal.
+8. Its own heal bubble: OVERCHARGE drives a second heal bubble component on each player
+   (OC_BUBBLE, a copy of the stock one), so it and Repair Matrix never share settings or
+   visuals; Repair Matrix's script stays stock but for the selection guard.
 
     python tools/fix_buff.py --base <stage> --src <extract root> --out <dir>
 """
@@ -62,11 +67,26 @@ from fix_drone import EQUIPMENT, WEAPON_SETTINGS, load, save
 from echocombat_config import section
 from fix_smoke import PE, rel32, u64, SCRIPTS, SCRIPT_RESOURCE, SCRIPT_CR, GLOBAL_LEVEL, PLAYER_ACTORS
 from veil_fx import SELF, add_section, transplant
-import oc_switch
+from le_symbol_names import symbol64
+import cr_table as ct
+import oc_switch                         # OC_COUNTER_RVA (the use counter VeilNet watches)
 import equip_guard
 
 HEAL_SCRIPT = 0x6A0F689E5B91C666
 BUFF_SCRIPT = 0x4B65D1B0088D2682       # CSymbol64("mp_combat_ability_buff")
+#: OVERCHARGE has a heal bubble of its own (8.). Each player carries one stock bubble
+#: component, HEAL_BUBBLE (the system's own id); both scripts drove it, so each tac mod ran
+#: with whatever settings the other left (Repair Matrix cone-limited, short and purple,
+#: OVERCHARGE linking everyone), and each script drew the other's visuals. The buff script's
+#: handles (all component ids: a handle's system is its C++ type) name OC_BUBBLE instead,
+#: a copy of each player's stock bubble record in the global level's BUBBLE_CR.
+HEAL_BUBBLE = 0xB1FDA2A83F3DEBD1
+OC_BUBBLE = int(symbol64("echocombat_overcharge_bubble"), 16)
+HEAL_BUBBLE_REFS = 40
+BUBBLE_CR = "1ad01a2a91709a1a"           # CSymbol64("CR15NetHealBubbleCRWin10")
+#: every actor with Repair Matrix's script and bubble gets OVERCHARGE's too: the two
+#: combat players, and b113997837c29003 (heal script and bubble, no controller)
+OC_ACTORS = PLAYER_ACTORS + (0xB113997837C29003,)
 BUFF = 0xC8C33E48386618B6              # CSymbol64("buff")
 BUFF_GEAR = {"name": "buff", "display_name": "OVERCHARGE"}   # was POWER BOOST
 
@@ -274,7 +294,7 @@ def read_buff_tuning(script: bytes) -> bytes:
 
 def buff_marker(dr: float, seconds: float, rez: bool = False) -> float:
     """The heal amount PowerBoost.dll reads as "dr for seconds", plus REZ_FLAG when linked
-    teammates also cheat death once (see plugin/powerboost.cpp). Exact as a float."""
+    teammates also cheat death (see plugin/powerboost.cpp). Exact as a float."""
     permille, secs = round(dr * 1000), round(seconds)
     if not (0 <= permille <= 999 and 1 <= secs <= 999):
         raise ValueError(f"dr {dr} / dr_duration {seconds} out of the marker's range")
@@ -406,6 +426,30 @@ def gold_script(heal_pe: bytes, gold=GOLD, tint=TINT) -> bytes:
     return bytes(pe.d)
 
 
+def own_bubble(script_pe: bytes) -> bytes:
+    """The buff script with every heal bubble handle on OC_BUBBLE."""
+    old, new = struct.pack("<Q", HEAL_BUBBLE), struct.pack("<Q", OC_BUBBLE)
+    if script_pe.count(old) != HEAL_BUBBLE_REFS:
+        raise ValueError(f"the buff script has {script_pe.count(old)} heal bubble ids, not {HEAL_BUBBLE_REFS}")
+    return script_pe.replace(old, new)
+
+
+def add_bubbles(blob: bytes) -> tuple[bytes, int]:
+    """Each player actor's stock bubble record copied as OC_BUBBLE (global level BUBBLE_CR)."""
+    root = ct.parse(blob, 0x38)
+    recs = root.arrays[0].elems
+    have = {u64(e.raw, 8) for e in recs if u64(e.raw, 0) == OC_BUBBLE}
+    added = 0
+    for e in list(recs):
+        actor = u64(e.raw, 8)
+        if u64(e.raw, 0) == HEAL_BUBBLE and actor in OC_ACTORS and actor not in have:
+            new = ct.copy(e)
+            struct.pack_into("<Q", new.raw, 0, OC_BUBBLE)
+            ct.add_element(root, 0, new)
+            added += 1
+    return (ct.build(root) if added else blob), added
+
+
 def attach_buff_script(blob: bytes):
     """Add a buff-script entry after each player actor's heal-script entry."""
     stride, hdr = 720, 0x38
@@ -417,7 +461,7 @@ def attach_buff_script(blob: bytes):
     out, added = [], 0
     for e in entries:
         out.append(e)
-        if u64(e, 8) in PLAYER_ACTORS and u64(e, 32) == HEAL_SCRIPT:
+        if u64(e, 8) in OC_ACTORS and u64(e, 32) == HEAL_SCRIPT:
             if any(u64(x, 8) == u64(e, 8) and u64(x, 32) == BUFF_SCRIPT for x in entries):
                 continue                              # already attached
             for t in (48, 104, 160, 216, 272, 328, 384, 440, 496, 552, 608, 664):
@@ -491,15 +535,13 @@ def main(argv) -> int:
     # That swap showed the beam green to the user and invisible to everyone else, so for
     # now both tac mods use Repair Matrix's own green effects (PURPLE_EFFECTS off):
     # Repair Matrix's script stays stock and OVERCHARGE's spawns the originals.
+    # With its own bubble (OC_BUBBLE) each script only hears its own tac mod's bubble, so
+    # Repair Matrix's script stays stock (no run-time purple switch, oc_switch.py) and
+    # OVERCHARGE's draws its own, recoloured and with the purple copies.
     stock_heal = heal
     heal = read_buff_tuning(heal)
     hmz = stock_heal.find(b"MZ")
     rm = stock_heal[hmz:]
-    if purple_fx:
-        # Repair Matrix's script draws both tac mods' visuals (tested): it picks OVERCHARGE's
-        # look at run time for an OVERCHARGE user's bubble (oc_switch.py, needs VeilNet.dll)
-        rm = oc_switch.oc_switch(rm, PARTICLES, CLASSES, ENTRY, gold, tint)
-        print(f"{SCRIPTS}/{HEAL_SCRIPT:x}: Repair Matrix's script shows OVERCHARGE's purple look for OVERCHARGE bubbles")
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{HEAL_SCRIPT:x}"), "wb").write(
         stock_heal[:hmz] + equip_guard.heal_copy(rm, equip_guard.HEAL))   # fires only when equipped
@@ -514,8 +556,10 @@ def main(argv) -> int:
     buff_pe = gold_particle_refs(heal[mz:]) if purple_fx else heal[mz:]
     os.makedirs(os.path.join(args.out, SCRIPTS), exist_ok=True)
     open(os.path.join(args.out, SCRIPTS, f"{BUFF_SCRIPT:x}"), "wb").write(
-        heal[:mz] + equip_guard.heal_copy(add_buff(gold_script(buff_pe, gold, tint), wraith[wraith.find(b"MZ"):],
-                                                   marker, purple_fx), equip_guard.BUFF))
+        heal[:mz] + own_bubble(equip_guard.heal_copy(add_buff(gold_script(buff_pe, gold, tint),
+                                                              wraith[wraith.find(b"MZ"):], marker, purple_fx),
+                                                     equip_guard.BUFF)))
+    print(f"{SCRIPTS}/{BUFF_SCRIPT:x}: OVERCHARGE drives its own heal bubble ({OC_BUBBLE:x})")
     print(f"buff: dr {tuning['dr']} for {tuning['dr_duration']} s (marker {marker:.0f}); link "
           f"{tuning['len']} m / {tuning['init_angle']} deg (bubble radius {tuning['heal_radius']}), "
           f"heal {tuning['heal_amt_on_success']}, cheat death {'on' if rez else 'off'} (needs PowerBoost.dll on server and clients)")
@@ -529,6 +573,12 @@ def main(argv) -> int:
     fixed, added = attach_buff_script(open(src, "rb").read())
     open(staged, "wb").write(fixed)
     print(f"global level: buff script attached to {added} player actor(s)")
+    os.makedirs(os.path.join(args.out, BUBBLE_CR), exist_ok=True)
+    staged = os.path.join(args.out, BUBBLE_CR, GLOBAL_LEVEL)
+    src = staged if os.path.exists(staged) else os.path.join(args.src, BUBBLE_CR, GLOBAL_LEVEL)
+    fixed, added = add_bubbles(open(src, "rb").read())
+    open(staged, "wb").write(fixed)
+    print(f"global level: OVERCHARGE's own heal bubble on {added} player actor(s)")
     return 0
 
 
