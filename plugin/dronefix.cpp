@@ -775,6 +775,32 @@ void __fastcall Hooked_Disable(void *system, uint32_t index, uint16_t flag) {
     Log("drone deployed: stays grabbable until it locks on (touch interact %p #%u)", system, index);
 }
 
+// The touch interact is still part of a drone that is alive. A record outlives its drone (an
+// expired or destroyed drone's is never cleared, and a new drone's first shot can pick it up),
+// and disabling a component the game has since freed crashed clients (echovr+0x198b2d reads
+// through a stale component, null +0x388, from DISABLE_RVA).
+bool TouchLive(void *system, uint32_t index) {
+    bool live = false;
+    AcquireSRWLockExclusive(&g_drones_lock);
+    for (auto &d : g_drones) {
+        if (!d.dcs || d.dead) continue;
+        for (int i = 0; i < d.n && !live; ++i)
+            live = d.comps[i].system == system && d.comps[i].index == index;
+        if (live) break;
+    }
+    ReleaseSRWLockExclusive(&g_drones_lock);
+    return live;
+}
+
+bool SafeDisable(void *system, uint32_t index) {
+    __try {
+        Real_Disable(system, index, 1);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // At a drone's shot: the first one locks that drone on, and turns its touch interact off.
 void LockedOn(uint32_t handle) {
     if (!Real_Disable) return;
@@ -799,9 +825,12 @@ void LockedOn(uint32_t handle) {
         index = g_touch[mine].index;
     }
     ReleaseSRWLockExclusive(&g_touch_lock);
-    if (system) {
-        Real_Disable(system, index, 1);
-        Log("drone %u locked on: no longer grabbable (touch interact %p #%u)", handle, system, index);
+    if (system && !TouchLive(system, index)) {
+        Log("drone %u locked on: its touch interact %p #%u belongs to no live drone, left alone", handle, system, index);
+    } else if (system) {
+        bool ok = SafeDisable(system, index);
+        Log(ok ? "drone %u locked on: no longer grabbable (touch interact %p #%u)"
+               : "drone %u locked on: disabling touch interact %p #%u faulted, contained", handle, system, index);
     }
 }
 
