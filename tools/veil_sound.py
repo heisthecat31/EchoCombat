@@ -47,10 +47,10 @@ RATE = 48000
 LOC_EVENT, LOC_ACTION = 2819690668, 1031878165
 #: how many copies of the sound the event starts at once: each one starts on the same
 #: sample, so they add up (2 = +6 dB, 3 = +9.5 dB, 4 = +12 dB). The sound object itself
-#: is left alone: the stun-bouncing-off-a-barrier sound plays it too. 16 = +24 dB over
-#: one copy (+8.5 dB over the earlier 6).
+#: is left alone: the stun-bouncing-off-a-barrier sound plays it too. 12 = +21.6 dB over
+#: one copy (16 was too loud; 12 is 2.5 dB under it).
 from echocombat_config import section                             # noqa: E402
-LOC_COPIES = int(section("grenade_properties", "loc").get("sound_copies", 16))   # config/mp_weapon_settings.json
+LOC_COPIES = int(section("grenade_properties", "loc").get("sound_copies", 12))   # config/mp_weapon_settings.json
 LOC_SOUND, LOC_SOUND_BANK = 159312186, 3901061564
 #: POINT's sound (the arc mine sound picked from sound_candidates/) is held in the
 #: grenade bank c823e2c9bc0168ad, which is not loaded in every match, so POINT went

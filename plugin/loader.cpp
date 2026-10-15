@@ -12,12 +12,13 @@
 //
 // A DLL in plugins\ that is itself a plugin loader (another mod's dbgcore.dll,
 // moved there by the installer) is skipped: it would load every plugin a second
-// time and hook everything twice. Log (built with ECHOCOMBAT_LOG): plugins\loader.log.
+// time and hook everything twice. Log (built with ECHOCOMBAT_LOG): <game>\_local\echoCombatBetaLogs\loader.log.
 
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "logdir.h"
 
 // Marks this DLL as a plugin loader for the installer and for other copies of
 // this loader (see IsLoader).
@@ -143,6 +144,49 @@ extern "C" __declspec(dllexport) BOOL WINAPI MiniDumpReadDumpStream(uintptr_t ba
     return real(base, stream, dir, ptr, size);
 }
 
+// A clean exit. CR15Game's shutdown (+0x1223a0, its vslot 7, run once by Main_ as the game
+// quits) logs the player out, then hands over to the engine's own teardown (+0x512590, the
+// call at +0x122755). That teardown frees every resource, and one GPU particle effect's
+// instance list is broken by then (+0x633643 reads through -1), so nearly every close since
+// the modded data ended in an access violation and a BugSplat report. The process is on its
+// way out at that point: the call ends it there instead (the logout and everything before it
+// has run; Windows frees the rest).
+constexpr uintptr_t TEARDOWN_CALL_RVA = 0x122752;
+constexpr uint8_t TEARDOWN_CALL_BYTES[] = { 0x48, 0x8b, 0xcf, 0xe8, 0x36, 0xfe, 0x3e, 0x00 };   // mov rcx, rdi; call +0x512590
+
+void __fastcall QuickExit(void *) {
+    Log("game shut down: ending the process before the engine's teardown");
+    TerminateProcess(GetCurrentProcess(), 0);
+}
+
+void InstallQuickExit() {
+    uint8_t *base = (uint8_t *)GetModuleHandleW(nullptr);
+    uint8_t *call = base + TEARDOWN_CALL_RVA + 3;
+    if (memcmp(base + TEARDOWN_CALL_RVA, TEARDOWN_CALL_BYTES, sizeof TEARDOWN_CALL_BYTES) != 0) {
+        Log("shutdown call not found (another build?): the game exits as stock");
+        return;
+    }
+    // a call rel32 reaches +-2 GB: a stub just below the game's image jumps on to QuickExit
+    uint8_t *stub = nullptr;
+    for (uintptr_t at = ((uintptr_t)base & ~0xffffull) - 0x10000; at > (uintptr_t)base - 0x70000000; at -= 0x10000)
+        if ((stub = (uint8_t *)VirtualAlloc((void *)at, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE))) break;
+    if (!stub) {
+        Log("no room for the shutdown stub: the game exits as stock");
+        return;
+    }
+    uint8_t code[] = { 0x48, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xe0 };   // mov rax, QuickExit; jmp rax
+    uint64_t fn = (uint64_t)&QuickExit;
+    memcpy(code + 2, &fn, 8);
+    memcpy(stub, code, sizeof code);
+    int32_t rel = (int32_t)(stub - (call + 5));
+    DWORD old;
+    if (!VirtualProtect(call, 5, PAGE_EXECUTE_READWRITE, &old)) return;
+    memcpy(call + 1, &rel, 4);
+    VirtualProtect(call, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), call, 5);
+    Log("clean exit: the engine's teardown is skipped once the game has shut down");
+}
+
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
@@ -163,8 +207,9 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
             return TRUE;
         wcscpy_s(slash + 1, MAX_PATH - (slash + 1 - g_dir), L"plugins");
         CreateDirectoryW(g_dir, nullptr);
-        snprintf(g_log, sizeof(g_log), "%ls\\loader.log", g_dir);
+        EchoCombatLogPath(self, 2, "loader.log", g_log, sizeof(g_log));
         Log("EchoCombat plugin loader (%s)", GetCommandLineA());
+        InstallQuickExit();
         LoadPlugins();
     }
     return TRUE;

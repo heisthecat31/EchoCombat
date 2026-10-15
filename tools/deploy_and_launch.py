@@ -140,7 +140,8 @@ DRONE_MODEL_SOURCES = [(t, "171942614d4df2b3") for t in (
     "4e426f88c1b5d7ac", "a388ea69e5108f4c",
     "c2434c5a99e139ce")] + [                          # (the blank keeps the donor's texture streaming)
     (t, "c0fb34e681a628f1") for t in ("4984e2bbb2ddb256", "43ddbd692282a6a7")] + [
-    ("4a4c32c49300b8a0", "d8b84ca5707d3bd2")]
+    ("4a4c32c49300b8a0", "d8b84ca5707d3bd2"),
+    ("b7d338793fa37832", "3ce2965d2a7b3975")]              # the ordnance shell's collision (the hitbox)
 #: what tools/rm_preview/buff_assets.py copies from: Repair Matrix's cross mesh (four assets)
 #: and the beam sparks' colour texture (two)
 BUFF_ARROW_SOURCES = [(t, "c90ff12470c68d3b") for t in ("37102e4b27955a14", "73d312a620da3824",
@@ -192,7 +193,8 @@ def overlay(base: str, extract: str):
                                                     ("bd1868f576836696", "43e2da7a0c623a19"),   # drone health (fix_drone_health.py)
                                                     ("bd1868f576836696", "cb9977f7fc2b4526"),   # drone health (fix_drone_health.py)
                                                     ("bd1868f576836696", "df5ca7b7dfa383d4"),   # drone health (fix_drone_health.py)
-                                                    ("d99f6bbd8009c92c", GLOBAL_LEVEL)] + [
+                                                    ("d99f6bbd8009c92c", GLOBAL_LEVEL),
+                                                    ("1ad01a2a91709a1a", GLOBAL_LEVEL)] + [    # OVERCHARGE's own heal bubble (fix_buff.py)
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (t, a) for t, a in BUFF_ARROW_SOURCES] + [                     # OVERCHARGE's arrows / sparks (buff_assets.py)
         (t, a) for t, a in DOT_BUBBLE_SOURCES] + [                     # the DOT field bubble (fix_dot_field.py)

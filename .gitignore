@@ -2,6 +2,7 @@
 build/
 obj/
 out/
+out_debug/
 evrtool/evrtool.exe
 release/EchoCombat/
 release/EchoCombat.zip

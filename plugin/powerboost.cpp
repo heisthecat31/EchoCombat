@@ -22,8 +22,9 @@
 // buffed until then, and ProcessDamageServer gets damage * (1 - dr) before any shield
 // or health is taken off.
 //
-// Phase 2, the link. POWER BOOST's bubble is Repair Matrix's heal bubble, and the
-// bubble already links to and heals every target within its radius:
+// Phase 2, the link. POWER BOOST's bubble is a heal bubble like Repair Matrix's (its own
+// component on each player, fix_buff.OC_BUBBLE), and it links to and heals every target
+// within its radius:
 //
 //   +0xd6d1d0  CR15NetHealBubbleCS::UpdateActiveHealBubble(handle, dt)
 //   +0xd6dcc6    radius check: |target - owner|^2 >= radius^2 -> unlink
@@ -33,15 +34,20 @@
 // bubble, a target also needs to be within that angle of the owner's aim, and a
 // target that passes gets the dr buff. The bubble's targeting runs on clients only,
 // so the client that used POWER BOOST sends each link to the server as a link marker
-// (2,000,000 + the same encoding), the way it sends the use marker (see LinkMade). Repair Matrix (a whole radius) is untouched. The owner is
+// (2,000,000 + the same encoding), the way it sends the use marker (see LinkState; leaving
+// the cone sends an unlink, 6,000,000; ConeFilter's slack and LINK_MIN_MS keep a teammate on
+// the edge from flipping). The cone also keeps the bubble's radius (whole metres): the link
+// reaches no further than the tether. Repair Matrix (a whole radius) is untouched. The owner is
 // looked up the way the function does it (+0x44cc40, +0x638830): position at +8F8h,
 // orientation quaternion (x, y, z, w) at +BD0h. Which local axis is "aim" is set by
 // axis= in PowerBoost.ini ([cone], default +z); the log shows the angle to each
 // target along all six axes so the right one can be picked.
 //
-// Cheat death (do_rez_buff): a linked teammate whose buff carries the rez cannot die
-// for [rez] seconds (PowerBoost.ini, default 5) from the OVERCHARGE use: every hit that
-// would kill them then leaves them at 1 health. The damage reduction runs its full time.
+// Cheat death (do_rez_buff): a linked teammate whose buff carries the rez cannot die for
+// [rez] seconds (PowerBoost.ini, default 5) from their FIRST link in that OVERCHARGE use:
+// every hit that would kill them then leaves them at 1 health, as often as it comes, until
+// those seconds are up or the link breaks (a relink inside them carries on to the same
+// end; FirstLink). The damage reduction runs its full time.
 // ProcessDamageServer keeps
 // each damageable in a 0xB8-byte record (cs+100h, slot from the u16 table at
 // cs+D0h): flags at +02h (4 = dead, 2 = shield down), shield at +1Ch, health at +20h.
@@ -58,7 +64,7 @@
 //
 // All prologues are checked first; on a mismatch nothing is hooked. "-server" on the
 // command line picks the server role. Log (built with
-// ECHOCOMBAT_LOG): PowerBoost.log next to the DLL.
+// ECHOCOMBAT_LOG): <game>\_local\echoCombatBetaLogs\PowerBoost.log.
 
 #include <windows.h>
 #include <stdint.h>
@@ -66,6 +72,7 @@
 #include <string.h>
 #include <math.h>
 #include "detours.h"
+#include "logdir.h"
 
 namespace {
 
@@ -101,6 +108,8 @@ constexpr float MARKER_END = 2000000.0f;
 constexpr float LINK_BASE = 2000000.0f;   // link marker: the client's "I linked this one" (same encoding)
 constexpr float LINK_END = 3000000.0f;
 constexpr float REZ_FLAG = 2000000.0f;    // use / link marker + this: the buff carries a rez
+constexpr float UNLINK_BASE = 6000000.0f; // unlink marker: "this one left my cone", its buff ends
+constexpr float UNLINK_END = 7000000.0f;
 
 using heal_fn = void(__fastcall *)(void *cs, uint32_t index, float amount, uint64_t a4, uint64_t a5);
 using damage_fn = void(__fastcall *)(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6);
@@ -133,7 +142,7 @@ object_fn OwnerObject = nullptr;
 volatile float g_dr = 0.09f;               // from the latest marker
 volatile unsigned g_dr_seconds = 10;
 volatile bool g_rez = false;              // the latest marker's buff carries a rez
-unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms (unused)
+unsigned g_rez_grace_ms = 1500;           // PowerBoost.ini [rez] grace_ms (no longer used: no grace after a save)
 unsigned g_rez_window_ms = 5000;          // PowerBoost.ini [rez] seconds: cheat death lasts this long
 volatile ULONGLONG g_last_use = 0;        // server: when OVERCHARGE was last used
 // Damage boost (server): only the OVERCHARGE user, for the buff's seconds -- each gun hit
@@ -219,14 +228,14 @@ struct Buff {
     uint16_t index;
     ULONGLONG until;      // GetTickCount64
     float mult;           // 1 - dr
-    bool rez;             // cheat death still available
-    ULONGLONG grace;      // cheat death holds until then (the use + [rez] seconds)
+    bool rez;             // cheat death while linked
+    ULONGLONG grace;      // cheat death holds until then (its first link + [rez] seconds)
 };
 constexpr int MAX_BUFFS = 64;
 Buff g_buffs[MAX_BUFFS];
 SRWLOCK g_lock = SRWLOCK_INIT;
 
-char g_log_path[MAX_PATH];
+char g_log_path[MAX_PATH], g_ini_path[MAX_PATH];   // the ini: PowerBoost.ini next to the DLL
 volatile LONG g_logged = 0;
 
 void Log(const char *fmt, ...) {
@@ -250,6 +259,27 @@ void Log(const char *fmt, ...) {
 #endif
 }
 
+// When (cs, index) was first linked in the current use (g_last_use): its cheat death runs
+// [rez] seconds from then, however often the link breaks and comes back.
+struct FirstLinkAt { void *cs; uint16_t index; ULONGLONG use; ULONGLONG at; };
+FirstLinkAt g_first_links[MAX_BUFFS];
+
+ULONGLONG FirstLink(void *cs, uint16_t index, ULONGLONG now) {   // (under g_lock)
+    ULONGLONG use = g_last_use && now - g_last_use < 60000 ? g_last_use : 0;
+    FirstLinkAt *slot = nullptr;
+    for (auto &f : g_first_links) {
+        if (f.cs == cs && f.index == index) {
+            if (f.use == use) return f.at;
+            slot = &f;
+            break;
+        }
+        if (!slot && (!f.cs || f.use != use)) slot = &f;
+    }
+    if (!slot) slot = &g_first_links[0];
+    *slot = { cs, index, use, now };
+    return now;
+}
+
 // Buffs (cs, index) for `seconds`. Unless `refresh`, a buff still running is left as is.
 void AddBuff(void *cs, uint16_t index, float dr, unsigned seconds, bool rez, bool refresh = true) {
     ULONGLONG now = GetTickCount64(), until = now + seconds * 1000ull;
@@ -263,11 +293,28 @@ void AddBuff(void *cs, uint16_t index, float dr, unsigned seconds, bool rez, boo
         }
         if (slot < 0 && (g_buffs[i].cs == nullptr || g_buffs[i].until <= now)) slot = i;
     }
-    ULONGLONG rez_until = (g_last_use && now - g_last_use < 60000 ? g_last_use : now) + g_rez_window_ms;
+    ULONGLONG rez_until = FirstLink(cs, index, now) + g_rez_window_ms;
     if (slot >= 0) g_buffs[slot] = { cs, index, until, 1.0f - dr, rez, rez_until };
     ReleaseSRWLockExclusive(&g_lock);
     Log("buff: damageable %p/%u takes x%.3f damage for %u s%s%s", cs, index, 1.0f - dr, seconds,
-        rez ? ", cheats death once" : "", slot < 0 ? " -- NO FREE SLOT, ignored" : "");
+        rez && rez_until > now ? ", cannot die for the rest of its first link's seconds" : "",
+        slot < 0 ? " -- NO FREE SLOT, ignored" : "");
+}
+
+// The buff of (cs, index) ends now (its link broke): damage reduction and cheat death.
+void EndBuff(void *cs, uint16_t index) {
+    ULONGLONG now = GetTickCount64();
+    bool found = false;
+    AcquireSRWLockExclusive(&g_lock);
+    for (int i = 0; i < MAX_BUFFS; ++i)
+        if (g_buffs[i].cs == cs && g_buffs[i].index == index && g_buffs[i].until > now) {
+            g_buffs[i].until = now;
+            g_buffs[i].rez = false;
+            g_buffs[i].grace = now;
+            found = true;
+        }
+    ReleaseSRWLockExclusive(&g_lock);
+    Log("buff: damageable %p/%u unlinked: buff ended%s", cs, index, found ? "" : " (none running)");
 }
 
 // A marker's kind: 1 = use, 2 = link, 0 = a real heal; rez and the encoded value.
@@ -280,6 +327,10 @@ int Marker(float amount, bool *rez, unsigned *v) {
 }
 
 void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4, uint64_t a5) {
+    if (amount >= UNLINK_BASE && amount < UNLINK_END) {
+        if (g_server) EndBuff(cs, (uint16_t)index);  // a client's link to this damageable broke
+        return;
+    }
     bool rez;
     unsigned v;
     int kind = Marker(amount, &rez, &v);
@@ -355,7 +406,7 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
     g_damage_cs = cs;
     ULONGLONG now = GetTickCount64();
     float mult = 1.0f;
-    bool rez = false, grace = false;
+    bool rez = false;
     int slot = -1;
     AcquireSRWLockExclusive(&g_lock);
     for (int i = 0; i < MAX_BUFFS; ++i)
@@ -363,11 +414,6 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
             if (g_buffs[i].until > now) { mult = g_buffs[i].mult; rez = g_buffs[i].rez && now < g_buffs[i].grace; slot = i; }
             break;
         }
-    if (grace) {
-        ReleaseSRWLockExclusive(&g_lock);
-        Real_Damage(cs, index, 0.0f, info, a5, a6);
-        return;
-    }
     // the shooter boosted: +body_bonus / +head_bonus (before the target's own reduction)
     if (damage > 0) {
         uint32_t shooter = 0xffffffffu;
@@ -399,8 +445,8 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
         Log("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
         damage *= mult;
     }
-    // Cheat death holds for [rez] seconds from the use: every hit that would kill a linked
-    // teammate leaves them at 1 health instead.
+    // Cheat death holds for [rez] seconds from a teammate's first link in the use, while
+    // linked: every hit that would kill them leaves them at 1 health instead.
     if (rez && slot >= 0) {
         uint8_t *rec = Record(cs, index);
         if (WouldKill(rec, damage)) {
@@ -432,31 +478,29 @@ float AngleTo(const float *q, const float *axis, const float *d, float dist) {
     return acosf(c < -1 ? -1 : c > 1 ? 1 : c) * 57.29578f;
 }
 
-// A link to (dcs, index). The bubble's targeting only runs on clients, so the client
-// that used POWER BOOST (it sent a marker within the last 30 s) tells the server, at
-// most once a second per target: a DamageDealt of -(link marker), which the server's
-// handler turns into a heal of the marker, where Hooked_Heal buffs that damageable
-// (a buff still running is left as is). Other clients see the same link and stay quiet.
-void LinkMade(void *dcs, uint32_t index) {
+// A link to (dcs, index) made (linked) or broken. The bubble's targeting only runs on
+// clients, so the client that used POWER BOOST (it sent a marker within the last 30 s)
+// tells the server: a DamageDealt of -(link marker), which the server's handler turns into
+// a heal of the marker, where Hooked_Heal buffs that damageable for the use's remaining
+// seconds; or of -(unlink marker), which ends that buff. A teammate is only buffed while
+// linked. Other clients see the same link and stay quiet.
+void LinkState(void *dcs, uint32_t index, bool linked) {
     ULONGLONG now = GetTickCount64();
+    unsigned left = g_dr_seconds;
+    if (g_used_at && now - g_used_at < g_dr_seconds * 1000ull)
+        left = (unsigned)((g_dr_seconds * 1000ull - (now - g_used_at) + 999) / 1000);
+    if (left < 1) left = 1;
     if (!g_server && dcs == g_self_cs && (index & 0xffff) == g_self_index)   // someone linked us
-        g_boosted_until = now + g_dr_seconds * 1000ull;
+        g_boosted_until = linked ? now + left * 1000ull : now;
     if (g_server) {
-        AddBuff(dcs, (uint16_t)index, g_dr, g_dr_seconds, g_rez, false);   // no damage boost
+        if (linked) AddBuff(dcs, (uint16_t)index, g_dr, left, g_rez, false);   // no damage boost
+        else EndBuff(dcs, (uint16_t)index);
         return;
     }
     if (g_used_at == 0 || now - g_used_at > 30000) return;
-    static struct { void *cs; uint16_t index; ULONGLONG at; } sent[16];
-    int slot = 0;
-    for (int i = 0; i < 16; ++i) {
-        if (sent[i].cs == dcs && sent[i].index == (uint16_t)index) { slot = i; break; }
-        if (sent[i].at < sent[slot].at) slot = i;
-    }
-    if (sent[slot].cs == dcs && sent[slot].index == (uint16_t)index && now - sent[slot].at < 1000) return;
-    sent[slot] = { dcs, (uint16_t)index, now };
-    float marker = LINK_BASE + (float)((unsigned)(g_dr * 1000.0f + 0.5f) * 1000 + g_dr_seconds)
-        + (g_rez ? REZ_FLAG : 0.0f);
-    Log("link to %p/%u -> server (marker %.0f)", dcs, index & 0xffff, marker);
+    float marker = linked ? LINK_BASE + (float)((unsigned)(g_dr * 1000.0f + 0.5f) * 1000 + left) + (g_rez ? REZ_FLAG : 0.0f)
+                          : UNLINK_BASE;
+    Log("%s %p/%u -> server (marker %.0f)", linked ? "link to" : "unlink from", dcs, index & 0xffff, marker);
     SendDamageDealt(dcs, index, -marker, 0, 0);
 }
 
@@ -493,16 +537,24 @@ void __fastcall Hooked_Send(void *cs, uint32_t index, float amount, uint8_t type
 // Called from the bubble's radius check (see InstallCone). Returns 0 to treat the
 // target as out of range. bubble: the bubble's record; target: its position;
 // dcs/index: the target's damageable.
-// The bubble's radius check runs for the bubble's whole life, so the cone alone links
-// everyone the owner turns towards during those seconds. Only the first link_window_ms
-// after a bubble is first seen can link anyone; after that a bubble keeps the targets it
-// already linked (so their heal goes on) and adds no one.
-unsigned g_link_window_ms = 500;                  // PowerBoost.ini [cone] link_window_ms
+// The bubble's radius check runs for the bubble's whole life: a teammate is linked while
+// inside the cone (within the bubble's radius, whole metres, and the angle), at any point of
+// the use, and unlinks (its buff ends) when it leaves; it links again (for the use's
+// remaining seconds) when it comes back. (An earlier version only let the first
+// link_window_ms pick targets and kept them for the whole use: aiming at a teammate a
+// moment after using it linked no one.)
+// A linked teammate only leaves once CONE_SLACK_DEG past the cone's angle, so one on the
+// edge doesn't flip every frame (no slack on the radius: past it the game's own check drops
+// the tether anyway), and the server hears of a change at most every
+// LINK_MIN_MS per teammate (the latest state, once that time is up).
+unsigned g_link_window_ms = 500;                  // PowerBoost.ini [cone] link_window_ms (no longer used)
+constexpr float CONE_SLACK_DEG = 5.0f;
+constexpr ULONGLONG LINK_MIN_MS = 250;
 struct BubbleLinks {
     uint8_t *bubble;
     ULONGLONG first, last;
     int count;
-    struct { void *dcs; uint32_t index; } linked[8];
+    struct { void *dcs; uint32_t index; bool inside, sent; ULONGLONG sent_at; } linked[8];   // sent: what the server has
 };
 BubbleLinks g_bubbles[8];
 
@@ -532,18 +584,27 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
     float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     if (dist < 0.3f) return 0;                            // the owner: never self-linked
     float off = AngleTo(q, g_axis, d, dist);
-    bool ok = off <= (float)angle;
+    float range = floorf(radius);
     ULONGLONG now0 = GetTickCount64();
     BubbleLinks &bl = BubbleFor(bubble, now0);
-    bool known = false;
+    int picked = -1;
     for (int i = 0; i < bl.count; ++i)
-        if (bl.linked[i].dcs == dcs && (bl.linked[i].index & 0xffff) == (index & 0xffff)) known = true;
-    if (known) {
-        ok = true;                                        // linked at the start: stays linked
-    } else if (ok && now0 - bl.first <= g_link_window_ms) {
-        if (bl.count < 8) bl.linked[bl.count++] = { dcs, index };
+        if (bl.linked[i].dcs == dcs && (bl.linked[i].index & 0xffff) == (index & 0xffff)) picked = i;
+    bool was = picked >= 0 && bl.linked[picked].inside;   // linked: the cone is a little wider to leave
+    bool ok = off <= (float)angle + (was ? CONE_SLACK_DEG : 0.0f) && dist <= range;
+    if (picked >= 0) {                                    // one of the bubble's targets: follows the cone
+        bl.linked[picked].inside = ok;
+    } else if (ok && bl.count < 8) {                     // a new teammate in the cone
+        picked = bl.count++;
+        bl.linked[picked] = { dcs, index, true, false, 0 };
     } else {
-        ok = false;                                       // too late to join
+        ok = false;
+    }
+    bool send = false;
+    if (picked >= 0 && bl.linked[picked].sent != ok && now0 - bl.linked[picked].sent_at >= LINK_MIN_MS) {
+        bl.linked[picked].sent = ok;
+        bl.linked[picked].sent_at = now0;
+        send = true;
     }
 
     static ULONGLONG last;                                // diagnostics, twice a second
@@ -553,11 +614,11 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
         static const float axes[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
         float a[6];
         for (int i = 0; i < 6; ++i) a[i] = AngleTo(q, axes[i], d, dist);
-        Log("cone: target %p/%u at %.1f m, %.0f deg off aim (max %d) -> %s | +x %.0f -x %.0f +y %.0f -y %.0f "
-            "+z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", dcs, index & 0xffff, dist, off, angle,
+        Log("cone: target %p/%u at %.1f m (max %.0f), %.0f deg off aim (max %d) -> %s | +x %.0f -x %.0f +y %.0f -y %.0f "
+            "+z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", dcs, index & 0xffff, dist, range, off, angle,
             ok ? "LINK" : "no", a[0], a[1], a[2], a[3], a[4], a[5], q[0], q[1], q[2], q[3]);
     }
-    if (ok && !known) LinkMade(dcs, index);              // once per teammate per use
+    if (send) LinkState(dcs, index, ok);                  // linked / unlinked
     return ok;
 }
 
@@ -618,9 +679,8 @@ bool InstallCone(uint8_t *base) {
 }
 
 void ReadIni() {
-    char ini[MAX_PATH], axis[16];
-    strcpy_s(ini, g_log_path);
-    if (char *dot = strrchr(ini, '.')) strcpy_s(dot, MAX_PATH - (dot - ini), ".ini");
+    char axis[16];
+    const char *ini = g_ini_path;
     GetPrivateProfileStringA("cone", "axis", "+z", axis, sizeof(axis), ini);
     int i = axis[1] == 'x' || axis[1] == 'X' ? 0 : axis[1] == 'y' || axis[1] == 'Y' ? 1 : 2;
     g_axis[0] = g_axis[1] = g_axis[2] = 0;
@@ -636,7 +696,7 @@ void ReadIni() {
     GetPrivateProfileStringA("buff", "head_bonus", "2", bonus, sizeof(bonus), ini);
     g_head_bonus = (float)atof(bonus);
     g_head_part = GetPrivateProfileIntA("buff", "head_part", 5, ini);
-    Log("cone aim axis %s; cheat death for %u s from each use; boosted hits +%.1f body / +%.1f head (part %d)",
+    Log("cone aim axis %s; cheat death for %u s from each teammate's first link; boosted hits +%.1f body / +%.1f head (part %d)",
         axis, g_rez_window_ms / 1000, g_body_bonus, g_head_bonus, g_head_part);
 }
 
@@ -704,8 +764,9 @@ extern "C" __declspec(dllexport) void *PowerBoost_DamageableCS() { return g_dama
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "PowerBoost.log");
+        GetModuleFileNameA(self, g_ini_path, MAX_PATH);
+        if (char *dot = strrchr(g_ini_path, '.')) strcpy_s(dot, MAX_PATH - (dot - g_ini_path), ".ini");
+        EchoCombatLogPath(self, 3, "PowerBoost.log", g_log_path, sizeof(g_log_path));
         Install();
     }
     return TRUE;

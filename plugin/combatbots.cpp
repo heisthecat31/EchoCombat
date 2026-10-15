@@ -43,6 +43,7 @@
 #include <array>
 #include <queue>
 #include "detours.h"
+#include "logdir.h"
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
@@ -1313,9 +1314,8 @@ DWORD WINAPI Install(LPVOID) {
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        strcpy_s(g_ini_path, g_log_path);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "CombatBots.log");
+        GetModuleFileNameA(self, g_ini_path, MAX_PATH);
+        EchoCombatLogPath(self, 3, "CombatBots.log", g_log_path, sizeof(g_log_path));
         if (char *dot = strrchr(g_ini_path, '.')) strcpy_s(dot, MAX_PATH - (dot - g_ini_path), ".ini");
         if (HANDLE t = CreateThread(nullptr, 0, Install, nullptr, 0, nullptr)) CloseHandle(t);
     }

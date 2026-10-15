@@ -32,7 +32,7 @@
 // server without EchoCombat: it hides the three new tac mods (UMBRAL VEIL, OVERCHARGE,
 // POINT) from the tac mod list until one comes (TacModsFor).
 // "-server" on the command line picks the server role. Log (built with
-// ECHOCOMBAT_LOG): VeilNet.log next to the DLL.
+// ECHOCOMBAT_LOG): <game>\_local\echoCombatBetaLogs\VeilNet.log.
 //
 // POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
 // the u32 at +0x2104f80, every machine gets a "point token" (+0x2104ce0, same layout as
@@ -57,6 +57,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include "detours.h"
+#include "logdir.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -642,8 +643,7 @@ DWORD WINAPI Install(LPVOID) {
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
-        GetModuleFileNameA(self, g_log_path, MAX_PATH);
-        if (char *slash = strrchr(g_log_path, '\\')) strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_log_path), "VeilNet.log");
+        EchoCombatLogPath(self, 3, "VeilNet.log", g_log_path, sizeof(g_log_path));
         // The hooks are set up off the loader lock.
         if (HANDLE t = CreateThread(nullptr, 0, Install, nullptr, 0, nullptr)) CloseHandle(t);
     }

@@ -13,7 +13,8 @@ does exactly that. The fix copies its two particle records onto the drone's
 bullet actor and points the drone bullet record's +0x58/+0x60 at them:
 
 * `CParticleEffectCRWin10` (stride 152): two records appended, actor swapped.
-* `CR15NetBulletCRWin10` (stride 136): +0x58/+0x60 copied from the donor.
+* `CR15NetBulletCRWin10` (stride 136): +0x58/+0x60 copied from the donor, and its
+  flag 0x2000 (kill those effects at a hit; see KILL_FX).
 
 Neither table has a trailing heap, and records bind to their actor by nodeid
 (+0x08), so nothing else changes.
@@ -40,6 +41,7 @@ LEVELS = {
 DONOR_BULLET = 0x12001003B8E9A2A6
 DRONE_BULLET = 0xA8F84E7DD40B806E
 HDR = 0x38
+KILL_FX = 0x2000
 
 
 def u64(blob, offset):
@@ -78,6 +80,11 @@ def patch(bullets: bytes, particles: bytes) -> tuple[bytes, bytes]:
         precs.extend(copies)
 
     drone[0x58:0x68] = donor[0x58:0x68]
+    # The donor's effects are killed when a bullet hits (flags +0x18 bit KILL_FX; the bullet
+    # update, echovr+0xcd90a0); without it they only stop emitting and stay alive, and once
+    # the bullet goes back to its pool at 0,0,0 the tracer stretched there from the hit.
+    flags = struct.unpack_from("<I", drone, 0x18)[0] | (struct.unpack_from("<I", donor, 0x18)[0] & KILL_FX)
+    struct.pack_into("<I", drone, 0x18, flags)
     return join(bullets, brecs), join(particles, precs)
 
 
