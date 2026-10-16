@@ -85,6 +85,15 @@ inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
     sprintf_s(out, size, "%s", file);
 }
 
+// True only if `len` bytes at `addr` are exactly `expected`. The same checks as nevr-runtime's
+// nevr::ValidatePrologue (plugins/common/include/nevr_common.h): a null pointer or a length
+// of 0 is "no match", never "match" (memcmp of 0 bytes returns 0). Call it right before
+// writing to the game's code, and skip the patch when it is false.
+inline bool EchoCombatBytesMatch(const void *addr, const uint8_t *expected, size_t len) {
+    if (!addr || !expected || len == 0) return false;
+    return memcmp(addr, expected, len) == 0;
+}
+
 // A file next to this plugin's DLL in plugins\ (its .ini).
 inline void EchoCombatBesideDll(HMODULE self, char *out, size_t size, const char *file) {
     if (!GetModuleFileNameA(self, out, (DWORD)size)) { out[0] = 0; return; }

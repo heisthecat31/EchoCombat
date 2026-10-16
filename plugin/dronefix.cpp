@@ -1567,7 +1567,7 @@ uint8_t *g_fire_site = nullptr;
 
 void InstallMuzzle(uintptr_t base) {
     auto site = (uint8_t *)(base + FIRE_GET_CALL_RVA);
-    if (memcmp(site, FIRE_GET_CALL_BYTES, sizeof(FIRE_GET_CALL_BYTES)) != 0) {
+    if (!EchoCombatBytesMatch(site, FIRE_GET_CALL_BYTES, sizeof(FIRE_GET_CALL_BYTES))) {
         Log("FireBulletLocal call mismatch at +0x%llx -- wrong echovr build, bullets stay at the root",
             (unsigned long long)FIRE_GET_CALL_RVA);
         return;
@@ -1593,10 +1593,23 @@ void InstallMuzzle(uintptr_t base) {
         return;
     }
     int32_t rel = (int32_t)((uintptr_t)stub - ((uintptr_t)site + 5));
+    // Checked patch: the call must still be the bytes we expect, and the page must be
+    // writable, or nothing is written.
+    if (!EchoCombatBytesMatch(site, FIRE_GET_CALL_BYTES, sizeof(FIRE_GET_CALL_BYTES))) {
+        Log("muzzle call site changed before patching at +0x%llx -- not patched, bullets stay at the root",
+            (unsigned long long)FIRE_GET_CALL_RVA);
+        return;
+    }
     DWORD old;
-    VirtualProtect(site + 1, 4, PAGE_EXECUTE_READWRITE, &old);
+    if (!VirtualProtect(site + 1, 4, PAGE_EXECUTE_READWRITE, &old)) {
+        Log("VirtualProtect failed (error %lu) at +0x%llx -- not patched, bullets stay at the root", GetLastError(),
+            (unsigned long long)FIRE_GET_CALL_RVA);
+        return;
+    }
     memcpy(site + 1, &rel, 4);
-    VirtualProtect(site + 1, 4, old, &old);
+    DWORD ignored;
+    if (!VirtualProtect(site + 1, 4, old, &ignored))
+        Log("VirtualProtect could not restore the page protection (error %lu)", GetLastError());
     FlushInstructionCache(GetCurrentProcess(), site, 5);
     g_fire_site = site;
     Log("drone bullets fire from the muzzle (%.4f %.4f %.4f) (+0x%llx)", MUZZLE[0], MUZZLE[1], MUZZLE[2],
