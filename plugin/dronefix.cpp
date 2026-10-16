@@ -105,6 +105,10 @@ volatile LONG g_faults = 0;
 
 void Log(const char *fmt, ...) {
     if (InterlockedIncrement(&g_logged) > 20000) return;   // a cap, so a long session stays cheap
+    va_list echo;
+    va_start(echo, fmt);
+    EchoCombatToStderr(fmt, echo);
+    va_end(echo);
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
     SYSTEMTIME t;

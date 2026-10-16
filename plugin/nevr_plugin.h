@@ -12,6 +12,7 @@
 
 #include <windows.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -92,6 +93,16 @@ inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
 inline bool EchoCombatBytesMatch(const void *addr, const uint8_t *expected, size_t len) {
     if (!addr || !expected || len == 0) return false;
     return memcmp(addr, expected, len) == 0;
+}
+
+// The line format of nevr-runtime's plugin logger (plugins/common/include/plugin_logger.h,
+// "[prefix] LEVEL message" on stderr, which is the only log channel it gives a plugin). The
+// plugins' Log() calls carry no level, so they go out as INFO; failures are reported above
+// with ERROR.
+inline void EchoCombatToStderr(const char *fmt, va_list args) {
+    char line[1024];
+    vsnprintf(line, sizeof(line), fmt, args);
+    fprintf(stderr, "[EchoCombat] INFO %s\n", line);
 }
 
 // A file next to this plugin's DLL in plugins\ (its .ini).
