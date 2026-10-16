@@ -118,9 +118,9 @@ Useful options:
 
 Run `python tools/deploy_and_launch.py --help` for the rest.
 
-Logs: the plugins write `<install>/bin/win10/plugin_logs/<Plugin>/<Plugin>.log` only when
-built with `ECHOCOMBAT_LOG` (add `/DECHOCOMBAT_LOG` to the `cl.exe` line of a `build_*.bat`);
-release builds write none. The overlay writes `plugin_logs/NvrContentOverlay/`, nEVR
+Logs: the plugins write `<install>/bin/win10/plugin_logs/<Plugin>/<Plugin>.log` in every build;
+`ECHOCOMBAT_LOG` (add `/DECHOCOMBAT_LOG` to the `cl.exe` line of a `build_*.bat`) adds the extra diagnostic dumps.
+If the folder or file cannot be created, the plugin says so once on stderr. The overlay writes `plugin_logs/NvrContentOverlay/`, nEVR
 `%LOCALAPPDATA%/EchoVR/logs/`, the game `<install>/_local/r14logs/`.
 
 ## Tuning: `config/mp_weapon_settings.json`

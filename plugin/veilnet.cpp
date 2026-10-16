@@ -114,9 +114,6 @@ volatile bool g_stop = false;                   // NvrPluginShutdown: the tick t
 HANDLE g_tick = nullptr;
 
 void Log(const char *fmt, ...) {
-    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
-    // nothing for it.
-#ifdef ECHOCOMBAT_LOG
     if (InterlockedIncrement(&g_logged) > 2000) return;
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
@@ -129,9 +126,6 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
-#else
-    (void)fmt;
-#endif
 }
 
 ULONGLONG InterruptTime() { return *(volatile ULONGLONG *)0x7ffe0008; }

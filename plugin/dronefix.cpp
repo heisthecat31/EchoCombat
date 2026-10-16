@@ -98,14 +98,13 @@ void NoteAtHandle(uint32_t handle) {
 }
 
 char g_log_path[MAX_PATH];
+volatile LONG g_logged = 0;
 volatile LONG g_muzzle_shots = 0;
 volatile LONG g_skipped = 0;
 volatile LONG g_faults = 0;
 
 void Log(const char *fmt, ...) {
-    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
-    // nothing for it.
-#ifdef ECHOCOMBAT_LOG
+    if (InterlockedIncrement(&g_logged) > 20000) return;   // a cap, so a long session stays cheap
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
     SYSTEMTIME t;
@@ -117,9 +116,6 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
-#else
-    (void)fmt;
-#endif
 }
 
 bool CallGuarded(uintptr_t cs) {

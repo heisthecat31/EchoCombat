@@ -242,9 +242,6 @@ HMODULE g_self = nullptr;
 volatile LONG g_logged = 0;
 
 void Log(const char *fmt, ...) {
-    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
-    // nothing for it.
-#ifdef ECHOCOMBAT_LOG
     if (InterlockedIncrement(&g_logged) > 2000) return;
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
@@ -257,9 +254,6 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
-#else
-    (void)fmt;
-#endif
 }
 
 // When (cs, index) was first linked in the current use (g_last_use): its cheat death runs

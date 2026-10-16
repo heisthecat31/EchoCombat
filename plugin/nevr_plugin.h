@@ -46,24 +46,43 @@ inline bool EchoCombatIsServer(const NvrGameContext *ctx) {
 }
 
 // <bin\win10>\plugin_logs\<name>\<name>.log, where the other plugins log (and where the
-// launcher's "Upload logs" picks them up); the folders are made here, and only in a build
-// that logs (ECHOCOMBAT_LOG).
+// launcher's "Upload logs" picks them up). Always made: the plugins' Log() functions write
+// here in every build; ECHOCOMBAT_LOG only adds the extra diagnostic dumps. If the folder
+// can't be made or the file can't be opened for append, say so once on stderr and in the
+// debugger (nEVR's plugin log channel -- nevr plugin_logger.h; a plugin cannot call the
+// host's own Log()), and leave out[0] empty so Log() writes nothing.
+inline void EchoCombatLogFail(const char *name, const char *what, const char *path, DWORD err) {
+    char line[MAX_PATH + 160];
+    sprintf_s(line, "[%s] ERROR log not written: %s '%s' (Win32 error %lu)", name, what, path, err);
+    fprintf(stderr, "%s\n", line);
+    strcat_s(line, "\n");
+    OutputDebugStringA(line);
+}
+
+inline bool EchoCombatMakeDir(const char *name, const char *path) {
+    if (CreateDirectoryA(path, nullptr)) return true;
+    DWORD err = GetLastError();
+    if (err == ERROR_ALREADY_EXISTS) return true;
+    EchoCombatLogFail(name, "cannot create folder", path, err);
+    return false;
+}
+
 inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
-#ifndef ECHOCOMBAT_LOG
-    (void)size; (void)name;
     out[0] = 0;
-#else
     char dir[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, dir, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) { out[0] = 0; return; }
+    if (n == 0 || n >= MAX_PATH) { EchoCombatLogFail(name, "cannot find the game folder", "", GetLastError()); return; }
     if (char *slash = strrchr(dir, '\\')) *slash = 0;
-    char path[MAX_PATH];
+    char path[MAX_PATH], file[MAX_PATH];
     sprintf_s(path, "%s\\plugin_logs", dir);
-    CreateDirectoryA(path, nullptr);
+    if (!EchoCombatMakeDir(name, path)) return;
     sprintf_s(path, "%s\\plugin_logs\\%s", dir, name);
-    CreateDirectoryA(path, nullptr);
-    sprintf_s(out, size, "%s\\%s.log", path, name);
-#endif
+    if (!EchoCombatMakeDir(name, path)) return;
+    sprintf_s(file, "%s\\%s.log", path, name);
+    FILE *f = nullptr;
+    if (fopen_s(&f, file, "a") != 0 || !f) { EchoCombatLogFail(name, "cannot open", file, GetLastError()); return; }
+    fclose(f);
+    sprintf_s(out, size, "%s", file);
 }
 
 // A file next to this plugin's DLL in plugins\ (its .ini).
