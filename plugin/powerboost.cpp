@@ -242,10 +242,11 @@ HMODULE g_self = nullptr;
 volatile LONG g_logged = 0;
 
 void Log(const char *fmt, ...) {
-    // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
-    // nothing for it.
-#ifdef ECHOCOMBAT_LOG
     if (InterlockedIncrement(&g_logged) > 2000) return;
+    va_list echo;
+    va_start(echo, fmt);
+    EchoCombatToStderr(fmt, echo);
+    va_end(echo);
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
     SYSTEMTIME t;
@@ -257,9 +258,6 @@ void Log(const char *fmt, ...) {
     va_end(args);
     fputc('\n', f);
     fclose(f);
-#else
-    (void)fmt;
-#endif
 }
 
 // When (cs, index) was first linked in the current use (g_last_use): its cheat death runs
@@ -676,12 +674,24 @@ bool InstallCone(uint8_t *base) {
     uint8_t jump[14] = { 0xff, 0x25, 0, 0, 0, 0 };      // jmp [rip+0] -> stub
     uint64_t to = (uint64_t)stub;
     memcpy(jump + 6, &to, 8);
+    // Checked patch: the radius check must still be the bytes we expect, and the page must
+    // be writable, or nothing is written.
+    if (!EchoCombatBytesMatch(site, RADIUS_BYTES, sizeof(RADIUS_BYTES))) {
+        Log("radius check bytes changed before patching at +0x%llx -- cone not patched", (unsigned long long)RADIUS_RVA);
+        return false;
+    }
     DWORD old;
-    if (!VirtualProtect(site, sizeof(jump), PAGE_EXECUTE_READWRITE, &old)) return false;
+    if (!VirtualProtect(site, sizeof(jump), PAGE_EXECUTE_READWRITE, &old)) {
+        Log("VirtualProtect failed (error %lu) at +0x%llx -- cone not patched", GetLastError(),
+            (unsigned long long)RADIUS_RVA);
+        return false;
+    }
     memcpy(g_radius_saved, site, sizeof(jump));         // put back by NvrPluginShutdown
     g_radius_site = site;
     memcpy(site, jump, sizeof(jump));
-    VirtualProtect(site, sizeof(jump), old, &old);
+    DWORD ignored;
+    if (!VirtualProtect(site, sizeof(jump), old, &ignored))
+        Log("VirtualProtect could not restore the page protection (error %lu)", GetLastError());
     FlushInstructionCache(GetCurrentProcess(), site, sizeof(jump));
     return true;
 }
