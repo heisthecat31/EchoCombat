@@ -48,6 +48,11 @@
 // script, tools/fix_buff.py), every machine gets an "overcharge token" (+0x2104ca8),
 // and the next heal bubble in Repair Matrix's script to take one shows OVERCHARGE's
 // purple look (tools/oc_switch.py).
+//
+// MEDIGUN goes as 'M' packets: PowerBoost.dll on the client holding it calls
+// VeilNet_Medigun(id) (owner key, on / off, a sequence); the server relays it and every
+// machine, the server too, hands it to PowerBoost_MedigunRemote, which ends that owner's
+// heal bubble when the beam goes off.
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -301,6 +306,23 @@ extern "C" __declspec(dllexport) void __cdecl VeilNet_DroneKilled(uint32_t index
     Log("drone %u killed: told %d client(s)", index & 0xffff, n);
 }
 
+// PowerBoost.dll on the client with a MEDIGUN: its beam on / off, to the server and on to everyone.
+extern "C" __declspec(dllexport) void __cdecl VeilNet_Medigun(uint32_t id) {
+    if (g_server) return;
+    FirstTime(id);
+    SendToServer('M', id);
+    SendToServer('M', id);                                  // once more, against loss
+}
+
+void MedigunHere(uint32_t id) {
+    using remote_fn = void(__cdecl *)(uint32_t);
+    static remote_fn remote = nullptr;
+    if (!remote)
+        if (HMODULE pb = GetModuleHandleW(L"PowerBoost.dll"))
+            remote = (remote_fn)GetProcAddress(pb, "PowerBoost_MedigunRemote");
+    if (remote) remote(id);
+}
+
 volatile ULONGLONG g_last_answer = 0;           // client: when the server last answered a hello
 
 void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
@@ -308,6 +330,10 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     if (g_server) {
         Remember(s, from);
         if (p.type == 'H') Send(s, from, 'A', 0);       // "this server has EchoCombat"
+        if (p.type == 'M' && FirstTime(p.id)) {
+            MedigunHere(p.id);
+            Relay(from, 'M', p.id);
+        }
         if (Carried(p.type) && FirstTime(p.id)) {
             if (p.type != 'T') AddToken(Tokens(p.type));   // a teleport has nothing to show here
             int n = Relay(from, p.type, p.id);
@@ -317,6 +343,8 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     } else if (p.type == 'A') {
         Dest d;                                          // only the current server's answer counts
         if (ServerDest(d) && Same(d.addr, from)) g_last_answer = GetTickCount64();
+    } else if (p.type == 'M' && FirstTime(p.id)) {
+        MedigunHere(p.id);
     } else if (p.type == 'K' && FirstTime(p.id)) {          // a drone the server killed: DroneFix shuts it down
         using killed_fn = void(__cdecl *)(uint32_t);
         static killed_fn killed = nullptr;

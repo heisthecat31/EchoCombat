@@ -71,6 +71,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <intrin.h>
 #include "detours.h"
 #include "logdir.h"
 
@@ -247,7 +248,7 @@ void Log(const char *fmt, ...) {
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
     SYSTEMTIME t;
     GetLocalTime(&t);
-    fprintf(f, "[%02d:%02d:%02d.%03d] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+    fprintf(f, "[%02d:%02d:%02d.%03d %5lu] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentProcessId());
     va_list args;
     va_start(args, fmt);
     vfprintf(f, fmt, args);
@@ -571,20 +572,43 @@ BubbleLinks &BubbleFor(uint8_t *bubble, ULONGLONG now) {
     return *oldest;
 }
 
+int MediCone(uint8_t *bubble, float off, float dist, float range, int angle, void *dcs, uint32_t index);
+bool GunPose(uint8_t *bubble, float pos[3], float q[4]);
+float g_gun_axis[3] = { 0, 0, 1 };        // the gun's local aim axis (PowerBoost.ini [medigun] gun_axis=)
+
 int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint32_t index) {
     float radius = *(float *)(bubble + 0x38);
     int angle = (int)((radius - floorf(radius)) * 100000.0f + 0.5f);
-    if (angle < 1 || angle > 180) return 1;               // not POWER BOOST's bubble
+    bool medigun = angle > 500 && angle <= 590;           // MEDIGUN's bubble (fix_medigun.CONE_TAG)
+    if (!medigun && (angle < 1 || angle > 180)) return 1; // not POWER BOOST's bubble
     uint8_t handle[64] = {};
     void *h = OwnerHandle(*(void **)bubble, handle, *(uint32_t *)(bubble + 8));
     uint8_t *owner = h ? OwnerObject(h) : nullptr;
     if (!owner) return 0;
     const float *pos = (const float *)(owner + 0x8f8), *q = (const float *)(owner + 0xbd0);
+    const float *axis = g_axis;
+    float gun_pos[3], gun_q[4];
+    if (medigun) {                                        // MEDIGUN aims from its gun, not the head
+        if (GunPose(bubble, gun_pos, gun_q)) { pos = gun_pos; q = gun_q; axis = g_gun_axis; }
+    }
     float d[3] = { target[0] - pos[0], target[1] - pos[1], target[2] - pos[2] };
     float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     if (dist < 0.3f) return 0;                            // the owner: never self-linked
-    float off = AngleTo(q, g_axis, d, dist);
+    float off = AngleTo(q, axis, d, dist);
+    if (medigun) {
+        static ULONGLONG told;
+        ULONGLONG t = GetTickCount64();
+        if (t - told >= 1000) {
+            told = t;
+            static const float axes[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
+            float a[6];
+            for (int i = 0; i < 6; ++i) a[i] = AngleTo(q, axes[i], d, dist);
+            Log("MEDIGUN cone from %s: target %.1f m, %.0f deg | +x %.0f -x %.0f +y %.0f -y %.0f +z %.0f -z %.0f",
+                pos == gun_pos ? "the gun" : "the head (no gun pose)", dist, off, a[0], a[1], a[2], a[3], a[4], a[5]);
+        }
+    }
     float range = floorf(radius);
+    if (medigun) return MediCone(bubble, off, dist, range, angle - 500, dcs, index);
     ULONGLONG now0 = GetTickCount64();
     BubbleLinks &bl = BubbleFor(bubble, now0);
     int picked = -1;
@@ -678,6 +702,930 @@ bool InstallCone(uint8_t *base) {
     return true;
 }
 
+// --- MEDIGUN ----------------------------------------------------------------------------
+// A gun in gear_table.weapons (tools/fix_medigun.py) with no gun actors of its own:
+//
+//   +0xcea200  CR15NetPlayerEquipmentCS::GetWeaponSlot(cs, &out, handle): record (0x58, at
+//              cs+F8h through the u16 table at cs+C8h) +10h this machine's player, +18h weapon,
+//              +30h weapon arm. Called from the gun enable manager's weapon slot expression
+//              (returns to +0xf0dc45), which enables each player gun whose type is the slot:
+//              there a MEDIGUN slot reads as "scout", so the player holds COMET's gun.
+//              Every call also tells this machine's own weapon, actor and arm.
+//
+// With MEDIGUN equipped this client hides the gun hand's index trigger from the game (LibOVR's
+// ovr_GetInputState, IndexTrigger at +10h), so COMET never charges or fires, and the trigger
+// drives the beam instead: MEDI_BUBBLE, a third heal bubble on each player with a copy of
+// Repair Matrix's script (its effects). The heal bubble system (0x6c0 records: heal +30h,
+// duration +34h, radius +38h, self heal x +3Ch, cap +40h, min x +48h, time to max +4Ch,
+// elapsed +50h, params changed +660h):
+//
+//   +0xd66310  Update(cs): every frame, every bubble (elapsed past duration: it ends)
+//   +0xca5930  ActivateHealBubbleLocally(cs, handle): every machine, local use or network
+//   +0xf1bb20  ActivateHealBubble(cs, handle), through the deferred queue: broadcast to all
+//
+// Trigger held: tuning written (heal_per_second x beam_seconds over beam_seconds, radius =
+// range + (cone_angle + 500) / 100000, no self heal), bubble activated. ConeFilter (MediCone)
+// links one teammate in the cone at a time. Released, or beam_seconds up (overheat for
+// overheat_seconds): the bubble ends (elapsed = duration). Every machine needs to know: the
+// server heals and runs the targeting too. The state goes over VeilNet ('M': owner key in the
+// low 16 bits, 1 << 16 = on, a sequence above), resent each second while on; a bubble whose
+// owner has said "off", or nothing for 2.5 s, ends on every machine.
+constexpr uintptr_t SLOT_RVA = 0xcea200;
+constexpr uint8_t SLOT_BYTES[] = { 0x48, 0x8b, 0x81, 0xc8, 0x00, 0x00, 0x00, 0x4c, 0x8b, 0xd1, 0x45, 0x0f, 0xb7 };
+constexpr uintptr_t MANAGER_RET_RVA = 0xf0dc45;
+constexpr uint8_t MANAGER_CALL_BYTES[] = { 0xe8, 0xbb, 0xc5, 0xdd, 0xff };   // at MANAGER_RET_RVA - 5
+constexpr uintptr_t BUBBLE_UPDATE_RVA = 0xd66310;
+constexpr uint8_t BUBBLE_UPDATE_BYTES[] = { 0x48, 0x8b, 0xc4, 0x55, 0x41, 0x54, 0x41, 0x56, 0x48, 0x81, 0xec, 0xa0, 0x00 };
+constexpr uintptr_t ACTIVATE_LOCAL_RVA = 0xca5930;
+constexpr uint8_t ACTIVATE_LOCAL_BYTES[] = { 0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8b };
+constexpr uintptr_t ACTIVATE_RVA = 0xf1bb20;
+constexpr uint8_t ACTIVATE_BYTES[] = { 0x40, 0x53, 0x55, 0x56, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0xb1, 0x80, 0x00 };
+// CR15NetGunCS::FireIntegratedGunLocal (gun cs, handle, charge, ...): the gun script's fire node,
+// on the shooter's client. Swallowed while this client's player has MEDIGUN: COMET's gun never fires.
+constexpr uintptr_t GUN_FIRE_RVA = 0xce3670;
+constexpr uint8_t GUN_FIRE_BYTES[] = { 0x40, 0x55, 0x53, 0x57, 0x41, 0x55, 0x41, 0x56, 0x48, 0x8d, 0x6c, 0x24, 0xd9 };
+constexpr uint64_t MEDIGUN = 0x2fda8a9b57734284ull;       // CSymbol64("medigun")
+constexpr uint64_t SCOUT = 0xe32dc7c9da8051a4ull;         // CSymbol64("scout"): COMET
+constexpr uint64_t MEDI_BUBBLE = 0x51ef178e73ccf82full;   // CSymbol64("echocombat_medigun_bubble")
+constexpr int CONE_TAG = 500;
+
+using slot_fn = uint64_t *(__fastcall *)(void *cs, uint64_t *out, uint32_t handle);
+using update_fn = void(__fastcall *)(void *cs);
+using activate_fn = void(__fastcall *)(void *cs, uint32_t handle);
+slot_fn Real_Slot = nullptr;
+update_fn Real_BubbleUpdate = nullptr;
+activate_fn Real_ActivateLocal = nullptr;
+activate_fn ActivateBubble = nullptr;
+uint8_t *g_base = nullptr;
+
+struct MediConfig {
+    float heal_per_second = 8.075f, beam_seconds = 40, overheat_seconds = 3, cool_seconds = 5, range = 20, slack = 5;
+    int angle = 20;
+    int hand = 1;                                         // ovr hand: 0 left, 1 right, -1 the weapon arm
+} g_medi;
+
+volatile uint64_t g_local_weapon = 0;                     // this machine's player's weapon slot
+volatile uint64_t g_local_actor = 0;                      // ... and actor (its equipment's)
+volatile int g_local_arm = -1;
+volatile uint64_t g_weapon_actor[2] = { ~0ull, ~0ull };   // equipment record +38h / +40h
+void *volatile g_equip_cs = nullptr;                      // the player equipment system
+volatile bool g_gun_out = true;                           // COMET drawn (not holstered / retracted for ordnance)
+volatile float g_trigger = 0;                             // the gun hand's index trigger (hidden from the game)
+volatile ULONGLONG g_trigger_at = 0;
+void *volatile g_bubble_cs = nullptr;
+
+// The medigun on this client.
+bool g_beam = false, g_overheated = false;
+ULONGLONG g_beam_start = 0, g_overheat_until = 0, g_next_resend = 0;
+uint32_t g_medi_handle = 0xffffffffu;
+uint8_t *g_medi_record = nullptr;
+uint32_t g_seq = 0;
+
+// Every MEDIGUN bubble this machine has seen activated: record -> its owner's key.
+struct MediBubble {
+    uint8_t *record; uint16_t key; ULONGLONG at;
+    uint64_t owner;                                        // the owner's actor reference
+    void *tcs; uint32_t th; ULONGLONG looked;              // its gun's root transform, when last looked up
+};
+MediBubble g_medi_bubbles[16];
+// What each owner said last ('M' packets).
+struct MediOwner { uint16_t key; bool on; ULONGLONG at; };
+MediOwner g_owners[16];
+SRWLOCK g_medi_lock = SRWLOCK_INIT;
+
+uint16_t KeyOf(uint64_t actor) { return (uint16_t)(actor ^ actor >> 16 ^ actor >> 32 ^ actor >> 48); }
+
+// MEDIGUN owners are named by player slot (0..15), as the game's own activation message does:
+// actor references (+1E0h) are this machine's own (the same player is ..003f on one client and
+// ..003a on another). Slot -> its player's bubble the way the game's handler (+0xd11eb0) finds
+// it: the net game (space +8 -> +8518h), its slot table (+138h value, +13Ah generation), the
+// slot's actor (CPlayerSlot, +0x1c76b0: r+8), and the bubble system's lookup (virtual +1A8h:
+// (cs, &out, actor, component id) -> &handle; +1C8h: valid).
+uint32_t SlotBubble(void *cs, int slot) {
+    if (!SlotActorFn || slot < 0 || slot >= 16) return 0xffffffffu;
+    __try {
+        uint8_t *space = *(uint8_t **)((uint8_t *)cs + 0x80);
+        uint8_t *game = *(uint8_t **)(*(uint8_t **)(space + 8) + 0x8518);
+        if (!game) return 0xffffffffu;
+        uint16_t value = *(uint16_t *)(game + 0x138 + slot * 4);
+        if (value == 0xffff) return 0xffffffffu;
+        alignas(16) uint8_t tmp[64] = {};
+        uint8_t *r = SlotActorFn(game, tmp, value);
+        uint64_t actor = r ? *(uint64_t *)(r + 8) : ~0ull;
+        if (actor == ~0ull) return 0xffffffffu;
+        alignas(16) uint8_t out[64] = {};
+        using find_fn = uint32_t *(__fastcall *)(void *cs, void *out, uint64_t actor, uint64_t id);
+        uint32_t *h = ((find_fn)(*(void ***)cs)[0x1a8 / 8])(cs, out, actor, MEDI_BUBBLE);
+        if (!h || *h == 0xffffffffu) return 0xffffffffu;
+        using valid_fn = int(__fastcall *)(void *cs, uint32_t handle);
+        return ((valid_fn)(*(void ***)cs)[0x1c8 / 8])(cs, *h) ? *h : 0xffffffffu;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0xffffffffu;
+    }
+}
+
+int SlotOfBubble(void *cs, uint32_t handle) {
+    for (int slot = 0; slot < 16; ++slot)
+        if ((SlotBubble(cs, slot) & 0xffff) == (handle & 0xffff)) return slot;
+    return -1;
+}
+
+volatile int g_local_slot = -1;                            // this client's MEDIGUN owner key
+
+uint8_t *BubbleRecord(void *cs, uint32_t handle) {
+    uint8_t *c = (uint8_t *)cs;
+    uint16_t slot = (*(uint16_t **)(c + 0xc8))[(handle & 0xffff) * 2];
+    return *(uint8_t **)(c + 0xf8) + slot * 0x6c0ull;
+}
+
+// A component's actor reference (virtual +1E0h: the value the game's own network messages name
+// an actor by) and component id (virtual +1F0h), both read from its descriptor (+1D0h).
+uint64_t DescField(void *cs, uint32_t handle, int slot) {
+    __try {
+        using get_fn = uint64_t *(__fastcall *)(void *cs, uint64_t *out, uint32_t handle);
+        alignas(16) uint64_t buf[4] = { ~0ull, ~0ull, ~0ull, ~0ull };
+        uint64_t *a = ((get_fn)(*(void ***)cs)[slot / 8])(cs, buf, handle);
+        return a ? a[0] : ~0ull;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return ~0ull;
+    }
+}
+uint64_t ComponentActor(void *cs, uint32_t handle) { return DescField(cs, handle, 0x1e0); }
+uint64_t ComponentId(void *cs, uint32_t handle) { return DescField(cs, handle, 0x1f0); }
+
+// The handle of `actor`'s component `id` among the heal bubble system's records, or ~0:
+// slot i's handle is (u16 [cs+D8h][i]) | its generation (u16 at [cs+C8h] + index * 4 + 2) << 16.
+uint32_t FindBubble(void *cs, uint64_t actor, uint64_t id) {
+    __try {
+        uint8_t *c = (uint8_t *)cs;
+        uint16_t count = *(uint16_t *)(c + 0xf4);
+        uint16_t *index = *(uint16_t **)(c + 0xd8);
+        uint16_t *table = *(uint16_t **)(c + 0xc8);
+        for (uint16_t i = 0; i < count; ++i) {
+            uint16_t idx = index[i];
+            uint32_t h = idx | (uint32_t)table[idx * 2 + 1] << 16;
+            if (ComponentActor(cs, h) == actor && ComponentId(cs, h) == id) return h;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return 0xffffffffu;
+}
+
+uint64_t *__fastcall Hooked_Slot(void *cs, uint64_t *out, uint32_t handle) {
+    uint64_t *r = Real_Slot(cs, out, handle);
+    g_equip_cs = cs;
+    __try {
+        uint8_t *rec = *(uint8_t **)((uint8_t *)cs + 0xf8) +
+                       (*(uint16_t **)((uint8_t *)cs + 0xc8))[(handle & 0xffff) * 2] * 0x58ull;
+        if (*(uint32_t *)(rec + 0x10)) {                   // this machine's player
+            uint64_t weapon = *(uint64_t *)(rec + 0x18);
+            int arm = *(int *)(rec + 0x30);
+            uint64_t actor = ComponentActor(cs, handle);
+            if (weapon != g_local_weapon || arm != g_local_arm || actor != g_local_actor)
+                Log("this player: weapon %016llx%s, arm %d, actor %016llx (key %04x)", (unsigned long long)weapon,
+                    weapon == MEDIGUN ? " (MEDIGUN)" : "", arm, (unsigned long long)actor, KeyOf(actor));
+            uint64_t w0 = *(uint64_t *)(rec + 0x38), w1 = *(uint64_t *)(rec + 0x40);
+            if (w0 != g_weapon_actor[0] || w1 != g_weapon_actor[1])
+                Log("this player's weapon actor: %016llx %016llx", (unsigned long long)w0, (unsigned long long)w1);
+            g_weapon_actor[0] = w0;
+            g_weapon_actor[1] = w1;
+            g_local_weapon = weapon;
+            g_local_arm = arm;
+            g_local_actor = actor;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    if (r && *r == MEDIGUN && (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + MANAGER_RET_RVA))
+        *r = SCOUT;                                        // the enable manager: COMET's gun
+    return r;
+}
+
+void SendMedigun(bool on) {
+    if (g_local_slot < 0) return;
+    uint16_t key = (uint16_t)g_local_slot;
+    uint32_t id = key | (on ? 1u << 16 : 0) | (++g_seq & 0x7fff) << 17;
+    using send_fn2 = void(__cdecl *)(uint32_t);
+    static send_fn2 send = nullptr;
+    if (!send)
+        if (HMODULE veilnet = GetModuleHandleW(L"VeilNet.dll")) send = (send_fn2)GetProcAddress(veilnet, "VeilNet_Medigun");
+    if (send) send(id);
+    AcquireSRWLockExclusive(&g_medi_lock);
+    MediOwner *slot = &g_owners[0];
+    for (MediOwner &o : g_owners) {
+        if (o.key == key) { slot = &o; break; }
+        if (o.at < slot->at) slot = &o;
+    }
+    *slot = { key, on, GetTickCount64() };
+    ReleaseSRWLockExclusive(&g_medi_lock);
+}
+
+// Is the owner `key`'s beam on, as far as this machine knows?
+bool OwnerOn(uint16_t key, ULONGLONG now) {
+    bool on = false;
+    AcquireSRWLockShared(&g_medi_lock);
+    for (const MediOwner &o : g_owners)
+        if (o.at && o.key == key) on = o.on && now - o.at < 2500;
+    ReleaseSRWLockShared(&g_medi_lock);
+    return on;
+}
+
+int MediCone(uint8_t *bubble, float off, float dist, float range, int angle, void *dcs, uint32_t index) {
+    ULONGLONG now = GetTickCount64();
+    int key = -1;
+    AcquireSRWLockShared(&g_medi_lock);
+    for (const MediBubble &b : g_medi_bubbles)
+        if (b.record == bubble) key = b.key;
+    ReleaseSRWLockShared(&g_medi_lock);
+    if (key < 0 || !OwnerOn((uint16_t)key, now)) return 0;
+    BubbleLinks &bl = BubbleFor(bubble, now);
+    bool mine = bl.count && bl.linked[0].dcs == dcs && (bl.linked[0].index & 0xffff) == (index & 0xffff);
+    bool ok;
+    if (mine) {                                            // the one it heals: kept a little past the cone
+        ok = off <= angle + g_medi.slack && dist <= range;
+        if (!ok) bl.count = 0;                             // gone: the next teammate in the cone can link
+    } else if (!bl.count && off <= angle && dist <= range) {
+        bl.linked[0] = { dcs, index, true, false, 0 };
+        bl.count = 1;
+        ok = true;
+    } else {
+        ok = false;
+    }
+    if (ok != mine) Log("MEDIGUN %04x: %s %p/%u (%.1f m, %.0f deg)", key, ok ? "heals" : "lets go of", dcs,
+                        index & 0xffff, dist, off);
+    return ok;
+}
+
+// The heal bubble system's network activation handler (cs, msg): msg +10h -> payload { +0 game
+// space id, +8 component id, +10h u16 player slot / handle, +12h generation, +14h kind }.
+// Diagnostics only: does another machine's MEDIGUN activation arrive, and does it match?
+constexpr uintptr_t NET_ACTIVATE_RVA = 0xd11eb0;
+constexpr uint8_t NET_ACTIVATE_BYTES[] = { 0x4c, 0x8b, 0xdc, 0x56, 0x57, 0x48, 0x81, 0xec, 0xb8, 0x00, 0x00, 0x00, 0x48 };
+using net_activate_fn = void(__fastcall *)(void *cs, void *msg);
+net_activate_fn Real_NetActivate = nullptr;
+
+void __fastcall Hooked_NetActivate(void *cs, void *msg) {
+    static volatile LONG told = 0;
+    if (InterlockedIncrement(&told) <= 60) {
+        __try {
+            uint8_t *payload = *(uint8_t **)((uint8_t *)msg + 0x10);
+            uint64_t here = *(uint64_t *)(*(uint8_t **)((uint8_t *)cs + 0x80) + 0x58);
+            Log("heal bubble activation from the network: space %016llx (this system's %016llx%s), component %016llx, "
+                "slot %u gen %u, kind %d", (unsigned long long)*(uint64_t *)payload, (unsigned long long)here,
+                here == *(uint64_t *)payload ? "" : ", NOT THIS ONE", (unsigned long long)*(uint64_t *)(payload + 8),
+                *(uint16_t *)(payload + 0x10), *(uint16_t *)(payload + 0x12), *(int *)(payload + 0x14));
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    Real_NetActivate(cs, msg);
+}
+
+void __fastcall Hooked_ActivateLocal(void *cs, uint32_t handle) {
+    g_bubble_cs = cs;
+    __try {
+        uint64_t actor = ComponentActor(cs, handle);
+        static volatile LONG told = 0;
+        if (InterlockedIncrement(&told) <= 60)
+            Log("heal bubble %08x activated here: component %016llx, actor %016llx", handle,
+                (unsigned long long)ComponentId(cs, handle), (unsigned long long)actor);
+        if (ComponentId(cs, handle) == MEDI_BUBBLE) {
+            uint8_t *rec = BubbleRecord(cs, handle);
+            int owner_slot = SlotOfBubble(cs, handle);
+            uint16_t key = owner_slot >= 0 ? (uint16_t)owner_slot : 0xffff;
+            ULONGLONG now = GetTickCount64();
+            AcquireSRWLockExclusive(&g_medi_lock);
+            MediBubble *slot = &g_medi_bubbles[0];
+            for (MediBubble &b : g_medi_bubbles) {
+                if (b.record == rec) { slot = &b; break; }
+                if (b.at < slot->at) slot = &b;
+            }
+            *slot = { rec, key, now, actor, nullptr, 0xffffffffu, 0 };
+            // heard of before its owner's packet: on until the owner says otherwise
+            bool known = false;
+            for (MediOwner &o : g_owners) known |= o.at && o.key == key;
+            if (!known)
+                for (MediOwner &o : g_owners)
+                    if (!o.at || now - o.at > 10000) { o = { key, true, now }; break; }
+            ReleaseSRWLockExclusive(&g_medi_lock);
+            Log("MEDIGUN bubble of %016llx (player slot %d) activated here", (unsigned long long)actor, owner_slot);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    Real_ActivateLocal(cs, handle);
+}
+
+// COMET's heat bar shows MEDIGUN's heat. COMET's script keeps its heat in script variables
+// (heat_current, heat_max at its variable block +208h / +238h); the engine's SetExternalScriptReal
+// sets one by name:
+//   +0x1055c0  the game space's systems by name (space, CSymbol64("ncaScript")) -> { systems*, .., +30h count }
+//   +0x468ee0  script system SetReal(cs, handle, variable, value): record (0xb8) +18h = the instance
+// This player's COMET script: the script component (id "ncaScript", as every gun script's) whose actor
+// is this player's weapon actor: equipment record +38h = the game space it lives in (by id, through
+// +0x4f3700), +40h = the actor.
+constexpr uintptr_t SPACE_BY_ID_RVA = 0x4f3700;
+constexpr uint8_t SPACE_BY_ID_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0x79 };
+using space_fn = void *(__fastcall *)(void *space, uint64_t id);
+space_fn SpaceById = nullptr;
+constexpr uintptr_t SYSTEMS_FIND_RVA = 0x1055c0;
+constexpr uint8_t SYSTEMS_FIND_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b };
+constexpr uintptr_t SET_REAL_RVA = 0x468ee0;
+constexpr uint8_t SET_REAL_BYTES[] = { 0x48, 0x8b, 0x81, 0xc8, 0x00, 0x00, 0x00, 0x0f, 0x28, 0xd3, 0x48, 0x8b };
+constexpr uint64_t NCA_SCRIPT = 0x6aea99eeb2bab6c4ull;    // CSymbol64("ncaScript")
+constexpr uint64_t HEAT_CURRENT = 0x168d20ef5d0036a2ull;  // CSymbol64("heat_current")
+using systems_fn = uint64_t *(__fastcall *)(void *space, uint64_t name);
+using set_real_fn = void(__fastcall *)(void *cs, uint32_t handle, uint64_t name, float value);
+systems_fn SystemsFind = nullptr;
+set_real_fn SetScriptReal = nullptr;
+float g_heat = 0;                                          // 0..1: MEDIGUN's heat
+void *g_comet_cs = nullptr;
+uint32_t g_comet_handle = 0xffffffffu;
+ULONGLONG g_comet_search = 0;
+
+// This player's COMET script (system, handle), searched at most twice a second.
+bool FindComet(void *heal_cs, ULONGLONG now) {
+    if (g_comet_cs && DescField(g_comet_cs, g_comet_handle, 0x1f0) == NCA_SCRIPT &&
+        DescField(g_comet_cs, g_comet_handle, 0x1e0) == g_weapon_actor[1])
+        return true;
+    g_comet_cs = nullptr;
+    if (!SystemsFind || now - g_comet_search < 500) return false;
+    g_comet_search = now;
+    __try {
+        void *space = *(void **)((uint8_t *)heal_cs + 0x80);
+        if (space && SpaceById && g_weapon_actor[0] != ~0ull) space = SpaceById(space, g_weapon_actor[0]);
+        uint64_t *list = space ? SystemsFind(space, NCA_SCRIPT) : nullptr;
+        static int told = 0;
+        if (told < 5) {
+            ++told;
+            Log("MEDIGUN: gun space %p (id %016llx): %s", space, (unsigned long long)g_weapon_actor[0],
+                list ? "has script systems" : "NO script systems");
+        }
+        if (!list) return false;
+        void **systems = (void **)list[0];
+        uint64_t n = list[6];
+        static int logged = 0;
+        for (uint64_t s = 0; s < n && s < 8; ++s) {
+            uint8_t *c = (uint8_t *)systems[s];
+            uint16_t count = *(uint16_t *)(c + 0xf4);
+            uint16_t *index = *(uint16_t **)(c + 0xd8);
+            uint16_t *table = *(uint16_t **)(c + 0xc8);
+            for (uint16_t i = 0; i < count; ++i) {
+                uint32_t h = index[i] | (uint32_t)table[index[i] * 2 + 1] << 16;
+                uint64_t actor = DescField(c, h, 0x1e0);
+                if (actor != g_weapon_actor[1] || DescField(c, h, 0x1f0) != NCA_SCRIPT) continue;
+                if (logged < 40) {
+                    ++logged;
+                    Log("COMET script %p/%08x on actor %016llx (weapon actor %016llx %016llx)", c, h,
+                        (unsigned long long)actor, (unsigned long long)g_weapon_actor[0], (unsigned long long)g_weapon_actor[1]);
+                }
+                if (actor != ~0ull && actor == g_weapon_actor[1]) {
+                    g_comet_cs = c;
+                    g_comet_handle = h;
+                    Log("MEDIGUN: this player's COMET script is %p/%08x: its heat bar shows the beam's", c, h);
+                    return true;
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("MEDIGUN: looking for COMET's script faulted");
+    }
+    return false;
+}
+
+// The gun of a MEDIGUN bubble's owner: their equipment record (+38h its game space, +40h the gun
+// actor) -> the gun's root transform ("ncaTransform") in that space -> its world pose
+// (CTransformCS::get, +0x3c4470: rotation x y z w, then position). Looked up again each second.
+constexpr uintptr_t TRANSFORM_GET_RVA = 0x3c4470;
+constexpr uint8_t TRANSFORM_GET_BYTES[] = { 0x40, 0x53, 0x48, 0x83, 0xec, 0x50, 0x48, 0x8b, 0x81, 0xc8, 0x00, 0x00, 0x00 };
+constexpr uint64_t NCA_TRANSFORM = 0xabfe651c8d260515ull;   // CSymbol64("ncaTransform")
+struct Pose { float q[4]; float p[3]; float s; };
+using transform_get_fn = Pose *(__fastcall *)(void *cs, Pose *out, uint32_t handle);
+transform_get_fn TransformGet = nullptr;
+
+bool FindGunTransform(uint64_t owner, void **tcs, uint32_t *th) {
+    void *equip = g_equip_cs, *heal = g_bubble_cs;
+    if (!equip || !heal || !SpaceById || !SystemsFind) return false;
+    __try {
+        uint8_t *c = (uint8_t *)equip;
+        uint16_t count = *(uint16_t *)(c + 0xf4);
+        uint16_t *index = *(uint16_t **)(c + 0xd8);
+        uint16_t *table = *(uint16_t **)(c + 0xc8);
+        for (uint16_t i = 0; i < count; ++i) {
+            uint16_t idx = index[i];
+            uint32_t h = idx | (uint32_t)table[idx * 2 + 1] << 16;
+            if (ComponentActor(c, h) != owner) continue;
+            uint8_t *rec = *(uint8_t **)(c + 0xf8) + table[idx * 2] * 0x58ull;
+            uint64_t space_id = *(uint64_t *)(rec + 0x38), gun = *(uint64_t *)(rec + 0x40);
+            void *space = SpaceById(*(void **)((uint8_t *)heal + 0x80), space_id);
+            uint64_t *list = space ? SystemsFind(space, NCA_TRANSFORM) : nullptr;
+            if (!list) return false;
+            for (uint64_t k = 0; k < list[6] && k < 8; ++k) {
+                uint32_t t = FindBubble(((void **)list[0])[k], gun, NCA_TRANSFORM);
+                if (t != 0xffffffffu) { *tcs = ((void **)list[0])[k]; *th = t; return true; }
+            }
+            return false;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return false;
+}
+
+bool GunPose(uint8_t *bubble, float pos[3], float q[4]) {
+    if (!TransformGet) return false;
+    ULONGLONG now = GetTickCount64();
+    MediBubble *b = nullptr;
+    for (MediBubble &m : g_medi_bubbles)                   // (game thread: the map only changes here)
+        if (m.record == bubble) b = &m;
+    if (!b) return false;
+    if (now - b->looked >= 1000) {                         // (again each second: a respawn can bring another gun)
+        b->looked = now;
+        void *tcs;
+        uint32_t th;
+        if (FindGunTransform(b->owner, &tcs, &th)) {
+            if (tcs != b->tcs || th != b->th) Log("MEDIGUN %04x: aims from its gun's transform %p/%08x", b->key, tcs, th);
+            b->tcs = tcs;
+            b->th = th;
+        }
+    }
+    if (!b->tcs) return false;
+    __try {
+        Pose p;
+        Pose *r = TransformGet(b->tcs, &p, b->th);
+        if (!r) return false;
+        memcpy(q, r->q, sizeof(float) * 4);
+        memcpy(pos, r->p, sizeof(float) * 3);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        b->tcs = nullptr;
+        return false;
+    }
+}
+
+// COMET drawn? Its script's holstered_current / retracted_current (0 out .. 1 away): holding an
+// ordnance in the gun hand retracts it, and then the trigger is the ordnance's.
+constexpr uintptr_t GET_REAL_RVA = 0x44e8b0;
+constexpr uint8_t GET_REAL_BYTES[] = { 0x48, 0x8b, 0x81, 0xc8, 0x00, 0x00, 0x00, 0x44, 0x0f, 0xb7, 0xca, 0x42, 0x0f };
+constexpr uint64_t HOLSTERED_CURRENT = 0xe6c90eff22a7052cull;
+constexpr uint64_t RETRACTED_CURRENT = 0x294d24efe4682344ull;
+using get_real_fn = float(__fastcall *)(void *cs, uint32_t handle, uint64_t name);
+get_real_fn GetScriptReal = nullptr;
+
+void UpdateGunOut() {
+    if (!GetScriptReal || !g_comet_cs) { g_gun_out = true; return; }
+    float holstered = 0, retracted = 0;
+    __try {
+        holstered = GetScriptReal(g_comet_cs, g_comet_handle, HOLSTERED_CURRENT);
+        retracted = GetScriptReal(g_comet_cs, g_comet_handle, RETRACTED_CURRENT);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_gun_out = true;
+        return;
+    }
+    bool out = holstered < 0.5f && retracted < 0.5f;
+    static float lh = -1, lr = -1;
+    if (fabsf(holstered - lh) > 0.25f || fabsf(retracted - lr) > 0.25f || out != g_gun_out) {
+        Log("COMET holstered %.2f retracted %.2f: %s", holstered, retracted, out ? "drawn" : "away (trigger left to the game)");
+        lh = holstered;
+        lr = retracted;
+    }
+    g_gun_out = out;
+}
+
+void ShowHeat(void *heal_cs, ULONGLONG now) {
+    if (!SetScriptReal || !FindComet(heal_cs, now)) return;
+    static float heat_max = 100.0f;
+    static int faults = 0;
+    __try {
+        SetScriptReal(g_comet_cs, g_comet_handle, HEAT_CURRENT, g_heat * heat_max);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        if (faults++ < 5) Log("MEDIGUN: setting COMET's heat faulted (%08x)", GetExceptionCode());
+        g_comet_cs = nullptr;
+        return;
+    }
+    static ULONGLONG logged = 0;
+    if (now - logged > 2000 && g_heat > 0) {
+        logged = now;
+        Log("MEDIGUN heat %.2f -> COMET heat_current %.1f", g_heat, g_heat * heat_max);
+    }
+}
+
+// The beam leaves the gun hand. Repair Matrix's beam effect is attached to its player's model at
+// the off hand's joint (picked at run time). Before the engine resolves that attachment
+// (+0x1286d30, CreateParticleEffect node: (node ref, data)), a MEDIGUN player's beam is moved to
+// the other hand, the one holding the gun.
+constexpr uintptr_t RESOLVE_ATTACH_RVA = 0x1286d30;
+constexpr uint8_t RESOLVE_ATTACH_BYTES[] = { 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55 };
+constexpr uint64_t NCA_MODEL = 0x38ee951a26fb816aull;
+constexpr uint64_t HEAL_BEAM = 0x39424707bb2df316ull;    // pfx_test_jason_cbt_offhand_heal_beam_plr
+constexpr uint64_t HAND_L1 = 0xd3009aa0bc77fd03ull;      // EXP_L1_Hand1
+constexpr uint64_t HAND_R1 = 0xcd009aa0bc77fd03ull;      // EXP_R1_Hand1
+constexpr uint64_t COMET_MUZZLE = 0x17b85ed52e0ec3beull;  // the ref point COMET's muzzle flash uses
+using resolve_fn = void(__fastcall *)(void *node, uint8_t *data);
+resolve_fn Real_Resolve = nullptr;
+
+// A player's (by actor reference) gun: equipment record +38h space id, +40h actor reference.
+bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon = nullptr) {
+    void *equip = g_equip_cs;
+    if (!equip) return false;
+    __try {
+        uint8_t *c = (uint8_t *)equip;
+        uint16_t count = *(uint16_t *)(c + 0xf4);
+        uint16_t *index = *(uint16_t **)(c + 0xd8);
+        uint16_t *table = *(uint16_t **)(c + 0xc8);
+        for (uint16_t i = 0; i < count; ++i) {
+            uint16_t idx = index[i];
+            uint32_t h = idx | (uint32_t)table[idx * 2 + 1] << 16;
+            if (ComponentActor(c, h) != player) continue;
+            uint8_t *rec = *(uint8_t **)(c + 0xf8) + table[idx * 2] * 0x58ull;
+            *space_id = *(uint64_t *)(rec + 0x38);
+            *gun = *(uint64_t *)(rec + 0x40);
+            if (weapon) *weapon = *(uint64_t *)(rec + 0x18);
+            return *gun != ~0ull && *space_id != ~0ull;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return false;
+}
+
+// Is `player` (this machine's actor reference) holding MEDIGUN? Its equipment says so, or it has
+// a MEDIGUN bubble active here (another machine's player: their equipment may not be known here).
+// The muzzle in the gun hand joint's space: PowerBoost.ini [medigun] hand_offset=x,y,z (metres),
+// read again every second, so it can be tuned while the game runs (a new beam picks it up).
+volatile float g_hand_offset[3] = { 0, 0, 0 };
+
+void ReadHandOffset() {
+    char v[64];
+    GetPrivateProfileStringA("medigun", "hand_offset", "0,0,0", v, sizeof(v), g_ini_path);
+    float x = 0, y = 0, z = 0;
+    if (sscanf_s(v, "%f,%f,%f", &x, &y, &z) == 3 &&
+        (x != g_hand_offset[0] || y != g_hand_offset[1] || z != g_hand_offset[2])) {
+        g_hand_offset[0] = x;
+        g_hand_offset[1] = y;
+        g_hand_offset[2] = z;
+        Log("MEDIGUN beam offset from the gun hand: %.3f %.3f %.3f", x, y, z);
+    }
+}
+
+bool MedigunPlayer(uint64_t player) {
+    uint64_t space_id, gun, weapon = 0;
+    if (GunOf(player, &space_id, &gun, &weapon) && weapon == MEDIGUN) return true;
+    ULONGLONG now = GetTickCount64();
+    bool found = false;
+    AcquireSRWLockShared(&g_medi_lock);
+    for (const MediBubble &b : g_medi_bubbles)
+        if (b.record && (b.owner & 0xffff) == (player & 0xffff) && now - b.at < 60000) found = true;   // (index: upper bits vary)
+    ReleaseSRWLockShared(&g_medi_lock);
+    return found;
+}
+
+// The node's own handler (+0x10aba30, thread: +18h state, +B0h data): its state 1 creates the
+// effect with the local transform in data (+18h position), then resolves the attachment. The
+// muzzle offset has to be in data before the effect is created.
+constexpr uintptr_t PFX_NODE_RVA = 0x10aba30;
+constexpr uint8_t PFX_NODE_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48, 0x89, 0x7c };
+using pfx_node_fn = uint64_t(__fastcall *)(int64_t *thread);
+pfx_node_fn Real_PfxNode = nullptr;
+
+uint64_t __fastcall Hooked_PfxNode(int64_t *thread) {
+    __try {
+        uint8_t *data = (uint8_t *)thread[0x16];
+        if (thread[3] == 1 && data && *(uint64_t *)data == HEAL_BEAM && *(uint64_t *)(data + 0x58) == NCA_MODEL &&
+            MedigunPlayer(*(uint64_t *)(data + 0x48))) {
+            float *local = (float *)(data + 0x18);             // from the gun hand's joint to the muzzle
+            local[0] = g_hand_offset[0];
+            local[1] = g_hand_offset[1];
+            local[2] = g_hand_offset[2];
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return Real_PfxNode(thread);
+}
+
+void __fastcall Hooked_Resolve(void *node, uint8_t *data) {
+    // data (logged 2026-10-19): +0 effect id, +40h actor (space id, actor reference, prefab id),
+    // +58h component (ncaModel), +60h joint (the off hand: EXP_L1_Hand1, picked at run time),
+    // +70h attach type (2 joint). Attaching to the gun itself fails (it lives in another game space,
+    // the beam shows nowhere), so the beam moves to the gun hand's joint on the same model.
+    __try {
+        if (*(uint64_t *)data == HEAL_BEAM && *(uint64_t *)(data + 0x58) == NCA_MODEL) {
+            uint64_t player = *(uint64_t *)(data + 0x48), joint = *(uint64_t *)(data + 0x60);
+            bool medigun = MedigunPlayer(player);
+            static volatile LONG told = 0;
+            if (InterlockedIncrement(&told) <= 30)
+                Log("heal beam of %016llx (joint %016llx): %s", (unsigned long long)player, (unsigned long long)joint,
+                    medigun ? "MEDIGUN -> the gun hand" : "not a MEDIGUN player, left alone");
+            if (medigun && (joint == HAND_L1 || joint == HAND_R1))
+                *(uint64_t *)(data + 0x60) = joint == HAND_L1 ? HAND_R1 : HAND_L1;   // the other hand: the gun's
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    Real_Resolve(node, data);
+}
+
+// The owner's side, on the game's thread (the heal bubble system's update).
+void MedigunTick(void *cs, ULONGLONG now) {
+    if (g_server) return;
+    bool medigun = g_local_weapon == MEDIGUN;
+    float t = now - g_trigger_at < 500 ? g_trigger : 0.0f;
+    static bool pressed = false;
+    pressed = medigun && (pressed ? t > 0.35f : t > 0.55f);
+    // Heat: fills over beam_seconds of beam; full -> overheated for overheat_seconds (it drains
+    // over them); otherwise it cools over cool_seconds, starting a second after the beam stops.
+    static ULONGLONG last_tick = 0, beam_end = 0;
+    float dt = last_tick && now > last_tick ? (now - last_tick) / 1000.0f : 0.0f;
+    if (dt > 0.25f) dt = 0.25f;
+    last_tick = now;
+    if (g_overheated) {
+        if (now >= g_overheat_until) {
+            g_overheated = false;
+            g_heat = 0;
+            Log("MEDIGUN overheat over");
+        } else {
+            g_heat = (g_overheat_until - now) / (g_medi.overheat_seconds * 1000.0f);
+        }
+    } else if (g_beam) {
+        g_heat += dt / g_medi.beam_seconds;
+    } else if (now - beam_end > 1000) {
+        g_heat -= dt / g_medi.cool_seconds;
+    }
+    if (g_heat < 0) g_heat = 0;
+    bool want = pressed && !g_overheated && g_local_actor && g_gun_out;
+    if (g_beam && g_heat >= 1.0f) {
+        g_heat = 1.0f;
+        g_overheated = true;
+        g_overheat_until = now + (ULONGLONG)(g_medi.overheat_seconds * 1000);
+        want = false;
+        Log("MEDIGUN overheated after %.1f s of beam: off for %.0f s", (now - g_beam_start) / 1000.0, g_medi.overheat_seconds);
+    }
+    if (medigun) {
+        ShowHeat(cs, now);
+        UpdateGunOut();
+    } else {
+        g_gun_out = true;
+    }
+    if (want && !g_beam) {
+        uint32_t h = FindBubble(cs, g_local_actor, MEDI_BUBBLE);
+        if (h == 0xffffffffu) {
+            static ULONGLONG warned;
+            if (now - warned > 5000) {
+                warned = now;
+                Log("MEDIGUN: no medigun bubble on this player's actor %016llx (Repair Matrix's: %08x, %u bubbles)",
+                    (unsigned long long)g_local_actor, FindBubble(cs, g_local_actor, 0xb1fda2a83f3debd1ull),
+                    *(uint16_t *)((uint8_t *)cs + 0xf4));
+            }
+            return;
+        }
+        __try {
+            uint8_t *rec = BubbleRecord(cs, h);
+            *(float *)(rec + 0x30) = g_medi.heal_per_second * g_medi.beam_seconds;   // heal over duration
+            *(float *)(rec + 0x34) = g_medi.beam_seconds;
+            *(float *)(rec + 0x38) = floorf(g_medi.range) + (g_medi.angle + CONE_TAG) / 100000.0f;
+            *(float *)(rec + 0x3c) = 0.0f;                                         // no self heal
+            *(float *)(rec + 0x40) = 0.0f;                                         // no cap
+            *(float *)(rec + 0x48) = 1.0f;
+            *(float *)(rec + 0x4c) = 0.0f;
+            *(uint8_t *)(rec + 0x660) = 1;                                         // send the params
+            g_medi_handle = h;
+            g_medi_record = rec;
+            g_local_slot = SlotOfBubble(cs, h);
+            Log("MEDIGUN: activating bubble %08x in space %016llx", h,
+                (unsigned long long)*(uint64_t *)(*(uint8_t **)((uint8_t *)cs + 0x80) + 0x58));
+            ActivateBubble(cs, h);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            Log("MEDIGUN: activating the bubble faulted");
+            return;
+        }
+        g_beam = true;
+        g_beam_start = now;
+        g_next_resend = now + 1000;
+        SendMedigun(true);
+        Log("MEDIGUN on (trigger %.2f)", t);
+    } else if (g_beam && !want) {
+        g_beam = false;
+        beam_end = now;
+        SendMedigun(false);
+        Log("MEDIGUN off after %.1f s", (now - g_beam_start) / 1000.0);
+    } else if (g_beam && now >= g_next_resend) {
+        g_next_resend = now + 1000;
+        SendMedigun(true);
+    }
+}
+
+// Another player's MEDIGUN beam came on (VeilNet): their bubble is activated here too, with
+// MEDIGUN's tuning. The game's own activation message reaches the server but its handler there
+// never activates the bubble (logged 2026-10-19: "slot 1 gen 0, kind 0", no activation), and it
+// only relays to the other clients after it does.
+struct PendingOn { uint16_t key; ULONGLONG at; };
+PendingOn g_pending[8];
+
+void WriteMediTuning(uint8_t *rec) {
+    *(float *)(rec + 0x30) = g_medi.heal_per_second * g_medi.beam_seconds;
+    *(float *)(rec + 0x34) = g_medi.beam_seconds;
+    *(float *)(rec + 0x38) = floorf(g_medi.range) + (g_medi.angle + CONE_TAG) / 100000.0f;
+    *(float *)(rec + 0x3c) = 0.0f;
+    *(float *)(rec + 0x40) = 0.0f;
+    *(float *)(rec + 0x48) = 1.0f;
+    *(float *)(rec + 0x4c) = 0.0f;
+}
+
+void __fastcall Hooked_ActivateLocal(void *cs, uint32_t handle);
+
+void ActivateRemote(void *cs, ULONGLONG now) {
+    for (PendingOn &p : g_pending) {
+        if (!p.at) continue;
+        if (now - p.at > 3000) { p.at = 0; continue; }
+        __try {
+            uint32_t h = SlotBubble(cs, p.key);
+            if (h != 0xffffffffu && !(!g_server && p.key == g_local_slot)) {
+                WriteMediTuning(BubbleRecord(cs, h));
+                Log("MEDIGUN slot %u: its bubble %08x activated here from VeilNet", p.key, h);
+                Hooked_ActivateLocal(cs, h);
+                p.at = 0;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            p.at = 0;
+        }
+    }
+}
+
+void __fastcall Hooked_BubbleUpdate(void *cs) {
+    g_bubble_cs = cs;
+    ULONGLONG now = GetTickCount64();
+    static ULONGLONG offset_read = 0;
+    if (now - offset_read >= 1000) {
+        offset_read = now;
+        ReadHandOffset();
+    }
+    MedigunTick(cs, now);
+    ActivateRemote(cs, now);
+    // A MEDIGUN bubble whose owner's beam is off ends now (this frame's update sees it past its duration).
+    MediBubble list[16];
+    AcquireSRWLockShared(&g_medi_lock);
+    memcpy(list, g_medi_bubbles, sizeof(list));
+    ReleaseSRWLockShared(&g_medi_lock);
+    for (const MediBubble &b : list) {
+        if (!b.record || OwnerOn(b.key, now)) continue;
+        __try {
+            float duration = *(float *)(b.record + 0x34);
+            if (*(float *)(b.record + 0x50) < duration) *(float *)(b.record + 0x50) = duration;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    Real_BubbleUpdate(cs);
+}
+
+// LibOVR: the gun hand's index trigger, taken from the game while MEDIGUN is equipped.
+using fire_fn = void(__fastcall *)(void *cs, uint32_t handle, float charge, void *a4, uint64_t a5, uint64_t a6,
+                                   uint64_t a7, uint64_t a8);
+fire_fn Real_GunFire = nullptr;
+
+void __fastcall Hooked_GunFire(void *cs, uint32_t handle, float charge, void *a4, uint64_t a5, uint64_t a6,
+                               uint64_t a7, uint64_t a8) {
+    if (!g_server && g_local_weapon == MEDIGUN) {
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 20) Log("MEDIGUN: COMET's shot swallowed");
+        return;
+    }
+    Real_GunFire(cs, handle, charge, a4, a5, a6, a7, a8);
+}
+
+using input_fn = int(__cdecl *)(void *session, unsigned type, void *state);
+input_fn Real_Input = nullptr;
+
+int __cdecl Hooked_Input(void *session, unsigned type, void *state) {
+    int r = Real_Input(session, type, state);
+#ifdef ECHOCOMBAT_LOG
+    if (r >= 0 && state && g_local_weapon == MEDIGUN) {           // which call / field the game uses
+        static ULONGLONG last;
+        static LONG calls;
+        ++calls;
+        ULONGLONG now = GetTickCount64();
+        const float *f = (const float *)state;
+        if (now - last >= 1000 && (f[4] > 0.1f || f[5] > 0.1f)) {
+            Log("ovr input: type %x, %ld calls/s, ctl %x | trig %.2f %.2f | nodz %.2f %.2f | raw %.2f %.2f | buttons %08x touches %08x",
+                type, calls, *(const uint32_t *)((const uint8_t *)state + 0x30), f[4], f[5], f[13], f[14], f[21], f[22],
+                *(const uint32_t *)((const uint8_t *)state + 8), *(const uint32_t *)((const uint8_t *)state + 12));
+            last = now;
+            calls = 0;
+        }
+    }
+#endif
+    if (r >= 0 && state && g_local_weapon == MEDIGUN && g_gun_out) {
+        int hand = g_medi.hand >= 0 ? g_medi.hand : g_local_arm == 0 ? 0 : 1;
+        if (type & (hand ? 2u : 1u)) {
+            float *trigger = (float *)((uint8_t *)state + 0x10);
+            float v = trigger[hand];
+            g_trigger = v;
+            g_trigger_at = GetTickCount64();
+            trigger[hand] = 0.0f;
+            // IndexTriggerNoDeadzone (+34h) and IndexTriggerRaw (+54h): the game's input reads
+            // these (they move with the finger, so this SDK's struct has them; logged 2026-10-19)
+            static const size_t kMore[] = { 0x34, 0x54 };
+            for (size_t at : kMore) {
+                float *f = (float *)((uint8_t *)state + at) + hand;
+                if (*f >= 0.0f && *f <= 1.0001f) *f = 0.0f;
+            }
+        }
+    }
+    return r;
+}
+
+DWORD WINAPI HookOvr(LPVOID) {
+    for (int i = 0; i < 600; ++i) {                        // LibOVR loads with the headset, a little later
+        HMODULE ovr = GetModuleHandleW(L"LibOVRRT64_1.dll");
+        if (ovr) {
+            Real_Input = (input_fn)GetProcAddress(ovr, "ovr_GetInputState");
+            if (!Real_Input) break;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID &)Real_Input, Hooked_Input);
+            LONG rc = DetourTransactionCommit();
+            Log(rc == NO_ERROR ? "MEDIGUN: reading the trigger from LibOVR" : "MEDIGUN: hooking LibOVR failed");
+            return 0;
+        }
+        Sleep(500);
+    }
+    Log("MEDIGUN: no LibOVR (not the Oculus client?): the trigger can't drive the beam");
+    return 0;
+}
+
+void ReadMedigunIni(const char *ini) {
+    char v[32];
+    auto real = [&](const char *key, float def) {
+        char d[32];
+        sprintf_s(d, "%g", def);
+        GetPrivateProfileStringA("medigun", key, d, v, sizeof(v), ini);
+        return (float)atof(v);
+    };
+    g_medi.heal_per_second = real("heal_per_second", 8.075f);
+    g_medi.beam_seconds = real("beam_seconds", 40);
+    g_medi.overheat_seconds = real("overheat_seconds", 3);
+    g_medi.cool_seconds = real("cool_seconds", 5);
+    if (g_medi.cool_seconds < 0.1f) g_medi.cool_seconds = 0.1f;
+    g_medi.range = real("range", 20);
+    g_medi.slack = real("cone_slack", 5);
+    g_medi.angle = GetPrivateProfileIntA("medigun", "cone_angle", 20, ini);
+    if (g_medi.angle < 1 || g_medi.angle > 90) g_medi.angle = 20;
+    GetPrivateProfileStringA("medigun", "gun_axis", "+z", v, sizeof(v), ini);
+    {
+        int i = v[1] == 'x' || v[1] == 'X' ? 0 : v[1] == 'y' || v[1] == 'Y' ? 1 : 2;
+        g_gun_axis[0] = g_gun_axis[1] = g_gun_axis[2] = 0;
+        g_gun_axis[i] = v[0] == '-' ? -1.0f : 1.0f;
+    }
+    GetPrivateProfileStringA("medigun", "hand", "right", v, sizeof(v), ini);
+    g_medi.hand = _stricmp(v, "left") == 0 ? 0 : _stricmp(v, "auto") == 0 ? -1 : 1;
+    Log("MEDIGUN: %.3f hp/s for %.0f s, %.0f s overheat, one teammate within %d deg / %.0f m, %s hand", g_medi.heal_per_second,
+        g_medi.beam_seconds, g_medi.overheat_seconds, g_medi.angle, g_medi.range, g_medi.hand == 0 ? "left" : g_medi.hand > 0 ? "right" : "weapon arm's");
+}
+
+bool Check(uint8_t *at, const uint8_t *bytes, size_t n, const char *name);
+
+void InstallMedigun(uint8_t *base) {
+    g_base = base;
+    if (!Check(base + SLOT_RVA, SLOT_BYTES, sizeof(SLOT_BYTES), "GetWeaponSlot") ||
+        !Check(base + MANAGER_RET_RVA - 5, MANAGER_CALL_BYTES, sizeof(MANAGER_CALL_BYTES), "enable manager's slot call") ||
+        !Check(base + BUBBLE_UPDATE_RVA, BUBBLE_UPDATE_BYTES, sizeof(BUBBLE_UPDATE_BYTES), "heal bubble update") ||
+        !Check(base + ACTIVATE_LOCAL_RVA, ACTIVATE_LOCAL_BYTES, sizeof(ACTIVATE_LOCAL_BYTES), "ActivateHealBubbleLocally") ||
+        !Check(base + ACTIVATE_RVA, ACTIVATE_BYTES, sizeof(ACTIVATE_BYTES), "ActivateHealBubble"))
+        return;
+    if (Check(base + GUN_FIRE_RVA, GUN_FIRE_BYTES, sizeof(GUN_FIRE_BYTES), "FireIntegratedGunLocal")) {
+        Real_GunFire = (fire_fn)(base + GUN_FIRE_RVA);
+        DetourAttach(&(PVOID &)Real_GunFire, Hooked_GunFire);
+    }
+    ReadMedigunIni(g_ini_path);
+    if (Check(base + SYSTEMS_FIND_RVA, SYSTEMS_FIND_BYTES, sizeof(SYSTEMS_FIND_BYTES), "systems by name") &&
+        Check(base + SET_REAL_RVA, SET_REAL_BYTES, sizeof(SET_REAL_BYTES), "script SetReal")) {
+        SystemsFind = (systems_fn)(base + SYSTEMS_FIND_RVA);
+        if (Check(base + GET_REAL_RVA, GET_REAL_BYTES, sizeof(GET_REAL_BYTES), "script GetReal"))
+            GetScriptReal = (get_real_fn)(base + GET_REAL_RVA);
+        // DroneFix.dll may have detoured it already (a jmp in front): calling through that is the same
+        if (base[TRANSFORM_GET_RVA] == 0xe9 ||
+            Check(base + TRANSFORM_GET_RVA, TRANSFORM_GET_BYTES, sizeof(TRANSFORM_GET_BYTES), "CTransformCS::get"))
+            TransformGet = (transform_get_fn)(base + TRANSFORM_GET_RVA);
+        if (Check(base + SPACE_BY_ID_RVA, SPACE_BY_ID_BYTES, sizeof(SPACE_BY_ID_BYTES), "game space by id"))
+            SpaceById = (space_fn)(base + SPACE_BY_ID_RVA);
+        SetScriptReal = (set_real_fn)(base + SET_REAL_RVA);
+    }
+    Real_Slot = (slot_fn)(base + SLOT_RVA);
+    Real_BubbleUpdate = (update_fn)(base + BUBBLE_UPDATE_RVA);
+    Real_ActivateLocal = (activate_fn)(base + ACTIVATE_LOCAL_RVA);
+    ActivateBubble = (activate_fn)(base + ACTIVATE_RVA);
+    DetourAttach(&(PVOID &)Real_Slot, Hooked_Slot);
+    DetourAttach(&(PVOID &)Real_BubbleUpdate, Hooked_BubbleUpdate);
+    DetourAttach(&(PVOID &)Real_ActivateLocal, Hooked_ActivateLocal);
+    if (Check(base + RESOLVE_ATTACH_RVA, RESOLVE_ATTACH_BYTES, sizeof(RESOLVE_ATTACH_BYTES), "particle effect attachment")) {
+        Real_Resolve = (resolve_fn)(base + RESOLVE_ATTACH_RVA);
+        DetourAttach(&(PVOID &)Real_Resolve, Hooked_Resolve);
+        if (Check(base + PFX_NODE_RVA, PFX_NODE_BYTES, sizeof(PFX_NODE_BYTES), "particle effect node")) {
+            Real_PfxNode = (pfx_node_fn)(base + PFX_NODE_RVA);
+            DetourAttach(&(PVOID &)Real_PfxNode, Hooked_PfxNode);
+        }
+    }
+    if (Check(base + NET_ACTIVATE_RVA, NET_ACTIVATE_BYTES, sizeof(NET_ACTIVATE_BYTES), "heal bubble network activation")) {
+        Real_NetActivate = (net_activate_fn)(base + NET_ACTIVATE_RVA);
+        DetourAttach(&(PVOID &)Real_NetActivate, Hooked_NetActivate);
+    }
+    if (!g_server)
+        if (HANDLE t = CreateThread(nullptr, 0, HookOvr, nullptr, 0, nullptr)) CloseHandle(t);
+}
+
 void ReadIni() {
     char axis[16];
     const char *ini = g_ini_path;
@@ -741,15 +1689,15 @@ void Install() {
     DetourAttach(&(PVOID &)Real_Heal, Hooked_Heal);
     DetourAttach(&(PVOID &)Real_Damage, Hooked_Damage);
     if (!g_server) DetourAttach(&(PVOID &)Real_Send, Hooked_Send);
+    if (Check(base + SLOT_ACTOR_RVA, SLOT_ACTOR_BYTES, sizeof(SLOT_ACTOR_BYTES), "player slot actor"))
+        SlotActorFn = (slot_actor_fn)(base + SLOT_ACTOR_RVA);   // (server: damage boosts; all: MEDIGUN owners)
+    InstallMedigun(base);
     if (g_server && Check(base + APPLY_RVA, APPLY_BYTES, sizeof(APPLY_BYTES), "ApplyDamageAndNotify")) {
         Real_Apply = (apply_fn)(base + APPLY_RVA);
         DetourAttach(&(PVOID &)Real_Apply, Hooked_Apply);
         if (Check(base + SHOOTER_SLOT_RVA, SHOOTER_SLOT_BYTES, sizeof(SHOOTER_SLOT_BYTES), "shooter slot"))
             ShooterSlotFn = (shooter_slot_fn)(base + SHOOTER_SLOT_RVA);
-        if (Check(base + SLOT_ACTOR_RVA, SLOT_ACTOR_BYTES, sizeof(SLOT_ACTOR_BYTES), "player slot actor")) {
-            SlotActorFn = (slot_actor_fn)(base + SLOT_ACTOR_RVA);
-            g_player_symbol = (uint64_t *)(base + PLAYER_SYMBOL_RVA);
-        }
+        g_player_symbol = (uint64_t *)(base + PLAYER_SYMBOL_RVA);
     }
     LONG rc = DetourTransactionCommit();
     if (rc == NO_ERROR) Log("hooked HealServer and ProcessDamageServer (%s)", g_server ? "server" : "client");
@@ -757,6 +1705,31 @@ void Install() {
 }
 
 } // namespace
+
+// VeilNet.dll hands over each MEDIGUN 'M' packet: the owner key (low 16 bits), on (bit 16).
+extern "C" __declspec(dllexport) void PowerBoost_MedigunRemote(uint32_t id) {
+    uint16_t key = (uint16_t)id;
+    bool on = (id >> 16 & 1) != 0;
+    ULONGLONG now = GetTickCount64();
+    AcquireSRWLockExclusive(&g_medi_lock);
+    MediOwner *slot = &g_owners[0];
+    for (MediOwner &o : g_owners) {
+        if (o.key == key && o.at) { slot = &o; break; }
+        if (o.at < slot->at) slot = &o;
+    }
+    bool was = slot->key == key && slot->at && slot->on;
+    *slot = { key, on, now };
+    if (on && !was) {                                      // activate it here (Hooked_BubbleUpdate)
+        PendingOn *q = &g_pending[0];
+        for (PendingOn &p : g_pending) {
+            if (p.at && p.key == key) { q = &p; break; }
+            if (p.at < q->at) q = &p;
+        }
+        *q = { key, now };
+    }
+    ReleaseSRWLockExclusive(&g_medi_lock);
+    if (was != on) Log("MEDIGUN %04x %s (from VeilNet)", key, on ? "on" : "off");
+}
 
 // CombatBots.dll finds the damageable system here (dead / respawn of its bots).
 extern "C" __declspec(dllexport) void *PowerBoost_DamageableCS() { return g_damage_cs; }

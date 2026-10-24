@@ -80,6 +80,17 @@
    "effect_time": 5.0,
    "charge_indicator_repeat": 0.4,
    "sound_copies": 2
+  },
+  "medigun": {
+   "heal_scale": 0.85,
+   "beam_seconds": 15,
+   "overheat_seconds": 4,
+   "cool_seconds": 5,
+   "cone_angle": 20,
+   "range": 20,
+   "cone_slack": 5,
+   "hand": "right",
+   "hand_offset": "0,0,0.2"
   }
  }
 }

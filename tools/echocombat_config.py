@@ -44,6 +44,37 @@ def powerboost_ini() -> str:
         "[cone]\n"
         "axis=+z\n"
         f"link_window_ms={b.get('link_window_ms', 500)}\n"
+        + medigun_ini()
+    )
+
+
+def repair_matrix_rate() -> float:
+    """Repair Matrix's heal per second (ability_properties.heal, the gun patch's settings)."""
+    from json_resource import read
+    path = os.path.join(local()["gunpatch"], "607d858c90268f9a", "11a8523ed4724ca7")
+    if not os.path.exists(path):
+        path = os.path.join(ROOT, "data", "gunpatch", "607d858c90268f9a", "11a8523ed4724ca7")
+    heal = json.loads(read(open(path, "rb").read())[1])["ability_properties"]["heal"]
+    return heal["heal_amt"] / heal["heal_duration"]
+
+
+def medigun_ini() -> str:
+    """PowerBoost.ini's [medigun] (ability_properties.medigun)."""
+    m = section("ability_properties", "medigun")
+    rate = repair_matrix_rate() * m.get("heal_scale", 0.85)
+    seconds = m.get("beam_seconds", 40)
+    return (
+        "[medigun]\n"
+        f"heal_per_second={rate:.4f}\n"
+        f"beam_seconds={seconds}\n"
+        f"overheat_seconds={m.get('overheat_seconds', 3)}\n"
+        f"cool_seconds={m.get('cool_seconds', 5)}\n"
+        f"cone_angle={m.get('cone_angle', 20)}\n"
+        f"range={m.get('range', 20)}\n"
+        f"cone_slack={m.get('cone_slack', 5)}\n"
+        f"hand={m.get('hand', 'right')}\n"
+        f"gun_axis={m.get('gun_axis', '+z')}\n"
+        f"hand_offset={m.get('hand_offset', '0,0,0.2')}\n"
     )
 
 
