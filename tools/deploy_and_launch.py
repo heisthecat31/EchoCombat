@@ -15,6 +15,7 @@
      fix_vo.py                               announcer equip callouts for the gear with none (assets/vo/)
      fix_buff.py                            POWER BOOST tac mod: Repair Matrix in purplish red
      fix_point.py                            POINT tac mod: a stun field where its wall lands
+     fix_medigun.py                          MEDIGUN: COMET's gun with a one-teammate Repair Matrix beam
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
      fix_dot_trigger.py                      stacks onto the drone's script table
@@ -230,7 +231,8 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
           veil: tuple = (), fx_preview: int = 0, veil_sound: bool = True, buff: bool = True,
           buff_dr: float = None, buff_charge: float = None, buff_fx_test: bool = False,
           buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
-          point_event: str = None, buff_purple_fx: bool = True, drone_model: bool = True):
+          point_event: str = None, buff_purple_fx: bool = True, drone_model: bool = True,
+          medigun: bool = True):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -265,6 +267,10 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
         if veil_sound:                        # its smoke sound, in the unused 14 s sound slot
             tool("veil_sound.py", *src)       # (and the announcer callouts' audio, fix_vo.py)
             tool("fix_vo.py", *src)           # the announcer's listeners for those callouts
+    # MEDIGUN: a COMET-looking gun with Repair Matrix's beam (its own heal bubble and script;
+    # PowerBoost.dll drives it). After fix_buff: stacks on its global level tables.
+    if medigun:
+        tool("fix_medigun.py", "--base", STAGE, *src)
     # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound
     # event is added to the sound bank by veil_sound.py above).
     tool("fix_loc_fx.py", "--src", SOURCE, "--out", STAGE)
@@ -464,7 +470,7 @@ def stage_from_args(args):
              ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
           not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
           not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
-          not args.no_buff_purple_fx, not args.no_drone_model)
+          not args.no_buff_purple_fx, not args.no_drone_model, not args.no_medigun)
 
 
 def main(argv) -> int:
@@ -514,6 +520,7 @@ def main(argv) -> int:
     ap.add_argument("--buff-fx-test", action="store_true",
                     help="test: POWER BOOST's beam shows the stun field effect instead (is the beam copy used?)")
     ap.add_argument("--no-drone", action="store_true", help="leave the drone fixes out")
+    ap.add_argument("--no-medigun", action="store_true", help="leave the MEDIGUN out")
     ap.add_argument("--no-drone-model", action="store_true",
                     help="keep the drone's stock look instead of fix_drone_model.py's CubeSat")
     ap.add_argument("--no-build", action="store_true",

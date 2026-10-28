@@ -153,16 +153,17 @@ def recolour(params: bytes, rgb=PURPLE) -> bytes:
     return bytes(b)
 
 
-def hand_copy(effect: bytes) -> bytes:
-    """The hand effect with its mesh pointed at the arrow and its colour purple."""
+def hand_copy(effect: bytes, rgb=PURPLE, arrow: bool = True) -> bytes:
+    """The hand effect with its mesh pointed at the arrow (unless not `arrow`) and its colour rgb."""
     b = bytearray(effect)
     root = ef.parse(effect)
     mesh_arr = root.arrays[3]
     assert mesh_arr.count == 1 and struct.unpack_from("<Q", b, mesh_arr.data)[0] == int(CROSS_MESH, 16)
-    struct.pack_into("<Q", b, mesh_arr.data, int(ARROW_MESH, 16))
+    if arrow:
+        struct.pack_into("<Q", b, mesh_arr.data, int(ARROW_MESH, 16))
     sys0 = root.arrays[0].elems[0]
     blob = next(a for a in sys0.arrays if a.blob)
-    b[blob.data:blob.data + blob.size] = recolour(effect[blob.data:blob.data + blob.size])
+    b[blob.data:blob.data + blob.size] = recolour(effect[blob.data:blob.data + blob.size], rgb)
     return bytes(b)
 
 
@@ -198,16 +199,21 @@ def recolour_bc1(dds: bytes, m=None) -> bytes:
     return bytes(out)
 
 
-def beam_copy(effect: bytes) -> bytes:
-    """The beam with its crosses as arrows and its sparks texture purple (the white strands stay)."""
+def beam_copy(effect: bytes, colour=None, sparks=None, arrow: bool = True) -> bytes:
+    """The beam with its crosses as arrows (unless not `arrow`), its sparks texture the copy
+    `sparks` (default the purple one) and its colour `colour` (default BEAM_PURPLE); the white
+    strands stay."""
+    colour = BEAM_PURPLE if colour is None else colour
+    sparks = SPARKS_COPY if sparks is None else sparks
     b = bytearray(effect)
     root = ef.parse(effect)
     mesh_arr, tex_arr = root.arrays[3], root.arrays[2]
     assert struct.unpack_from("<Q", b, mesh_arr.data)[0] == int(CROSS_MESH, 16)
-    struct.pack_into("<Q", b, mesh_arr.data, int(ARROW_MESH, 16))
+    if arrow:
+        struct.pack_into("<Q", b, mesh_arr.data, int(ARROW_MESH, 16))
     for e in tex_arr.elems:
         if struct.unpack_from("<Q", b, e.at)[0] == int(SPARKS_TEX, 16):
-            struct.pack_into("<Q", b, e.at, int(SPARKS_COPY, 16))
+            struct.pack_into("<Q", b, e.at, int(sparks, 16))
             break
     else:
         raise ValueError("sparks texture not referenced")
@@ -218,7 +224,7 @@ def beam_copy(effect: bytes) -> bytes:
     # look green as floats but start with half floats (3be8, 3266: shape / noise
     # values); recolouring them, or every green-looking triple (fix_buff.gold_particles),
     # gave stray zigzag strands that outlived the bubble.
-    span = lambda c: [min(c) + (max(c) - min(c)) * k for k in BEAM_PURPLE]
+    span = lambda c: [min(c) + (max(c) - min(c)) * k for k in colour]
     for s in root.arrays[0].elems:
         blob = s.arrays[0]
         if not blob.blob or blob.size != 0xA8:

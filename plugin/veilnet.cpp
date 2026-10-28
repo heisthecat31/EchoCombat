@@ -49,6 +49,11 @@
 // script, tools/fix_buff.py), every machine gets an "overcharge token" (+0x2104ca8),
 // and the next heal bubble in Repair Matrix's script to take one shows OVERCHARGE's
 // purple look (tools/oc_switch.py).
+//
+// MEDIGUN goes as 'M' packets: PowerBoost.dll on the client holding it calls
+// VeilNet_Medigun(id) (owner key, on / off, a sequence); the server relays it and every
+// machine, the server too, hands it to PowerBoost_MedigunRemote, which ends that owner's
+// heal bubble when the beam goes off.
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -85,6 +90,15 @@ constexpr uintptr_t TACMOD_LIST_RVA = 0x20d3430;
 constexpr size_t TACMOD_ENTRY = 0x88;
 const char *const kNewTacMods[3] = {"smoke", "buff", "point"};
 constexpr ULONGLONG SERVER_TIMEOUT = 6000;      // ms without an answer to the hello
+//: MEDIGUN is off unless the server turns it on: PowerBoost.ini [server] medigun=1 next to this
+//: DLL on the server. Its answer to each hello carries ANSWER_MEDIGUN when it does; a client
+//: shows MEDIGUN (the weapon list's last entry, fix_medigun.py appends it) only while its current
+//: server's answers say so, and PowerBoost.dll (VeilNet_MedigunAllowed) keeps it a plain COMET
+//: otherwise. The weapon list sits just before the tac mod list (gear_table order: weapons,
+//: ordnances, tac mods; each filled by +0xc4e410 from InitAndLoadGearTables).
+constexpr uintptr_t WEAPON_LIST_RVA = 0x20d3420;
+constexpr uint32_t ANSWER_MEDIGUN = 1;
+bool g_medigun_on_server = false;               // server: [server] medigun
 
 struct Shared {
     volatile LONG tokens;
@@ -302,13 +316,35 @@ extern "C" __declspec(dllexport) void __cdecl VeilNet_DroneKilled(uint32_t index
     Log("drone %u killed: told %d client(s)", index & 0xffff, n);
 }
 
+// PowerBoost.dll on the client with a MEDIGUN: its beam on / off, to the server and on to everyone.
+extern "C" __declspec(dllexport) void __cdecl VeilNet_Medigun(uint32_t id) {
+    if (g_server) return;
+    FirstTime(id);
+    SendToServer('M', id);
+    SendToServer('M', id);                                  // once more, against loss
+}
+
+void MedigunHere(uint32_t id) {
+    using remote_fn = void(__cdecl *)(uint32_t);
+    static remote_fn remote = nullptr;
+    if (!remote)
+        if (HMODULE pb = GetModuleHandleW(L"PowerBoost.dll"))
+            remote = (remote_fn)GetProcAddress(pb, "PowerBoost_MedigunRemote");
+    if (remote) remote(id);
+}
+
 volatile ULONGLONG g_last_answer = 0;           // client: when the server last answered a hello
+volatile uint32_t g_last_answer_flags = 0;      // ... and what it said (ANSWER_MEDIGUN)
 
 void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     char buf[48];
     if (g_server) {
         Remember(s, from);
-        if (p.type == 'H') Send(s, from, 'A', 0);       // "this server has EchoCombat"
+        if (p.type == 'H') Send(s, from, 'A', g_medigun_on_server ? ANSWER_MEDIGUN : 0);   // "this server has EchoCombat"
+        if (p.type == 'M' && g_medigun_on_server && FirstTime(p.id)) {
+            MedigunHere(p.id);
+            Relay(from, 'M', p.id);
+        }
         if (Carried(p.type) && FirstTime(p.id)) {
             if (p.type != 'T') AddToken(Tokens(p.type));   // a teleport has nothing to show here
             int n = Relay(from, p.type, p.id);
@@ -317,7 +353,12 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
         }
     } else if (p.type == 'A') {
         Dest d;                                          // only the current server's answer counts
-        if (ServerDest(d) && Same(d.addr, from)) g_last_answer = GetTickCount64();
+        if (ServerDest(d) && Same(d.addr, from)) {
+            g_last_answer = GetTickCount64();
+            g_last_answer_flags = p.id;
+        }
+    } else if (p.type == 'M' && FirstTime(p.id)) {
+        if (g_last_answer_flags & ANSWER_MEDIGUN) MedigunHere(p.id);
     } else if (p.type == 'K' && FirstTime(p.id)) {          // a drone the server killed: DroneFix shuts it down
         using killed_fn = void(__cdecl *)(uint32_t);
         static killed_fn killed = nullptr;
@@ -413,6 +454,58 @@ int TacModsGuarded(bool server_has_it, uint64_t *now_count) {
     }
 }
 
+// MEDIGUN in the weapon list as the server allows (see ANSWER_MEDIGUN): the list's last entry,
+// cut off by the count as the tac mods are. While it is this player's weapon it stays (the
+// selection would point past the list's end); PowerBoost.dll keeps it a COMET meanwhile.
+uint8_t *g_weapon_entries;
+uint64_t g_weapon_full;
+
+bool MedigunSelected() {
+    using weapon_fn = uint64_t(__cdecl *)();
+    static weapon_fn weapon = nullptr;
+    if (!weapon)
+        if (HMODULE pb = GetModuleHandleW(L"PowerBoost.dll")) weapon = (weapon_fn)GetProcAddress(pb, "PowerBoost_LocalWeapon");
+    return weapon && weapon() == 0x2fda8a9b57734284ull;     // CSymbol64("medigun")
+}
+
+int MedigunListGuarded(bool allowed, uint64_t *now_count) {
+    __try {
+        uint8_t *list = *(uint8_t *volatile *)(g_base + WEAPON_LIST_RVA);
+        if (!list) return 0;
+        uint8_t *entries = *(uint8_t *volatile *)(list + 0x08);
+        volatile uint64_t *count = (volatile uint64_t *)(list + 0x10);
+        uint64_t capacity = *(volatile uint64_t *)(list + 0x18);
+        if (!entries) return 0;
+        if (entries != g_weapon_entries) {
+            g_weapon_entries = entries;
+            g_weapon_full = 0;
+        }
+        if (*count > g_weapon_full) g_weapon_full = *count;
+        uint64_t full = g_weapon_full;
+        if (full < 1 || full > capacity || strncmp((const char *)entries + (full - 1) * TACMOD_ENTRY, "medigun", 64) != 0)
+            return 0;
+        uint64_t want = allowed || MedigunSelected() ? full : full - 1;
+        if (*count == want) return 0;
+        *count = want;
+        *now_count = want;
+        return want == full ? 1 : 2;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+bool MedigunAllowedNow() {
+    ULONGLONG now = GetTickCount64();
+    return g_last_answer && now - g_last_answer < SERVER_TIMEOUT && (g_last_answer_flags & ANSWER_MEDIGUN);
+}
+
+void MedigunListFor(bool allowed) {
+    uint64_t n = 0;
+    int r = MedigunListGuarded(allowed, &n);
+    if (r == 1) Log("MEDIGUN shown (%llu weapons)%s", n, allowed ? ": the server allows it" : ": selected, kept until changed");
+    if (r == 2) Log("MEDIGUN hidden (%llu weapons): the server does not allow it", n);
+}
+
 void TacModsFor(bool server_has_it) {
     uint64_t n = 0;
     int r = TacModsGuarded(server_has_it, &n);
@@ -474,6 +567,7 @@ DWORD WINAPI Tick(LPVOID) {
             if (now >= next_tacmods) {
                 next_tacmods = now + 250;
                 TacModsFor(g_last_answer && now - g_last_answer < SERVER_TIMEOUT);
+                MedigunListFor(MedigunAllowedNow());
             }
             if (now >= next_hello) {
                 next_hello = now + 2000;
@@ -717,6 +811,11 @@ void InstallQuickExit() {
 
 } // namespace
 
+// PowerBoost.dll (client): may this player's MEDIGUN work here? Only on a server that allows it.
+extern "C" __declspec(dllexport) int __cdecl VeilNet_MedigunAllowed() {
+    return g_server ? (g_medigun_on_server ? 1 : 0) : (MedigunAllowedNow() ? 1 : 0);
+}
+
 ECHOCOMBAT_EXPORT NvrPluginInfo NvrPluginGetInfo(void) {
     return EchoCombatPluginInfo("veil_net", "EchoCombat: UMBRAL VEIL, POINT, TRANSLOCATOR and OVERCHARGE between players");
 }
@@ -729,6 +828,12 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
     EchoCombatLogPath(g_log_path, sizeof(g_log_path), "VeilNet");
+    HMODULE self = nullptr;                              // MEDIGUN: PowerBoost.ini [server] medigun, beside the DLLs
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCWSTR)&NvrPluginInitEx, &self);
+    char ini[MAX_PATH];
+    EchoCombatBesideDll(self, ini, sizeof(ini), "PowerBoost.ini");
+    g_medigun_on_server = GetPrivateProfileIntA("server", "medigun", 0, ini) != 0;
     InstallQuickExit();
     return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
 }
