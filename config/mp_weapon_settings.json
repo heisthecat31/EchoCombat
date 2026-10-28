@@ -58,17 +58,23 @@
    "head_body_part": 5,
    "cheat_death_seconds": 5,
    "cheat_death_grace_ms": 1500,
-   "link_window_ms": 500
+   "link_window_ms": 500,
+   "_why_self_damage": "OVERCHARGE costs its user self_damage_per_tick health every self_damage_tick_seconds while it runs (applied by the server; it never takes the last point of health unless self_damage_lethal). aim: head = the cone follows where the head looks, gun = where the gun points.",
+   "self_damage_per_tick": 5,
+   "self_damage_tick_seconds": 1.0,
+   "self_damage_lethal": false,
+   "aim": "head"
   },
   "smoke": {
+   "_why_cost": "Each puff is a see-through layer, and in VR the cost goes with particle count x puff area. Emission 4 -> 1.25 with puffs 3.5 -> 4.0 is about 40% of the old cost; opacity 35 -> 70 so fewer puffs still hide as much. veil_cloud_lifetime is how long the veil lasts, so it stays.",
    "veil_cloud_count": 1,
    "veil_cloud_size": 5.0,
    "veil_cloud_lifetime": 8.0,
    "veil_cloud_spread": 0.0,
-   "veil_cloud_emission": 4.0,
-   "veil_puff_size": 3.5,
-   "veil_opacity": 35.0,
-   "veil_shade": 0.6
+   "veil_cloud_emission": 1.25,
+   "veil_puff_size": 4.0,
+   "veil_opacity": 70.0,
+   "veil_shade": 0.3
   },
   "point": {
    "radius": 2.5,
@@ -80,17 +86,26 @@
    "effect_time": 5.0,
    "charge_indicator_repeat": 0.4,
    "sound_copies": 2
-  },
-  "medigun": {
-   "heal_scale": 0.85,
-   "beam_seconds": 15,
-   "overheat_seconds": 4,
-   "cool_seconds": 5,
-   "cone_angle": 20,
-   "range": 20,
-   "cone_slack": 5,
-   "hand": "right",
-   "hand_offset": "0,0,0.2"
   }
+ },
+ "medigun": {
+  "_about": "MEDIGUN (a COMET that heals one teammate with a blue beam). enabled: false = off: servers don't offer it and clients hide it (a selected one stays a plain COMET). A server offers it when its EchoCombat build was made with enabled: true (written into PowerBoost.ini [server] medigun, which VeilNet.dll reads and tells its clients). The rest is its tuning; the deploy copies it into ability_properties.medigun, where its script reads it.",
+  "enabled": false,
+  "heal_scale": 0.85,
+  "beam_seconds": 15,
+  "overheat_seconds": 4,
+  "cool_seconds": 5,
+  "cone_angle": 20,
+  "range": 20,
+  "cone_slack": 5,
+  "hand": "auto",
+  "_why_offset": "hand_offset: where the beam starts, in the gun bone's space (x, y, z metres): PowerBoost.dll writes it into the beam effect every frame and rereads PowerBoost.ini every second, so it can be tuned while the beam is on. (0.05, 0.07, 0.12): the average of where the muzzle worked out to from the hand bones.",
+  "hand_offset": "0.064,0.000,0.203",
+  "_why_offset_left": "hand_offset_left: the same for the left hand, whose bone is mirrored (the right hand's numbers left it about 6 cm low).",
+  "hand_offset_left": "0.124,0,0.203",
+  "_why_bone": "beam_bone: the hand bone the beam starts from (EXP_L1_ / EXP_R1_ + this, by the weapon arm): ToolAttach1, Hand1, HandPistol1, HandRifle1, HandBFG1, Index3, Middle3, ArmGameIkOppHandItem1, ... (PowerBoost.dll HAND_BONES). Reread every second; the next link uses it. The beam's own position offset moves nothing (tested).",
+  "beam_bone": "ToolAttach1",
+  "_why_aim": "aim: gun = the cone follows the gun (its transform's +z, gun_axis); head = where the head looks. The gun transform is on the gun hand (head-local -x is right: an earlier note had it on the off hand, a sign mistake).",
+  "aim": "gun"
  }
 }

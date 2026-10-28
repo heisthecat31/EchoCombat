@@ -41,7 +41,13 @@
 // looked up the way the function does it (+0x44cc40, +0x638830): position at +8F8h,
 // orientation quaternion (x, y, z, w) at +BD0h. Which local axis is "aim" is set by
 // axis= in PowerBoost.ini ([cone], default +z); the log shows the angle to each
-// target along all six axes so the right one can be picked.
+// target along all six axes so the right one can be picked. With [cone] aim=gun the
+// cone follows the owner's gun instead (default head: the user found the gun hand wrong for it) (OwnerGunPose, MEDIGUN's gun_axis),
+// so it goes where the hand points; the head is the fallback when no gun is found.
+//
+// The cost: the server takes [buff] self_damage off the user every self_damage_tick_ms for
+// as long as OVERCHARGE runs (SelfDamageTick), never the last point of health unless
+// self_damage_lethal=1.
 //
 // Cheat death (do_rez_buff): a linked teammate whose buff carries the rez cannot die for
 // [rez] seconds (PowerBoost.ini, default 5) from their FIRST link in that OVERCHARGE use:
@@ -156,7 +162,13 @@ float g_body_bonus = 1.0f, g_head_bonus = 2.0f;
 thread_local uint64_t t_shooter = ~0ull, t_gun = 0;
 thread_local int t_part = -1;
 thread_local bool t_in_apply = false;
+thread_local bool t_self_damage = false;  // OVERCHARGE's own cost being applied (SelfDamageTick)
 int g_head_part = 5;
+// OVERCHARGE costs its user (server): self_damage every self_damage_tick_ms while it runs
+// (PowerBoost.ini [buff]); unless self_damage_lethal, it never takes the last point of health.
+float g_self_damage = 2.0f;
+unsigned g_self_tick_ms = 1000;
+bool g_self_lethal = false;
 struct Boost { void *cs; uint32_t index; ULONGLONG until; uint64_t shooter; };   // shooter: ~0 unknown
 constexpr int MAX_BOOSTS = 16;
 Boost g_boosts[MAX_BOOSTS];
@@ -243,7 +255,7 @@ void Log(const char *fmt, ...) {
     // Off unless built with ECHOCOMBAT_LOG: a release writes no log, so slow PCs pay
     // nothing for it.
 #ifdef ECHOCOMBAT_LOG
-    if (InterlockedIncrement(&g_logged) > 2000) return;
+    if (InterlockedIncrement(&g_logged) > 20000) return;
     FILE *f = nullptr;
     if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
     SYSTEMTIME t;
@@ -318,6 +330,8 @@ void EndBuff(void *cs, uint16_t index) {
     Log("buff: damageable %p/%u unlinked: buff ended%s", cs, index, found ? "" : " (none running)");
 }
 
+void AddSelfDamage(void *cs, uint32_t index, unsigned seconds);
+
 // A marker's kind: 1 = use, 2 = link, 0 = a real heal; rez and the encoded value.
 int Marker(float amount, bool *rez, unsigned *v) {
     *rez = amount >= MARKER_BASE + REZ_FLAG;
@@ -355,6 +369,7 @@ void __fastcall Hooked_Heal(void *cs, uint32_t index, float amount, uint64_t a4,
         AcquireSRWLockExclusive(&g_lock);
         AddBoost(cs, index, g_dr_seconds, t_in_apply ? t_shooter : ~0ull);
         ReleaseSRWLockExclusive(&g_lock);
+        AddSelfDamage(cs, index, g_dr_seconds);
         Log("POWER BOOST used by %p/%u: links give x%.3f damage for %u s%s", cs, index & 0xffff,
             1.0f - g_dr, (unsigned)g_dr_seconds, rez ? " and cheat death" : "");
         return;                                   // a marker, not a heal
@@ -405,6 +420,10 @@ float Survivable(const uint8_t *rec, float damage) {
 
 void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info, uint64_t a5, uint64_t a6) {
     g_damage_cs = cs;
+    if (t_self_damage) {                                  // OVERCHARGE's cost: no reduction, boost or cheat death
+        Real_Damage(cs, index, damage, info, a5, a6);
+        return;
+    }
     ULONGLONG now = GetTickCount64();
     float mult = 1.0f;
     bool rez = false;
@@ -523,6 +542,56 @@ void __fastcall Hooked_Apply(void *cs, uint64_t handle, float damage, uint64_t s
     if (outer) t_in_apply = false;
 }
 
+// OVERCHARGE's users on the server and when each next pays its cost. The damage goes in the
+// way a client's hit does (the DamageDealt handler, +0xcb5d50: no shooter, zero hit position
+// and direction, body part 0, no gun), so health, events and sync are the game's own.
+struct SelfDamage { void *cs; uint32_t index; ULONGLONG until, next; };
+SelfDamage g_self_damages[16];
+
+void AddSelfDamage(void *cs, uint32_t index, unsigned seconds) {
+    if (!g_server || g_self_damage <= 0) return;
+    ULONGLONG now = GetTickCount64();
+    AcquireSRWLockExclusive(&g_lock);
+    SelfDamage *slot = nullptr;
+    for (SelfDamage &s : g_self_damages) {
+        if (s.cs == cs && (s.index & 0xffff) == (index & 0xffff)) { slot = &s; break; }
+        if (!slot && (!s.cs || s.until <= now)) slot = &s;
+    }
+    if (slot) *slot = { cs, index, now + seconds * 1000ull, now + g_self_tick_ms };
+    ReleaseSRWLockExclusive(&g_lock);
+    Log("OVERCHARGE cost: %p/%u takes %.1f every %u ms for %u s%s", cs, index & 0xffff, g_self_damage,
+        g_self_tick_ms, seconds, slot ? "" : " -- NO FREE SLOT, ignored");
+}
+
+// Server, game thread (the heal bubble system's update): every user due a tick takes it.
+void SelfDamageTick(ULONGLONG now) {
+    if (!g_server || !Real_Apply) return;
+    for (SelfDamage &s : g_self_damages) {
+        if (!s.cs || now < s.next) continue;
+        if (now >= s.until) { s.cs = nullptr; continue; }
+        s.next += g_self_tick_ms;
+        if (s.next <= now) s.next = now + g_self_tick_ms;      // (after a hitch: no burst)
+        float damage = g_self_damage;
+        __try {
+            const uint8_t *rec = Record(s.cs, s.index);
+            if (rec[2] & 4) { s.cs = nullptr; continue; }       // dead: the cost ends with the use
+            if (!g_self_lethal && WouldKill(rec, damage)) damage = Survivable(rec, damage);
+            if (damage <= 0) continue;
+            alignas(16) float pos[4] = {}, dir[4] = {};
+            t_self_damage = true;
+            Real_Apply(s.cs, s.index, damage, ~0ull, (uint64_t)pos, (uint64_t)dir, 0, 0, 0, 0);
+            t_self_damage = false;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            t_self_damage = false;
+            s.cs = nullptr;
+            Log("OVERCHARGE cost: damaging the user faulted, stopped");
+            continue;
+        }
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 100) Log("OVERCHARGE cost: %p/%u -%.2f", s.cs, s.index & 0xffff, damage);
+    }
+}
+
 // This client's hits on their way to the server: boosted, they deal x(1 + damage_bonus).
 // Negative amounts are markers / heals, passed through untouched.
 void __fastcall Hooked_Send(void *cs, uint32_t index, float amount, uint8_t type, uint64_t info) {
@@ -574,7 +643,12 @@ BubbleLinks &BubbleFor(uint8_t *bubble, ULONGLONG now) {
 
 int MediCone(uint8_t *bubble, float off, float dist, float range, int angle, void *dcs, uint32_t index);
 bool GunPose(uint8_t *bubble, float pos[3], float q[4]);
+bool OwnerGunPose(uint8_t *bubble, float pos[3], float q[4]);
+void DiagGunSpace(uint8_t *bubble, const float *hp, const float *hq);
+bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon = nullptr, int *arm = nullptr);
 float g_gun_axis[3] = { 0, 0, 1 };        // the gun's local aim axis (PowerBoost.ini [medigun] gun_axis=)
+bool g_medi_aim_gun = false;             // MEDIGUN aims with its gun transform (PowerBoost.ini [medigun] aim=gun)
+bool g_aim_gun = false;                   // OVERCHARGE aims with the gun hand (PowerBoost.ini [cone] aim=gun; default head)
 
 int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint32_t index) {
     float radius = *(float *)(bubble + 0x38);
@@ -587,9 +661,18 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
     if (!owner) return 0;
     const float *pos = (const float *)(owner + 0x8f8), *q = (const float *)(owner + 0xbd0);
     const float *axis = g_axis;
+    {   // the owner: never linked (measured from the head: the gun is up to a metre from its own body)
+        const float *head = pos;
+        float h[3] = { target[0] - head[0], target[1] - head[1], target[2] - head[2] };
+        if (h[0] * h[0] + h[1] * h[1] + h[2] * h[2] < 0.09f) return 0;
+    }
     float gun_pos[3], gun_q[4];
-    if (medigun) {                                        // MEDIGUN aims from its gun, not the head
-        if (GunPose(bubble, gun_pos, gun_q)) { pos = gun_pos; q = gun_q; axis = g_gun_axis; }
+    if (medigun) {                                        // MEDIGUN: the head unless [medigun] aim=gun
+        // (the gun transform found is on the OFF hand: it changes side with the weapon arm, the
+        // opposite way to the gun -- logged 2026-10-27 -- so it can't aim the beam yet)
+        if (g_medi_aim_gun && GunPose(bubble, gun_pos, gun_q)) { pos = gun_pos; q = gun_q; axis = g_gun_axis; }
+    } else if (g_aim_gun) {                               // OVERCHARGE: where the gun hand points, too
+        if (OwnerGunPose(bubble, gun_pos, gun_q)) { pos = gun_pos; q = gun_q; axis = g_gun_axis; }
     }
     float d[3] = { target[0] - pos[0], target[1] - pos[1], target[2] - pos[2] };
     float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -603,8 +686,14 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
             static const float axes[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
             float a[6];
             for (int i = 0; i < 6; ++i) a[i] = AngleTo(q, axes[i], d, dist);
-            Log("MEDIGUN cone from %s: target %.1f m, %.0f deg | +x %.0f -x %.0f +y %.0f -y %.0f +z %.0f -z %.0f",
-                pos == gun_pos ? "the gun" : "the head (no gun pose)", dist, off, a[0], a[1], a[2], a[3], a[4], a[5]);
+            DiagGunSpace(bubble, (const float *)(owner + 0x8f8), (const float *)(owner + 0xbd0));
+            // where that gun is, seen from the head (head axes): which hand the aim comes from
+            const float *hp = (const float *)(owner + 0x8f8), *hq = (const float *)(owner + 0xbd0);
+            float rel[3] = { pos[0] - hp[0], pos[1] - hp[1], pos[2] - hp[2] }, inv[4] = { -hq[0], -hq[1], -hq[2], hq[3] }, hl[3];
+            Rotate(inv, rel, hl);
+            Log("MEDIGUN cone from %s: target %.1f m, %.0f deg | +x %.0f -x %.0f +y %.0f -y %.0f +z %.0f -z %.0f | "
+                "gun from the head %.2f %.2f %.2f", pos == gun_pos ? "the gun" : "the head (no gun pose)", dist, off,
+                a[0], a[1], a[2], a[3], a[4], a[5], hl[0], hl[1], hl[2]);
         }
     }
     float range = floorf(radius);
@@ -638,8 +727,8 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
         static const float axes[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
         float a[6];
         for (int i = 0; i < 6; ++i) a[i] = AngleTo(q, axes[i], d, dist);
-        Log("cone: target %p/%u at %.1f m (max %.0f), %.0f deg off aim (max %d) -> %s | +x %.0f -x %.0f +y %.0f -y %.0f "
-            "+z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", dcs, index & 0xffff, dist, range, off, angle,
+        Log("cone (from the %s): target %p/%u at %.1f m (max %.0f), %.0f deg off aim (max %d) -> %s | +x %.0f -x %.0f +y %.0f "
+            "-y %.0f +z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", pos == gun_pos ? "gun" : "head", dcs, index & 0xffff, dist, range, off, angle,
             ok ? "LINK" : "no", a[0], a[1], a[2], a[3], a[4], a[5], q[0], q[1], q[2], q[3]);
     }
     if (send) LinkState(dcs, index, ok);                  // linked / unlinked
@@ -761,10 +850,29 @@ uint8_t *g_base = nullptr;
 struct MediConfig {
     float heal_per_second = 8.075f, beam_seconds = 40, overheat_seconds = 3, cool_seconds = 5, range = 20, slack = 5;
     int angle = 20;
-    int hand = 1;                                         // ovr hand: 0 left, 1 right, -1 the weapon arm
+    int hand = -1;                                        // ovr hand: 0 left, 1 right, -1 the weapon arm (equipment +30h: 0 left, 1 right)
 } g_medi;
 
 volatile uint64_t g_local_weapon = 0;                     // this machine's player's weapon slot
+// MEDIGUN works only where the server allows it (VeilNet.dll: PowerBoost.ini [server] medigun=1 on
+// the server). Elsewhere a MEDIGUN slot is COMET for everything: no beam, the trigger and shots left
+// to the game. Asked of VeilNet four times a second.
+volatile bool g_medi_allowed = false;
+
+void UpdateMedigunAllowed(ULONGLONG now) {
+    static ULONGLONG next = 0;
+    if (now < next) return;
+    next = now + 250;
+    using allowed_fn = int(__cdecl *)();
+    static allowed_fn allowed = nullptr;
+    if (!allowed)
+        if (HMODULE vn = GetModuleHandleW(L"VeilNet.dll")) allowed = (allowed_fn)GetProcAddress(vn, "VeilNet_MedigunAllowed");
+    bool a = allowed && allowed() != 0;
+    if (a != g_medi_allowed) {
+        g_medi_allowed = a;
+        Log("MEDIGUN %s by the server", a ? "allowed" : "not allowed: it is a COMET");
+    }
+}
 volatile uint64_t g_local_actor = 0;                      // ... and actor (its equipment's)
 volatile int g_local_arm = -1;
 volatile uint64_t g_weapon_actor[2] = { ~0ull, ~0ull };   // equipment record +38h / +40h
@@ -781,9 +889,12 @@ uint32_t g_medi_handle = 0xffffffffu;
 uint8_t *g_medi_record = nullptr;
 uint32_t g_seq = 0;
 
-// Every MEDIGUN bubble this machine has seen activated: record -> its owner's key.
+// Every MEDIGUN bubble this machine has seen activated: (system, handle) -> its owner's key.
+// Never kept as a record address: the heal bubble system moves its records (a handle finds its
+// record through the slot table at cs+C8h), so a remembered address later held another bubble.
+// Ending "the MEDIGUN bubble" by address ended a running OVERCHARGE instead (tested 2026-10-27).
 struct MediBubble {
-    uint8_t *record; uint16_t key; ULONGLONG at;
+    void *cs; uint32_t handle; uint16_t key; ULONGLONG at;
     uint64_t owner;                                        // the owner's actor reference
     void *tcs; uint32_t th; ULONGLONG looked;              // its gun's root transform, when last looked up
 };
@@ -895,7 +1006,34 @@ uint64_t *__fastcall Hooked_Slot(void *cs, uint64_t *out, uint32_t handle) {
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
-    if (r && *r == MEDIGUN && (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + MANAGER_RET_RVA))
+#ifdef ECHOCOMBAT_LOG
+    // Which code reads a MEDIGUN slot, and which hand each MEDIGUN player has here (a left-handed
+    // MEDIGUN showed in the right hand on other machines, 2026-10-27).
+    if (r && *r == MEDIGUN) {
+        static uintptr_t seen[16];
+        static int n = 0;
+        uintptr_t ret = (uintptr_t)_ReturnAddress() - (uintptr_t)g_base;
+        bool known = false;
+        for (int i = 0; i < n; ++i) known |= seen[i] == ret;
+        if (!known && n < 16) { seen[n++] = ret; Log("MEDIGUN slot read from echovr+%llx", (unsigned long long)ret); }
+        __try {
+            uint8_t *rec = *(uint8_t **)((uint8_t *)cs + 0xf8) +
+                           (*(uint16_t **)((uint8_t *)cs + 0xc8))[(handle & 0xffff) * 2] * 0x58ull;
+            static uint64_t arms[16];                       // actor -> arm + 1, as logged
+            uint64_t actor = ComponentActor(cs, handle);
+            int arm = *(int *)(rec + 0x30), i = 0;
+            for (; i < 16 && arms[i] && (arms[i] >> 8) != (actor & 0xffffffffffffffull); ++i) {}
+            if (i < 16 && (arms[i] & 0xff) != (uint64_t)(arm + 1)) {
+                arms[i] = (actor & 0xffffffffffffffull) << 8 | (uint8_t)(arm + 1);
+                Log("MEDIGUN player %016llx: arm %d here (%s), gun actor %016llx", (unsigned long long)actor, arm,
+                    *(uint32_t *)(rec + 0x10) ? "this machine's player" : "another player",
+                    (unsigned long long)*(uint64_t *)(rec + 0x40));
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+#endif
+    if (r && *r == MEDIGUN && (!g_medi_allowed || (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + MANAGER_RET_RVA)))
         *r = SCOUT;                                        // the enable manager: COMET's gun
     return r;
 }
@@ -929,12 +1067,23 @@ bool OwnerOn(uint16_t key, ULONGLONG now) {
     return on;
 }
 
+// A MEDIGUN bubble's record now, or null when its handle no longer names a MEDIGUN bubble.
+uint8_t *MediRecord(const MediBubble &b) {
+    if (!b.cs) return nullptr;
+    __try {
+        if (ComponentId(b.cs, b.handle) != MEDI_BUBBLE) return nullptr;
+        return BubbleRecord(b.cs, b.handle);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
 int MediCone(uint8_t *bubble, float off, float dist, float range, int angle, void *dcs, uint32_t index) {
     ULONGLONG now = GetTickCount64();
     int key = -1;
     AcquireSRWLockShared(&g_medi_lock);
     for (const MediBubble &b : g_medi_bubbles)
-        if (b.record == bubble) key = b.key;
+        if (b.cs && MediRecord(b) == bubble) key = b.key;
     ReleaseSRWLockShared(&g_medi_lock);
     if (key < 0 || !OwnerOn((uint16_t)key, now)) return 0;
     BubbleLinks &bl = BubbleFor(bubble, now);
@@ -988,17 +1137,16 @@ void __fastcall Hooked_ActivateLocal(void *cs, uint32_t handle) {
             Log("heal bubble %08x activated here: component %016llx, actor %016llx", handle,
                 (unsigned long long)ComponentId(cs, handle), (unsigned long long)actor);
         if (ComponentId(cs, handle) == MEDI_BUBBLE) {
-            uint8_t *rec = BubbleRecord(cs, handle);
             int owner_slot = SlotOfBubble(cs, handle);
             uint16_t key = owner_slot >= 0 ? (uint16_t)owner_slot : 0xffff;
             ULONGLONG now = GetTickCount64();
             AcquireSRWLockExclusive(&g_medi_lock);
             MediBubble *slot = &g_medi_bubbles[0];
             for (MediBubble &b : g_medi_bubbles) {
-                if (b.record == rec) { slot = &b; break; }
+                if (b.cs == cs && (b.handle & 0xffff) == (handle & 0xffff)) { slot = &b; break; }
                 if (b.at < slot->at) slot = &b;
             }
-            *slot = { rec, key, now, actor, nullptr, 0xffffffffu, 0 };
+            *slot = { cs, handle, key, now, actor, nullptr, 0xffffffffu, 0 };
             // heard of before its owner's packet: on until the owner says otherwise
             bool known = false;
             for (MediOwner &o : g_owners) known |= o.at && o.key == key;
@@ -1128,12 +1276,62 @@ bool FindGunTransform(uint64_t owner, void **tcs, uint32_t *th) {
     return false;
 }
 
+#ifdef ECHOCOMBAT_LOG
+// Diagnostics: every transform in the MEDIGUN owner's gun space within 1.2 m of their head, seen
+// from the head (head axes), to find one on the gun hand -- the one FindGunTransform finds is on the
+// off hand (2026-10-27). Every 3 s while the beam's cone runs.
+void DiagGunSpace(uint8_t *bubble, const float *hp, const float *hq) {
+    static ULONGLONG last = 0;
+    ULONGLONG now = GetTickCount64();
+    if (now - last < 3000 || !TransformGet || !SpaceById || !SystemsFind || !g_bubble_cs) return;
+    last = now;
+    uint64_t owner = ~0ull;
+    for (MediBubble &m : g_medi_bubbles)
+        if (m.cs && MediRecord(m) == bubble) owner = m.owner;
+    uint64_t space_id, gun;
+    int arm = -1;
+    if (owner == ~0ull || !GunOf(owner, &space_id, &gun, nullptr, &arm)) return;
+    __try {
+        void *space = SpaceById(*(void **)((uint8_t *)g_bubble_cs + 0x80), space_id);
+        uint64_t *list = space ? SystemsFind(space, NCA_TRANSFORM) : nullptr;
+        if (!list) return;
+        Log("gun space %016llx of %016llx (arm %d, equipment gun %016llx): transforms near the head:",
+            (unsigned long long)space_id, (unsigned long long)owner, arm, (unsigned long long)gun);
+        float inv[4] = { -hq[0], -hq[1], -hq[2], hq[3] };
+        int shown = 0;
+        for (uint64_t k = 0; k < list[6] && k < 8; ++k) {
+            uint8_t *c = ((uint8_t **)list[0])[k];
+            uint16_t count = *(uint16_t *)(c + 0xf4);
+            uint16_t *index = *(uint16_t **)(c + 0xd8);
+            uint16_t *table = *(uint16_t **)(c + 0xc8);
+            for (uint16_t i = 0; i < count && shown < 40; ++i) {
+                uint32_t h = index[i] | (uint32_t)table[index[i] * 2 + 1] << 16;
+                Pose p;
+                Pose *r = TransformGet(c, &p, h);
+                if (!r) continue;
+                float d[3] = { r->p[0] - hp[0], r->p[1] - hp[1], r->p[2] - hp[2] }, l[3];
+                if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 1.44f) continue;
+                Rotate(inv, d, l);
+                ++shown;
+                Log("  transform %p/%08x actor %016llx: %.2f %.2f %.2f from the head%s", c, h,
+                    (unsigned long long)DescField(c, h, 0x1e0), l[0], l[1], l[2],
+                    DescField(c, h, 0x1e0) == gun ? " (the equipment's gun)" : "");
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("gun space survey faulted");
+    }
+}
+#else
+void DiagGunSpace(uint8_t *, const float *, const float *) {}
+#endif
+
 bool GunPose(uint8_t *bubble, float pos[3], float q[4]) {
     if (!TransformGet) return false;
     ULONGLONG now = GetTickCount64();
     MediBubble *b = nullptr;
     for (MediBubble &m : g_medi_bubbles)                   // (game thread: the map only changes here)
-        if (m.record == bubble) b = &m;
+        if (m.cs && MediRecord(m) == bubble) b = &m;
     if (!b) return false;
     if (now - b->looked >= 1000) {                         // (again each second: a respawn can bring another gun)
         b->looked = now;
@@ -1155,6 +1353,61 @@ bool GunPose(uint8_t *bubble, float pos[3], float q[4]) {
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         b->tcs = nullptr;
+        return false;
+    }
+}
+
+// The gun of any heal bubble's owner (OVERCHARGE's): the bubble's record -> its handle among the
+// heal bubble system's records -> the owner's actor reference -> FindGunTransform. Cached per
+// record and looked up again each second, as GunPose does.
+struct AimGun { uint8_t *record; uint64_t owner; void *tcs; uint32_t th; ULONGLONG looked; };
+AimGun g_aim_guns[8];
+
+bool OwnerGunPose(uint8_t *bubble, float pos[3], float q[4]) {
+    void *cs = g_bubble_cs;
+    if (!TransformGet || !cs) return false;
+    ULONGLONG now = GetTickCount64();
+    AimGun *a = nullptr, *oldest = &g_aim_guns[0];
+    for (AimGun &g : g_aim_guns) {
+        if (g.record == bubble) { a = &g; break; }
+        if (g.looked < oldest->looked) oldest = &g;
+    }
+    if (!a) { a = oldest; *a = { bubble, ~0ull, nullptr, 0, 0 }; }
+    if (now - a->looked >= 1000) {
+        a->looked = now;
+        a->tcs = nullptr;
+        __try {
+            uint8_t *c = (uint8_t *)cs;
+            uint16_t count = *(uint16_t *)(c + 0xf4);
+            uint16_t *index = *(uint16_t **)(c + 0xd8);
+            uint16_t *table = *(uint16_t **)(c + 0xc8);
+            for (uint16_t i = 0; i < count; ++i) {
+                uint32_t h = index[i] | (uint32_t)table[index[i] * 2 + 1] << 16;
+                if (BubbleRecord(cs, h) == bubble) { a->owner = ComponentActor(cs, h); break; }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            a->owner = ~0ull;
+        }
+        void *tcs;
+        uint32_t th;
+        if (a->owner != ~0ull && FindGunTransform(a->owner, &tcs, &th)) { a->tcs = tcs; a->th = th; }
+        static int told = 0;
+        if (told < 20) {
+            ++told;
+            Log("OVERCHARGE bubble %p: owner %016llx, %s", bubble, (unsigned long long)a->owner,
+                a->tcs ? "aims from its gun" : "no gun found: aims from the head");
+        }
+    }
+    if (!a->tcs) return false;
+    __try {
+        Pose p;
+        Pose *r = TransformGet(a->tcs, &p, a->th);
+        if (!r) return false;
+        memcpy(q, r->q, sizeof(float) * 4);
+        memcpy(pos, r->p, sizeof(float) * 3);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        a->tcs = nullptr;
         return false;
     }
 }
@@ -1188,12 +1441,43 @@ void UpdateGunOut() {
     g_gun_out = out;
 }
 
+// COMET's manual vent (its vent button): the script sets `venting` and drains heat_current at its
+// venting rate until it is empty. Writing heat_current every frame kept it from ever emptying (the
+// vent effect never ended) while the beam carried on. While COMET vents -- `venting` set, or its
+// heat below what was written last frame -- the beam is off, nothing is written, and MEDIGUN's heat
+// follows COMET's down; the beam can come back once the vent is over.
+constexpr uint64_t VENTING = 0x2fc18a914a7d598dull;       // CSymbol64("venting")
+constexpr uint64_t HEAT_MAX = 0x3ee8950316f2857eull;      // CSymbol64("heat_max")
+volatile bool g_venting = false;
+
 void ShowHeat(void *heal_cs, ULONGLONG now) {
     if (!SetScriptReal || !FindComet(heal_cs, now)) return;
     static float heat_max = 100.0f;
+    static float written = -1.0f;
+    static ULONGLONG written_at = 0;
     static int faults = 0;
     __try {
-        SetScriptReal(g_comet_cs, g_comet_handle, HEAT_CURRENT, g_heat * heat_max);
+        if (GetScriptReal) {
+            float m = GetScriptReal(g_comet_cs, g_comet_handle, HEAT_MAX);
+            if (m > 1.0f && m < 10000.0f) heat_max = m;
+            float cur = GetScriptReal(g_comet_cs, g_comet_handle, HEAT_CURRENT);
+            // (a drop faster than VENT_RATE per second: COMET's own cooling is 20/s, its manual vent 50/s)
+            constexpr float VENT_RATE = 35.0f;
+            float dt = written_at && now > written_at ? (now - written_at) / 1000.0f : 0.0f;
+            bool dropping = written >= 0 && dt > 0 && dt < 0.25f && (written - cur) / dt > VENT_RATE;
+            bool venting = GetScriptReal(g_comet_cs, g_comet_handle, VENTING) > 0.5f ||
+                           (g_venting ? cur < written - 0.01f : dropping && !g_overheated);
+            written_at = now;
+            if (venting != g_venting) Log("MEDIGUN: COMET %s (heat %.1f, written %.1f)", venting ? "venting" : "vent over", cur, written);
+            g_venting = venting;
+            if (venting) {                                // COMET's vent runs its course
+                g_heat = cur / heat_max;
+                written = cur;
+                return;
+            }
+        }
+        written = g_heat * heat_max;
+        SetScriptReal(g_comet_cs, g_comet_handle, HEAT_CURRENT, written);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         if (faults++ < 5) Log("MEDIGUN: setting COMET's heat faulted (%08x)", GetExceptionCode());
         g_comet_cs = nullptr;
@@ -1214,14 +1498,17 @@ constexpr uintptr_t RESOLVE_ATTACH_RVA = 0x1286d30;
 constexpr uint8_t RESOLVE_ATTACH_BYTES[] = { 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55 };
 constexpr uint64_t NCA_MODEL = 0x38ee951a26fb816aull;
 constexpr uint64_t HEAL_BEAM = 0x39424707bb2df316ull;    // pfx_test_jason_cbt_offhand_heal_beam_plr
+constexpr uint64_t BLUE_BEAM = 0xaccda1a9cfb868c1ull;    // fx_medigun_beam: MEDIGUN's blue copy (fix_medigun)
 constexpr uint64_t HAND_L1 = 0xd3009aa0bc77fd03ull;      // EXP_L1_Hand1
 constexpr uint64_t HAND_R1 = 0xcd009aa0bc77fd03ull;      // EXP_R1_Hand1
+constexpr uint64_t TOOL_L1 = 0x46ff0ac8fa842b21ull;      // EXP_L1_ToolAttach1 (fix_medigun's gun bone)
+constexpr uint64_t TOOL_R1 = 0xeb587bb25bc85873ull;      // EXP_R1_ToolAttach1
 constexpr uint64_t COMET_MUZZLE = 0x17b85ed52e0ec3beull;  // the ref point COMET's muzzle flash uses
 using resolve_fn = void(__fastcall *)(void *node, uint8_t *data);
 resolve_fn Real_Resolve = nullptr;
 
 // A player's (by actor reference) gun: equipment record +38h space id, +40h actor reference.
-bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon = nullptr) {
+bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon, int *arm) {
     void *equip = g_equip_cs;
     if (!equip) return false;
     __try {
@@ -1237,6 +1524,7 @@ bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon 
             *space_id = *(uint64_t *)(rec + 0x38);
             *gun = *(uint64_t *)(rec + 0x40);
             if (weapon) *weapon = *(uint64_t *)(rec + 0x18);
+            if (arm) *arm = *(int *)(rec + 0x30);
             return *gun != ~0ull && *space_id != ~0ull;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1246,21 +1534,32 @@ bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon 
 
 // Is `player` (this machine's actor reference) holding MEDIGUN? Its equipment says so, or it has
 // a MEDIGUN bubble active here (another machine's player: their equipment may not be known here).
-// The muzzle in the gun hand joint's space: PowerBoost.ini [medigun] hand_offset=x,y,z (metres),
-// read again every second, so it can be tuned while the game runs (a new beam picks it up).
+// The beam's start in the gun hand bone's space: PowerBoost.ini [medigun] hand_offset=x,y,z (metres),
+// read again every second and applied every frame, so it can be tuned while the beam is on. (The
+// gun's own transform can't place a muzzle: it sat on the left hand with the gun in the right.)
 volatile float g_hand_offset[3] = { 0, 0, 0 };
+volatile float g_hand_offset_left[3] = { 0, 0, 0 };   // [medigun] hand_offset_left: the left hand's (its bone is mirrored)
+
+void ReadOffset(const char *key, const char *def, volatile float *out, const char *what) {
+    char v[64];
+    GetPrivateProfileStringA("medigun", key, def, v, sizeof(v), g_ini_path);
+    float x = 0, y = 0, z = 0;
+    if (sscanf_s(v, "%f,%f,%f", &x, &y, &z) == 3 && (x != out[0] || y != out[1] || z != out[2])) {
+        out[0] = x;
+        out[1] = y;
+        out[2] = z;
+        Log("MEDIGUN %s: %.3f %.3f %.3f", what, x, y, z);
+    }
+}
+
+void ReadBeamBone();
 
 void ReadHandOffset() {
-    char v[64];
-    GetPrivateProfileStringA("medigun", "hand_offset", "0,0,0", v, sizeof(v), g_ini_path);
-    float x = 0, y = 0, z = 0;
-    if (sscanf_s(v, "%f,%f,%f", &x, &y, &z) == 3 &&
-        (x != g_hand_offset[0] || y != g_hand_offset[1] || z != g_hand_offset[2])) {
-        g_hand_offset[0] = x;
-        g_hand_offset[1] = y;
-        g_hand_offset[2] = z;
-        Log("MEDIGUN beam offset from the gun hand: %.3f %.3f %.3f", x, y, z);
-    }
+    ReadOffset("hand_offset", "0,0,0", g_hand_offset, "beam offset from the gun hand bone");
+    char dv[64];
+    sprintf_s(dv, "%g,%g,%g", g_hand_offset[0], g_hand_offset[1], g_hand_offset[2]);
+    ReadOffset("hand_offset_left", dv, g_hand_offset_left, "beam offset from the left gun hand bone");
+    ReadBeamBone();
 }
 
 bool MedigunPlayer(uint64_t player) {
@@ -1270,7 +1569,7 @@ bool MedigunPlayer(uint64_t player) {
     bool found = false;
     AcquireSRWLockShared(&g_medi_lock);
     for (const MediBubble &b : g_medi_bubbles)
-        if (b.record && (b.owner & 0xffff) == (player & 0xffff) && now - b.at < 60000) found = true;   // (index: upper bits vary)
+        if (b.cs && (b.owner & 0xffff) == (player & 0xffff) && now - b.at < 60000) found = true;   // (index: upper bits vary)
     ReleaseSRWLockShared(&g_medi_lock);
     return found;
 }
@@ -1283,19 +1582,203 @@ constexpr uint8_t PFX_NODE_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89,
 using pfx_node_fn = uint64_t(__fastcall *)(int64_t *thread);
 pfx_node_fn Real_PfxNode = nullptr;
 
+// The attachment's world pose: the node's own lookup (+0x12357b0: (data + 230h, &out, data) ->
+// &out, rotation x y z w then position), which state 1 calls for an effect spawned in world space.
+constexpr uintptr_t ATTACH_POSE_RVA = 0x12357b0;
+constexpr uint8_t ATTACH_POSE_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x54, 0x24, 0x10, 0x55, 0x56, 0x57 };
+using attach_pose_fn = Pose *(__fastcall *)(uint8_t *node, Pose *out, uint8_t *data);
+attach_pose_fn AttachPose = nullptr;
+
+// In state 2 (every frame) the node writes data +18h (position), +28h.. (rotation, degrees) and
+// +30h.. (scale) into the effect as its offset from the joint it follows (+60h, set once, when the
+// effect is first attached: Hooked_Resolve). The game reuses a beam effect, so after a hand switch
+// it still followed the old hand's bone (tested 2026-10-27: switched to the right, beam on the left).
+// So every frame, while a MEDIGUN player's weapon arm differs from the bone the beam follows, the
+// offset carries it from that bone to the weapon arm's: local = joint^-1 * (arm bone - joint).
+struct BeamHand { uint8_t *data; uint64_t player; bool medigun; ULONGLONG checked; int arm; ULONGLONG told; };
+BeamHand g_beams[8];
+
+uint64_t ArmBone(int arm) { return arm == 1 ? TOOL_R1 : TOOL_L1; }
+
+// The offset from the attached bone to `bone`, in the attached bone's space.
+bool BoneOffset(uint8_t *data, uint64_t bone, float local[3]) {
+    if (!AttachPose) return false;
+    uint64_t joint = *(uint64_t *)(data + 0x60);
+    __try {
+        alignas(16) Pose at = {}, to = {};
+        Pose *j = AttachPose(data + 0x230, &at, data);
+        *(uint64_t *)(data + 0x60) = bone;
+        Pose *t = AttachPose(data + 0x230, &to, data);
+        *(uint64_t *)(data + 0x60) = joint;
+        if (!j || !t) return false;
+        float d[3] = { t->p[0] - j->p[0], t->p[1] - j->p[1], t->p[2] - j->p[2] };
+        float inv[4] = { -j->q[0], -j->q[1], -j->q[2], j->q[3] };
+        Rotate(inv, d, local);
+        return local[0] * local[0] + local[1] * local[1] + local[2] * local[2] < 4.0f;   // (hands under 2 m apart)
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *(uint64_t *)(data + 0x60) = joint;
+        return false;
+    }
+}
+
 uint64_t __fastcall Hooked_PfxNode(int64_t *thread) {
     __try {
         uint8_t *data = (uint8_t *)thread[0x16];
-        if (thread[3] == 1 && data && *(uint64_t *)data == HEAL_BEAM && *(uint64_t *)(data + 0x58) == NCA_MODEL &&
-            MedigunPlayer(*(uint64_t *)(data + 0x48))) {
-            float *local = (float *)(data + 0x18);             // from the gun hand's joint to the muzzle
-            local[0] = g_hand_offset[0];
-            local[1] = g_hand_offset[1];
-            local[2] = g_hand_offset[2];
+        int64_t state = thread[3];
+        if ((state == 1 || state == 2) && data && (*(uint64_t *)data == HEAL_BEAM || *(uint64_t *)data == BLUE_BEAM) &&
+            *(uint64_t *)(data + 0x58) == NCA_MODEL) {
+            uint64_t player = *(uint64_t *)(data + 0x48);
+            ULONGLONG now = GetTickCount64();
+            BeamHand *b = nullptr, *oldest = &g_beams[0];
+            for (BeamHand &x : g_beams) {
+                if (x.data == data && x.player == player) { b = &x; break; }
+                if (x.checked < oldest->checked) oldest = &x;
+            }
+            if (!b || state == 1) {                         // a new beam (node data is reused)
+                b = b ? b : oldest;
+                *b = { data, player, MedigunPlayer(player), 0, -1, 0 };
+            }
+            if (b->medigun) {
+                if (now - b->checked >= 250) {              // the weapon arm, four times a second
+                    b->checked = now;
+                    uint64_t space_id, gun;
+                    int arm = -1;
+                    if (GunOf(player, &space_id, &gun, nullptr, &arm) && (arm == 0 || arm == 1)) b->arm = arm;
+                }
+                float *local = (float *)(data + 0x18);
+                uint64_t joint = *(uint64_t *)(data + 0x60);
+                float l[3] = { g_hand_offset[0], g_hand_offset[1], g_hand_offset[2] };
+                if (state == 2 && b->arm >= 0 && (joint == TOOL_L1 || joint == TOOL_R1) && joint != ArmBone(b->arm)) {
+                    bool ok = BoneOffset(data, ArmBone(b->arm), l);
+                    if (now - b->told >= 2000) {
+                        b->told = now;
+                        Log("MEDIGUN beam of %016llx follows %s, arm %d: %s (%.2f %.2f %.2f)", (unsigned long long)player,
+                            joint == TOOL_L1 ? "EXP_L1" : "EXP_R1", b->arm, ok ? "carried to the arm's bone" : "carry failed",
+                            l[0], l[1], l[2]);
+                    }
+                    if (!ok) l[0] = l[1] = l[2] = 0;
+                }
+                local[0] = l[0];
+                local[1] = l[1];
+                local[2] = l[2];
+            }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     return Real_PfxNode(thread);
+}
+
+// Hand bones a MEDIGUN beam can start from ([medigun] beam_bone=<name>, default ToolAttach1),
+// as (name, EXP_L1_ id, EXP_R1_ id). The beam's own spawn position is ignored (tested 2026-10-27:
+// an offset of 10 along the bone moved nothing), so the bone is the only way to move its start.
+struct HandBone { const char *name; uint64_t left, right; };
+constexpr HandBone HAND_BONES[] = {
+    { "Arm2", 0x1dba667218d878d8ull, 0x1da4667218d878d8ull },
+    { "Hand1", 0xd3009aa0bc77fd03ull, 0xcd009aa0bc77fd03ull },
+    { "ToolAttach1", 0x46ff0ac8fa842b21ull, 0xeb587bb25bc85873ull },
+    { "HandPistol1", 0x5be79dc0cfff02c7ull, 0xf640ecba6eb37195ull },
+    { "HandRifle1", 0xb7f94fe89f8c5149ull, 0x5a99e26370afb77dull },
+    { "HandBFG1", 0xecaac5c1a63c2003ull, 0x072ed019bfb27561ull },
+    { "HandBlade1", 0xb7f95fed98845149ull, 0x5a99f26677a7b77dull },
+    { "HandGrenade1", 0xb47f7f59709351ffull, 0x084d6bbb9bae9e2dull },
+    { "Index3", 0xb23913097310a6adull, 0xa6b4914deda46021ull },
+    { "Middle3", 0x1d80c42770df3307ull, 0x88f47cc12f3ec40full },
+    { "Thumb3", 0xb2390e0f6218bcadull, 0xa6b48c4bfcac7a21ull },
+    { "ArmGameIkHand1", 0xb70c2c451eca4a9dull, 0x896997442a84446bull },
+    { "ArmGameIkOppHand1", 0x8ebf4ebd516f0af1ull, 0xce2a3ea19217d85full },
+    { "ArmGameIkOppHandItem1", 0xcfda725f29f5211dull, 0xacf456a754b13c1full },
+    { "TouchController1", 0x5ecb29288b902243ull, 0xf56b29e33f276567ull },
+    { "PalmPad1", 0xf4aac7c8b43b2303ull, 0x1f2ed210adb57661ull },
+    { "Hand1Stretch1", 0x39227ec34ea78225ull, 0x8ebeb10d05c8683dull },
+};
+volatile int g_beam_bone = 2;                              // HAND_BONES index (ToolAttach1)
+
+void ReadBeamBone() {
+    char v[64];
+    GetPrivateProfileStringA("medigun", "beam_bone", "ToolAttach1", v, sizeof(v), g_ini_path);
+    for (int i = 0; i < (int)(sizeof(HAND_BONES) / sizeof(HAND_BONES[0])); ++i)
+        if (_stricmp(v, HAND_BONES[i].name) == 0 && i != g_beam_bone) {
+            g_beam_bone = i;
+            Log("MEDIGUN beam bone: %s", HAND_BONES[i].name);
+        }
+}
+
+// Where each hand bone is, ahead of Hand1 along the forearm (Arm2 -> Hand1) and off that line,
+// for the side the beam is on: which bone is nearest the muzzle. Logged for the first beams.
+void SurveyBones(void *node, uint8_t *data, bool right) {
+    uint64_t joint = *(uint64_t *)(data + 0x60);
+    alignas(16) Pose arm = {}, hand = {}, b = {};
+    auto at = [&](uint64_t bone, Pose *out) {
+        *(uint64_t *)(data + 0x60) = bone;
+        return AttachPose((uint8_t *)node, out, data) != nullptr;
+    };
+    bool ok = at(right ? HAND_BONES[0].right : HAND_BONES[0].left, &arm) && at(right ? HAND_BONES[1].right : HAND_BONES[1].left, &hand);
+    if (ok) {
+        float f[3] = { hand.p[0] - arm.p[0], hand.p[1] - arm.p[1], hand.p[2] - arm.p[2] };
+        float n = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+        if (n > 1e-4f) {
+            for (int k = 0; k < 3; ++k) f[k] /= n;
+            for (const HandBone &hb : HAND_BONES) {
+                if (!at(right ? hb.right : hb.left, &b)) { Log("  bone %s: no pose", hb.name); continue; }
+                float d[3] = { b.p[0] - hand.p[0], b.p[1] - hand.p[1], b.p[2] - hand.p[2] };
+                float ahead = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+                float off = sqrtf(fmaxf(0.0f, d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - ahead * ahead));
+                Log("  bone %-22s %s: %.3f m ahead of the hand, %.3f m off the forearm line", hb.name, right ? "R" : "L", ahead, off);
+            }
+        }
+        // the beam's bone's own axes, in the forearm's frame: forward (Arm2 -> Hand1), up (toward
+        // the thumb, off the forearm line), right = forward x up. hand_offset is in these axes.
+        alignas(16) Pose th = {}, jb = {};
+        if (n > 1e-4f && at(right ? HAND_BONES[10].right : HAND_BONES[10].left, &th) && at(joint, &jb)) {
+            float u[3] = { th.p[0] - hand.p[0], th.p[1] - hand.p[1], th.p[2] - hand.p[2] };
+            float al = u[0] * f[0] + u[1] * f[1] + u[2] * f[2];
+            for (int k = 0; k < 3; ++k) u[k] -= al * f[k];
+            float un = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+            if (un > 1e-4f) {
+                for (float &x : u) x /= un;
+                float r[3] = { f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0] };
+                static const float ax[3][3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+                for (int i = 0; i < 3; ++i) {
+                    float w[3];
+                    Rotate(jb.q, ax[i], w);
+                    Log("  beam bone %c axis = %.2f forward, %.2f up, %.2f right", "xyz"[i],
+                        w[0] * f[0] + w[1] * f[1] + w[2] * f[2], w[0] * u[0] + w[1] * u[1] + w[2] * u[2],
+                        w[0] * r[0] + w[1] * r[1] + w[2] * r[2]);
+                }
+            }
+        }
+    } else {
+        Log("  bone survey: no pose for the arm / hand");
+    }
+    *(uint64_t *)(data + 0x60) = joint;
+}
+
+// The beam's start past its bone. Its spawn position moves nothing and no bone sits at the muzzle
+// (fingertip: far enough but low; thumb: high enough but short -- tested 2026-10-27), but the
+// effect instance's own offset from its bone (+338h) does move it. Set every frame to [medigun]
+// hand_offset (x, y, z metres in the bone's space, reread every second): a fixed offset keeps the
+// beam rigidly on the gun. (Working the muzzle out each frame from other bones' poses jumped about:
+// those poses don't all come from the same frame -- the beam glitched, tested 2026-10-27.)
+struct LiveBeam { uint8_t *data; uint8_t *inst; bool right; ULONGLONG told; };
+LiveBeam g_live[4];
+
+void PlaceBeams(ULONGLONG now) {
+    for (LiveBeam &b : g_live) {
+        if (!b.data) continue;
+        __try {
+            uint8_t *inst = *(uint8_t **)(b.data + 0x240);
+            if (*(uint64_t *)b.data != BLUE_BEAM || !inst || inst != b.inst) { b.data = nullptr; continue; }
+            const volatile float *o = b.right ? g_hand_offset : g_hand_offset_left;
+            float local[3] = { o[0], o[1], o[2] };
+            memcpy(inst + 0x338, local, sizeof(local));
+            if (now - b.told >= 5000) {
+                b.told = now;
+                Log("MEDIGUN beam %p at %.3f %.3f %.3f from its bone", b.data, local[0], local[1], local[2]);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            b.data = nullptr;
+        }
+    }
 }
 
 void __fastcall Hooked_Resolve(void *node, uint8_t *data) {
@@ -1314,15 +1797,60 @@ void __fastcall Hooked_Resolve(void *node, uint8_t *data) {
             if (medigun && (joint == HAND_L1 || joint == HAND_R1))
                 *(uint64_t *)(data + 0x60) = joint == HAND_L1 ? HAND_R1 : HAND_L1;   // the other hand: the gun's
         }
+        // fix_medigun hangs MEDIGUN's effects on EXP_L1_ToolAttach1. EXP_L1_* is the player's left
+        // hand and EXP_R1_* the right (tested 2026-10-27: left-handed on L1 -> the gun hand; moved
+        // to R1 -> the empty right hand; right-handed on L1 -> the empty left hand), so the bone
+        // follows the equipment's weapon arm (+30h: 0 left, 1 right). (The gun's own transform is
+        // no guide: it sat on EXP_L1 with the gun in the right hand.)
+        uint64_t joint = *(uint64_t *)(data + 0x60);
+        if ((joint == TOOL_L1 || joint == TOOL_R1) && *(uint64_t *)(data + 0x58) == NCA_MODEL) {
+            uint64_t player = *(uint64_t *)(data + 0x48), space_id, gun;
+            int arm = -1;
+            bool medigun = MedigunPlayer(player);
+            if (medigun && GunOf(player, &space_id, &gun, nullptr, &arm) && (arm == 0 || arm == 1)) {
+                const HandBone &hb = HAND_BONES[g_beam_bone];
+                *(uint64_t *)(data + 0x60) = arm == 1 ? hb.right : hb.left;
+                static volatile LONG surveyed = 0;
+                if (*(uint64_t *)data == BLUE_BEAM && AttachPose && InterlockedIncrement(&surveyed) <= 3) {
+                    Log("MEDIGUN beam on %s_%s; hand bones:", arm == 1 ? "EXP_R1" : "EXP_L1", hb.name);
+                    SurveyBones(node, data, arm == 1);
+                }
+            }
+            // (the beam's offset from the bone is the script's: fix_medigun.beam_offset)
+            static volatile LONG told = 0;
+            if (InterlockedIncrement(&told) <= 60)
+                Log("MEDIGUN effect %016llx of %016llx: arm %d -> %s", (unsigned long long)*(uint64_t *)data,
+                    (unsigned long long)player, arm, arm == 1 ? "EXP_R1_ToolAttach1 (right)" :
+                    arm == 0 ? "EXP_L1_ToolAttach1 (left)" : "hand not known here, left alone");
+        }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     Real_Resolve(node, data);
+    __try {                                                  // a MEDIGUN beam: placed at the muzzle each frame
+        uint64_t joint = *(uint64_t *)(data + 0x60);
+        uint8_t *inst = *(uint8_t **)(data + 0x240);
+        bool right = false, mine = false;
+        for (const HandBone &hb : HAND_BONES) {
+            if (joint == hb.right) { right = true; mine = true; }
+            if (joint == hb.left) mine = true;
+        }
+        if (*(uint64_t *)data == BLUE_BEAM && mine && inst) {
+            LiveBeam *slot = &g_live[0];
+            for (LiveBeam &b : g_live) {
+                if (b.data == data) { slot = &b; break; }
+                if (!b.data) slot = &b;
+            }
+            *slot = { data, inst, right, 0 };
+            Log("MEDIGUN beam %p attached (instance %p, %s hand)", data, inst, right ? "right" : "left");
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
 }
 
 // The owner's side, on the game's thread (the heal bubble system's update).
 void MedigunTick(void *cs, ULONGLONG now) {
     if (g_server) return;
-    bool medigun = g_local_weapon == MEDIGUN;
+    bool medigun = g_local_weapon == MEDIGUN && g_medi_allowed;
     float t = now - g_trigger_at < 500 ? g_trigger : 0.0f;
     static bool pressed = false;
     pressed = medigun && (pressed ? t > 0.35f : t > 0.55f);
@@ -1346,7 +1874,16 @@ void MedigunTick(void *cs, ULONGLONG now) {
         g_heat -= dt / g_medi.cool_seconds;
     }
     if (g_heat < 0) g_heat = 0;
-    bool want = pressed && !g_overheated && g_local_actor && g_gun_out;
+    bool want = pressed && !g_overheated && !g_venting && g_local_actor && g_gun_out;
+    // A beam effect is attached to a hand once, when the link makes it, and stays on that hand:
+    // after a hand switch it carried on from the empty one. A change of weapon arm drops the beam
+    // for a frame, so the next link makes a new one on the new gun hand.
+    static int beam_arm = -1;
+    if (g_beam && beam_arm >= 0 && g_local_arm != beam_arm) {
+        Log("MEDIGUN: weapon arm %d -> %d with the beam on: restarting it on the new hand", beam_arm, (int)g_local_arm);
+        want = false;
+    }
+    beam_arm = g_local_arm;
     if (g_beam && g_heat >= 1.0f) {
         g_heat = 1.0f;
         g_overheated = true;
@@ -1453,18 +1990,23 @@ void __fastcall Hooked_BubbleUpdate(void *cs) {
         offset_read = now;
         ReadHandOffset();
     }
+    UpdateMedigunAllowed(now);
     MedigunTick(cs, now);
     ActivateRemote(cs, now);
+    SelfDamageTick(now);
+    if (!g_server) PlaceBeams(now);
     // A MEDIGUN bubble whose owner's beam is off ends now (this frame's update sees it past its duration).
     MediBubble list[16];
     AcquireSRWLockShared(&g_medi_lock);
     memcpy(list, g_medi_bubbles, sizeof(list));
     ReleaseSRWLockShared(&g_medi_lock);
     for (const MediBubble &b : list) {
-        if (!b.record || OwnerOn(b.key, now)) continue;
+        if (!b.cs || OwnerOn(b.key, now)) continue;
+        uint8_t *rec = MediRecord(b);
+        if (!rec) continue;
         __try {
-            float duration = *(float *)(b.record + 0x34);
-            if (*(float *)(b.record + 0x50) < duration) *(float *)(b.record + 0x50) = duration;
+            float duration = *(float *)(rec + 0x34);
+            if (*(float *)(rec + 0x50) < duration) *(float *)(rec + 0x50) = duration;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
     }
@@ -1478,7 +2020,7 @@ fire_fn Real_GunFire = nullptr;
 
 void __fastcall Hooked_GunFire(void *cs, uint32_t handle, float charge, void *a4, uint64_t a5, uint64_t a6,
                                uint64_t a7, uint64_t a8) {
-    if (!g_server && g_local_weapon == MEDIGUN) {
+    if (!g_server && g_local_weapon == MEDIGUN && g_medi_allowed) {
         static volatile LONG logged = 0;
         if (InterlockedIncrement(&logged) <= 20) Log("MEDIGUN: COMET's shot swallowed");
         return;
@@ -1507,7 +2049,7 @@ int __cdecl Hooked_Input(void *session, unsigned type, void *state) {
         }
     }
 #endif
-    if (r >= 0 && state && g_local_weapon == MEDIGUN && g_gun_out) {
+    if (r >= 0 && state && g_local_weapon == MEDIGUN && g_medi_allowed && g_gun_out) {
         int hand = g_medi.hand >= 0 ? g_medi.hand : g_local_arm == 0 ? 0 : 1;
         if (type & (hand ? 2u : 1u)) {
             float *trigger = (float *)((uint8_t *)state + 0x10);
@@ -1569,8 +2111,10 @@ void ReadMedigunIni(const char *ini) {
         g_gun_axis[0] = g_gun_axis[1] = g_gun_axis[2] = 0;
         g_gun_axis[i] = v[0] == '-' ? -1.0f : 1.0f;
     }
-    GetPrivateProfileStringA("medigun", "hand", "right", v, sizeof(v), ini);
+    GetPrivateProfileStringA("medigun", "hand", "auto", v, sizeof(v), ini);
     g_medi.hand = _stricmp(v, "left") == 0 ? 0 : _stricmp(v, "auto") == 0 ? -1 : 1;
+    GetPrivateProfileStringA("medigun", "aim", "head", v, sizeof(v), ini);
+    g_medi_aim_gun = _stricmp(v, "gun") == 0;
     Log("MEDIGUN: %.3f hp/s for %.0f s, %.0f s overheat, one teammate within %d deg / %.0f m, %s hand", g_medi.heal_per_second,
         g_medi.beam_seconds, g_medi.overheat_seconds, g_medi.angle, g_medi.range, g_medi.hand == 0 ? "left" : g_medi.hand > 0 ? "right" : "weapon arm's");
 }
@@ -1616,6 +2160,9 @@ void InstallMedigun(uint8_t *base) {
         if (Check(base + PFX_NODE_RVA, PFX_NODE_BYTES, sizeof(PFX_NODE_BYTES), "particle effect node")) {
             Real_PfxNode = (pfx_node_fn)(base + PFX_NODE_RVA);
             DetourAttach(&(PVOID &)Real_PfxNode, Hooked_PfxNode);
+            if (Check(base + ATTACH_POSE_RVA, ATTACH_POSE_BYTES, sizeof(ATTACH_POSE_BYTES), "attachment pose")) {
+                AttachPose = (attach_pose_fn)(base + ATTACH_POSE_RVA);
+            }
         }
     }
     if (Check(base + NET_ACTIVATE_RVA, NET_ACTIVATE_BYTES, sizeof(NET_ACTIVATE_BYTES), "heal bubble network activation")) {
@@ -1644,8 +2191,17 @@ void ReadIni() {
     GetPrivateProfileStringA("buff", "head_bonus", "2", bonus, sizeof(bonus), ini);
     g_head_bonus = (float)atof(bonus);
     g_head_part = GetPrivateProfileIntA("buff", "head_part", 5, ini);
-    Log("cone aim axis %s; cheat death for %u s from each teammate's first link; boosted hits +%.1f body / +%.1f head (part %d)",
-        axis, g_rez_window_ms / 1000, g_body_bonus, g_head_bonus, g_head_part);
+    GetPrivateProfileStringA("buff", "self_damage", "2", bonus, sizeof(bonus), ini);
+    g_self_damage = (float)atof(bonus);
+    g_self_tick_ms = GetPrivateProfileIntA("buff", "self_damage_tick_ms", 1000, ini);
+    if (g_self_tick_ms < 50) g_self_tick_ms = 50;
+    g_self_lethal = GetPrivateProfileIntA("buff", "self_damage_lethal", 0, ini) != 0;
+    GetPrivateProfileStringA("cone", "aim", "head", bonus, sizeof(bonus), ini);
+    g_aim_gun = _stricmp(bonus, "gun") == 0;
+    Log("cone aim from the %s (head axis %s); cheat death for %u s from each teammate's first link; boosted hits +%.1f body / "
+        "+%.1f head (part %d); the user takes %.1f every %u ms%s", g_aim_gun ? "gun, head if it has none" : "head", axis,
+        g_rez_window_ms / 1000, g_body_bonus, g_head_bonus, g_head_part, g_self_damage, g_self_tick_ms,
+        g_self_lethal ? "" : " (never the last point)");
 }
 
 // True when the command line has `flag` as a whole argument (any case).
@@ -1733,6 +2289,9 @@ extern "C" __declspec(dllexport) void PowerBoost_MedigunRemote(uint32_t id) {
 
 // CombatBots.dll finds the damageable system here (dead / respawn of its bots).
 extern "C" __declspec(dllexport) void *PowerBoost_DamageableCS() { return g_damage_cs; }
+
+// VeilNet.dll: this player's weapon slot (MEDIGUN stays in the list while it is selected).
+extern "C" __declspec(dllexport) uint64_t PowerBoost_LocalWeapon() { return g_local_weapon; }
 
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {

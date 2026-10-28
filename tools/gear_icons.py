@@ -75,7 +75,7 @@ ITEMS = [
     ("GRENADE", "drone", "DRONE"),
     ("WEAPON", "assault", "PULSAR"), ("WEAPON", "blaster", "NOVA"), ("WEAPON", "scout", "COMET"),
     ("WEAPON", "rocket", "METEOR"), ("WEAPON", "magnum", "PROTOSTAR"), ("WEAPON", "smg", "QUARK"),
-    ("WEAPON", "chain", "BLAZAR"), ("WEAPON", "rifle", "STARBURST"),
+    ("WEAPON", "chain", "BLAZAR"), ("WEAPON", "rifle", "STARBURST"), ("WEAPON", "medigun", "MEDIGUN"),
 ]
 STOCK_ICON = {"heal", "sensor", "shield", "wraith", "det", "stun", "arc", "burst",
               "assault", "blaster", "scout", "rocket"}
@@ -84,12 +84,13 @@ ALIASES = {"smoke": ("veil",)}         # other file names an item's icon may hav
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_DIRS = [os.path.join(ROOT_DIR, "ICONS", "hd"), os.path.join(ROOT_DIR, "ICONS")]
 #: element clones for items a canvas has no element for: (new, copied from)
-CLONES = [("GRENADE_DRONE", "GRENADE_DOT"), ("ABILITY_POINT", "ABILITY_SMOKE")]
+CLONES = [("GRENADE_DRONE", "GRENADE_DOT"), ("ABILITY_POINT", "ABILITY_SMOKE"), ("WEAPON_MEDIGUN", "WEAPON_SCOUT")]
 #: an unused element of a canvas's own -- GRENADE_MINE, a cut item -- becomes the item's
 #: instead of an added one wherever there is one: the equipment station only finds the
 #: elements its index lists (INDEX_CANVAS), and that index lists GRENADE_MINE's place.
+#: weapon_rifle1 is another: a leftover copy of STARBURST's element nothing shows.
 #: (new name, element to copy, spare element it replaces)
-REUSE = [("ABILITY_POINT", "ABILITY_SMOKE", "GRENADE_MINE")]
+REUSE = [("ABILITY_POINT", "ABILITY_SMOKE", "GRENADE_MINE"), ("WEAPON_MEDIGUN", "WEAPON_SCOUT", "weapon_rifle1")]
 #: The equipment station (canvas 72e4349798ae3ea1) holds 39 instances of the gear
 #: canvases (36 grid slots of 1e5d2a97184cad81, the 3 big boxes of 6083f456d52ef5f1)
 #: and, at its end, an index of every element in them: 24-byte records (key, slot,
