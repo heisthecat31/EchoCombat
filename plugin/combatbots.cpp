@@ -48,6 +48,53 @@
 #include "detours.h"
 #include "nevr_plugin.h"
 
+// CombatBots is unreleased work in progress and keeps its own log file until it is released; it
+// does not use nEVR's host logger yet. These helpers are the copies nevr_plugin.h carried before
+// the released plugins moved to the host logger, unchanged. They write into the game folder
+// (plugin_logs\ beside echovr.exe), which nEVR's rules forbid for a released plugin: do not
+// ship CombatBots as it is; move it to nevr/plugin_logger.h first, as DroneFix, PowerBoost and
+// VeilNet do.
+inline void EchoCombatLogFail(const char *name, const char *what, const char *path, DWORD err) {
+    char line[MAX_PATH + 160];
+    sprintf_s(line, "[%s] ERROR log not written: %s '%s' (Win32 error %lu)", name, what, path, err);
+    fprintf(stderr, "%s\n", line);
+    strcat_s(line, "\n");
+    OutputDebugStringA(line);
+}
+
+inline bool EchoCombatMakeDir(const char *name, const char *path) {
+    if (CreateDirectoryA(path, nullptr)) return true;
+    DWORD err = GetLastError();
+    if (err == ERROR_ALREADY_EXISTS) return true;
+    EchoCombatLogFail(name, "cannot create folder", path, err);
+    return false;
+}
+
+inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
+    out[0] = 0;
+    char dir[MAX_PATH];
+    DWORD n = GetModuleFileNameA(nullptr, dir, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) { EchoCombatLogFail(name, "cannot find the game folder", "", GetLastError()); return; }
+    if (char *slash = strrchr(dir, '\\')) *slash = 0;
+    char path[MAX_PATH], file[MAX_PATH];
+    sprintf_s(path, "%s\\plugin_logs", dir);
+    if (!EchoCombatMakeDir(name, path)) return;
+    sprintf_s(path, "%s\\plugin_logs\\%s", dir, name);
+    if (!EchoCombatMakeDir(name, path)) return;
+    sprintf_s(file, "%s\\%s.log", path, name);
+    FILE *f = nullptr;
+    if (fopen_s(&f, file, "a") != 0 || !f) { EchoCombatLogFail(name, "cannot open", file, GetLastError()); return; }
+    fclose(f);
+    sprintf_s(out, size, "%s", file);
+}
+
+inline void EchoCombatToStderr(const char *fmt, va_list args) {
+    char line[1024];
+    vsnprintf(line, sizeof(line), fmt, args);
+    fprintf(stderr, "[EchoCombat] INFO %s\n", line);
+}
+// End of CombatBots' own log-file helpers.
+
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "iphlpapi.lib")
 

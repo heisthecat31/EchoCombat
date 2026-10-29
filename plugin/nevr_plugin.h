@@ -1,6 +1,6 @@
-// What EchoCombat's plugins share to run under nEVR (BugSplat64.dll), the Echo VR
-// launcher's runtime: its plugin ABI (nevr_plugin_interface.h), the version, and where
-// they log.
+// What EchoCombat's plugins share to run under nEVR (BugSplat64.dll), the Echo VR launcher's
+// runtime: its plugin ABI (nevr/plugin_interface.h, from nevr-runtime's sdk/include), the
+// version, and the helpers the three plugins use.
 //
 // nEVR loads a plugin from bin\win10\plugins\ only when _local\config.yaml lists it, then
 // calls NvrPluginInitEx once -- that is where the hooks go in -- and NvrPluginShutdown
@@ -8,6 +8,9 @@
 // and a DLL that fails nEVR's checks is unloaded right after it, so nothing may be hooked
 // there. Whether this is a dedicated server comes from the host (ctx->flags), not from
 // the command line.
+//
+// The plugins log through nEVR's host log (nevr/plugin_logger.h, docs/standards/logging.md
+// Rule 15). They write no log file. The build finds the SDK header through NEVR_SDK_INCLUDE.
 #pragma once
 
 #include <windows.h>
@@ -16,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "nevr_plugin_interface.h"
+#include "nevr/plugin_interface.h"
 
 #define ECHOCOMBAT_VERSION_MAJOR 1
 #define ECHOCOMBAT_VERSION_MINOR 1
@@ -46,46 +49,6 @@ inline bool EchoCombatIsServer(const NvrGameContext *ctx) {
     return false;
 }
 
-// <bin\win10>\plugin_logs\<name>\<name>.log, where the other plugins log (and where the
-// launcher's "Upload logs" picks them up). Always made: the plugins' Log() functions write
-// here in every build; ECHOCOMBAT_LOG only adds the extra diagnostic dumps. If the folder
-// can't be made or the file can't be opened for append, say so once on stderr and in the
-// debugger (nEVR's plugin log channel -- nevr plugin_logger.h; a plugin cannot call the
-// host's own Log()), and leave out[0] empty so Log() writes nothing.
-inline void EchoCombatLogFail(const char *name, const char *what, const char *path, DWORD err) {
-    char line[MAX_PATH + 160];
-    sprintf_s(line, "[%s] ERROR log not written: %s '%s' (Win32 error %lu)", name, what, path, err);
-    fprintf(stderr, "%s\n", line);
-    strcat_s(line, "\n");
-    OutputDebugStringA(line);
-}
-
-inline bool EchoCombatMakeDir(const char *name, const char *path) {
-    if (CreateDirectoryA(path, nullptr)) return true;
-    DWORD err = GetLastError();
-    if (err == ERROR_ALREADY_EXISTS) return true;
-    EchoCombatLogFail(name, "cannot create folder", path, err);
-    return false;
-}
-
-inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
-    out[0] = 0;
-    char dir[MAX_PATH];
-    DWORD n = GetModuleFileNameA(nullptr, dir, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) { EchoCombatLogFail(name, "cannot find the game folder", "", GetLastError()); return; }
-    if (char *slash = strrchr(dir, '\\')) *slash = 0;
-    char path[MAX_PATH], file[MAX_PATH];
-    sprintf_s(path, "%s\\plugin_logs", dir);
-    if (!EchoCombatMakeDir(name, path)) return;
-    sprintf_s(path, "%s\\plugin_logs\\%s", dir, name);
-    if (!EchoCombatMakeDir(name, path)) return;
-    sprintf_s(file, "%s\\%s.log", path, name);
-    FILE *f = nullptr;
-    if (fopen_s(&f, file, "a") != 0 || !f) { EchoCombatLogFail(name, "cannot open", file, GetLastError()); return; }
-    fclose(f);
-    sprintf_s(out, size, "%s", file);
-}
-
 // True only if `len` bytes at `addr` are exactly `expected`. The same checks as nevr-runtime's
 // nevr::ValidatePrologue (plugins/common/include/nevr_common.h): a null pointer or a length
 // of 0 is "no match", never "match" (memcmp of 0 bytes returns 0). Call it right before
@@ -93,16 +56,6 @@ inline void EchoCombatLogPath(char *out, size_t size, const char *name) {
 inline bool EchoCombatBytesMatch(const void *addr, const uint8_t *expected, size_t len) {
     if (!addr || !expected || len == 0) return false;
     return memcmp(addr, expected, len) == 0;
-}
-
-// The line format of nevr-runtime's plugin logger (plugins/common/include/plugin_logger.h,
-// "[prefix] LEVEL message" on stderr, which is the only log channel it gives a plugin). The
-// plugins' Log() calls carry no level, so they go out as INFO; failures are reported above
-// with ERROR.
-inline void EchoCombatToStderr(const char *fmt, va_list args) {
-    char line[1024];
-    vsnprintf(line, sizeof(line), fmt, args);
-    fprintf(stderr, "[EchoCombat] INFO %s\n", line);
 }
 
 // A file next to this plugin's DLL in plugins\ (its .ini).

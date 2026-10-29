@@ -40,7 +40,7 @@ Both run under nEVR (`BugSplat64.dll`), the runtime the Echo VR launcher install
   game reads its data, so nEVR lists it `early: true` (nEVR with the early load pass).
 * The plugins are nEVR plugins (`plugin/nevr_plugin.h`): nEVR loads the ones
   `_local/config.yaml` lists and calls `NvrPluginInitEx`, where the hooks go in, and
-  `NvrPluginShutdown`, where they come out. They log to `bin/win10/plugin_logs/<Plugin>/`.
+  `NvrPluginShutdown`, where they come out. They log through nEVR's host log, not a file of their own (see Logs below).
 
 | Plugin | Runs on | Does |
 |---|---|---|
@@ -118,10 +118,16 @@ Useful options:
 
 Run `python tools/deploy_and_launch.py --help` for the rest.
 
-Logs: the plugins write `<install>/bin/win10/plugin_logs/<Plugin>/<Plugin>.log` in every build;
-`ECHOCOMBAT_LOG` (add `/DECHOCOMBAT_LOG` to the `cl.exe` line of a `build_*.bat`) adds the extra diagnostic dumps.
-If the folder or file cannot be created, the plugin says so once on stderr. The overlay writes `plugin_logs/NvrContentOverlay/`, nEVR
-`%LOCALAPPDATA%/EchoVR/logs/`, the game `<install>/_local/r14logs/`.
+Logs: DroneFix, PowerBoost and VeilNet write no log file of their own (CombatBots, which is not
+released, still writes its own file under `plugin_logs` in the game folder). Each of their lines goes through nEVR's host log and is
+tagged with the plugin's name, for example `[NEVR.PLUGIN] plugin=DroneFix ...`, in nEVR's run log.
+This needs an nEVR whose plugin context carries the log function (plugin API 6 or newer); on an older nEVR,
+whose context does not carry it, the lines go to stderr, which that nEVR does not collect. The
+build needs `NEVR_SDK_INCLUDE` set to the `sdk/include` folder of nevr-runtime (the build scripts stop
+with an error when it is unset or the header is missing).
+`ECHOCOMBAT_LOG` (add `/DECHOCOMBAT_LOG` to the `cl.exe` line of a `build_*.bat`) adds the extra diagnostic lines.
+The overlay (NvrContentOverlay 1.2.0 and newer) logs the same way, tagged `plugin=NvrContentOverlay`.
+The game writes its own logs to `<install>/_local/r14logs/`.
 
 ## Tuning: `config/mp_weapon_settings.json`
 
