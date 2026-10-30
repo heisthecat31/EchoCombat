@@ -70,8 +70,9 @@
 //
 // All prologues are checked first; on a mismatch nothing is hooked (and nEVR unloads the
 // plugin). A nEVR plugin (nevr_plugin.h): hooked from NvrPluginInitEx, unhooked in
-// NvrPluginShutdown; the host says whether this is the server. Log (built with
-// ECHOCOMBAT_LOG): plugin_logs\PowerBoost\PowerBoost.log; settings: PowerBoost.ini next to the DLL.
+// NvrPluginShutdown; the host says whether this is the server. Its lines go to nEVR's host log,
+// tagged plugin=PowerBoost; the per-hit, per-tick and per-cone lines are Debug, and the extra
+// diagnostic lines are built with ECHOCOMBAT_LOG. Settings: PowerBoost.ini next to the DLL.
 
 #include <windows.h>
 #include <stdint.h>
@@ -79,8 +80,15 @@
 #include <string.h>
 #include <math.h>
 #include <intrin.h>
+#include <stdarg.h>
 #include "detours.h"
 #include "nevr_plugin.h"
+#include "nevr/plugin_logger.h"
+
+// Lines go to nEVR's host log, tagged plugin=<config.yaml name> (docs/standards/logging.md, Rule 15).
+NEVR_DEFINE_PLUGIN_LOG("[PowerBoost]")
+
+constexpr const char *kLogName = "PowerBoost";   // names the plugin in its log-cap Warning
 
 namespace {
 
@@ -249,28 +257,64 @@ constexpr int MAX_BUFFS = 64;
 Buff g_buffs[MAX_BUFFS];
 SRWLOCK g_lock = SRWLOCK_INIT;
 
-char g_log_path[MAX_PATH];
 char g_ini_path[MAX_PATH];                // PowerBoost.ini, next to the DLL
 HMODULE g_self = nullptr;
-volatile LONG g_logged = 0;
+
+// One line through nEVR's host log. Debug and Info are counted apart, so a burst of Debug lines
+// never takes Info's room: Debug stops after kDebugCap lines and Info after kInfoCap, and the
+// first line past either cap writes one Warning that says so. A Warning or an Error is always
+// written.
+constexpr LONG kDebugCap = 5000;
+constexpr LONG kInfoCap = 20000;
+volatile LONG g_logged_debug = 0;
+volatile LONG g_logged_info = 0;
+
+void LogLine(uint32_t level, const char *fmt, va_list args) {
+    if (level < NEVR_LOG_WARNING) {
+        bool debug = level == NEVR_LOG_DEBUG;
+        LONG cap = debug ? kDebugCap : kInfoCap;
+        LONG n = InterlockedIncrement(debug ? &g_logged_debug : &g_logged_info);
+        if (n > cap) {
+            if (n == cap + 1) {
+                char note[160];
+                snprintf(note, sizeof(note), "%s log cap reached: further %s lines are dropped (cap %ld)",
+                         kLogName, debug ? "Debug" : "Info", static_cast<long>(cap));
+                PluginLogFields(NEVR_LOG_WARNING, note, {});
+            }
+            return;
+        }
+    }
+    char line[1024];
+    vsnprintf(line, sizeof(line), fmt, args);
+    PluginLogFields(level, line, {});
+}
 
 void Log(const char *fmt, ...) {
-    if (InterlockedIncrement(&g_logged) > 2000) return;
-    va_list echo;
-    va_start(echo, fmt);
-    EchoCombatToStderr(fmt, echo);
-    va_end(echo);
-    FILE *f = nullptr;
-    if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    fprintf(f, "[%02d:%02d:%02d.%03d %5lu] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentProcessId());
     va_list args;
     va_start(args, fmt);
-    vfprintf(f, fmt, args);
+    LogLine(NEVR_LOG_INFO, fmt, args);
     va_end(args);
-    fputc('\n', f);
-    fclose(f);
+}
+
+void LogDebug(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_DEBUG, fmt, args);
+    va_end(args);
+}
+
+void LogWarning(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_WARNING, fmt, args);
+    va_end(args);
+}
+
+void LogError(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_ERROR, fmt, args);
+    va_end(args);
 }
 
 // When (cs, index) was first linked in the current use (g_last_use): its cheat death runs
@@ -456,14 +500,14 @@ void __fastcall Hooked_Damage(void *cs, uint32_t index, float damage, void *info
         float add = boosted && gun ? (part == g_head_part ? g_head_bonus : g_body_bonus) : 0.0f;
         static volatile LONG logged = 0;
         if (InterlockedIncrement(&logged) <= 200)
-            Log("hit %p/%u: %.2f, shooter %016llx (slot %08x, damageable %u), body part %d, gun %016llx%s", cs,
+            LogDebug("hit %p/%u: %.2f, shooter %016llx (slot %08x, damageable %u), body part %d, gun %016llx%s", cs,
                 index & 0xffff, damage, (unsigned long long)t_shooter, shooter, from & 0xffff, part,
                 (unsigned long long)t_gun,
                 add > 0 ? (part == g_head_part ? " BOOSTED (head)" : " BOOSTED (body)") : boosted ? " (boosted, not a gun)" : "");
         damage += add;
     }
     if (mult != 1.0f) {
-        Log("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
+        LogDebug("damage to buffed %p/%u: %.2f -> %.2f", cs, index & 0xffff, damage, damage * mult);
         damage *= mult;
     }
     // Cheat death holds for [rez] seconds from a teammate's first link in the use, while
@@ -585,11 +629,11 @@ void SelfDamageTick(ULONGLONG now) {
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             t_self_damage = false;
             s.cs = nullptr;
-            Log("OVERCHARGE cost: damaging the user faulted, stopped");
+            LogWarning("OVERCHARGE cost: damaging the user faulted, stopped");
             continue;
         }
         static volatile LONG logged = 0;
-        if (InterlockedIncrement(&logged) <= 100) Log("OVERCHARGE cost: %p/%u -%.2f", s.cs, s.index & 0xffff, damage);
+        if (InterlockedIncrement(&logged) <= 100) LogDebug("OVERCHARGE cost: %p/%u -%.2f", s.cs, s.index & 0xffff, damage);
     }
 }
 
@@ -599,7 +643,7 @@ void __fastcall Hooked_Send(void *cs, uint32_t index, float amount, uint8_t type
     if (g_damage_bonus > 0 && amount > 0 && amount < MARKER_BASE && GetTickCount64() < g_boosted_until) {
         static volatile LONG logged = 0;
         if (InterlockedIncrement(&logged) <= 50)
-            Log("boosted hit on %p/%u: %.2f -> %.2f", cs, index & 0xffff, amount, amount * (1.0f + g_damage_bonus));
+            LogDebug("boosted hit on %p/%u: %.2f -> %.2f", cs, index & 0xffff, amount, amount * (1.0f + g_damage_bonus));
         amount *= 1.0f + g_damage_bonus;
     }
     Real_Send(cs, index, amount, type, info);
@@ -692,7 +736,7 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
             const float *hp = (const float *)(owner + 0x8f8), *hq = (const float *)(owner + 0xbd0);
             float rel[3] = { pos[0] - hp[0], pos[1] - hp[1], pos[2] - hp[2] }, inv[4] = { -hq[0], -hq[1], -hq[2], hq[3] }, hl[3];
             Rotate(inv, rel, hl);
-            Log("MEDIGUN cone from %s: target %.1f m, %.0f deg | +x %.0f -x %.0f +y %.0f -y %.0f +z %.0f -z %.0f | "
+            LogDebug("MEDIGUN cone from %s: target %.1f m, %.0f deg | +x %.0f -x %.0f +y %.0f -y %.0f +z %.0f -z %.0f | "
                 "gun from the head %.2f %.2f %.2f", pos == gun_pos ? "the gun" : "the head (no gun pose)", dist, off,
                 a[0], a[1], a[2], a[3], a[4], a[5], hl[0], hl[1], hl[2]);
         }
@@ -728,7 +772,7 @@ int __fastcall ConeFilter(uint8_t *bubble, const float *target, void *dcs, uint3
         static const float axes[6][3] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
         float a[6];
         for (int i = 0; i < 6; ++i) a[i] = AngleTo(q, axes[i], d, dist);
-        Log("cone (from the %s): target %p/%u at %.1f m (max %.0f), %.0f deg off aim (max %d) -> %s | +x %.0f -x %.0f +y %.0f "
+        LogDebug("cone (from the %s): target %p/%u at %.1f m (max %.0f), %.0f deg off aim (max %d) -> %s | +x %.0f -x %.0f +y %.0f "
             "-y %.0f +z %.0f -z %.0f | q %.2f %.2f %.2f %.2f", pos == gun_pos ? "gun" : "head", dcs, index & 0xffff, dist, range, off, angle,
             ok ? "LINK" : "no", a[0], a[1], a[2], a[3], a[4], a[5], q[0], q[1], q[2], q[3]);
     }
@@ -790,12 +834,12 @@ bool InstallCone(uint8_t *base) {
     // Checked patch: the radius check must still be the bytes we expect, and the page must
     // be writable, or nothing is written.
     if (!EchoCombatBytesMatch(site, RADIUS_BYTES, sizeof(RADIUS_BYTES))) {
-        Log("radius check bytes changed before patching at +0x%llx -- cone not patched", (unsigned long long)RADIUS_RVA);
+        LogWarning("radius check bytes changed before patching at +0x%llx -- cone not patched", (unsigned long long)RADIUS_RVA);
         return false;
     }
     DWORD old;
     if (!VirtualProtect(site, sizeof(jump), PAGE_EXECUTE_READWRITE, &old)) {
-        Log("VirtualProtect failed (error %lu) at +0x%llx -- cone not patched", GetLastError(),
+        LogWarning("VirtualProtect failed (error %lu) at +0x%llx -- cone not patched", GetLastError(),
             (unsigned long long)RADIUS_RVA);
         return false;
     }
@@ -804,7 +848,7 @@ bool InstallCone(uint8_t *base) {
     memcpy(site, jump, sizeof(jump));
     DWORD ignored;
     if (!VirtualProtect(site, sizeof(jump), old, &ignored))
-        Log("VirtualProtect could not restore the page protection (error %lu)", GetLastError());
+        LogWarning("VirtualProtect could not restore the page protection (error %lu)", GetLastError());
     FlushInstructionCache(GetCurrentProcess(), site, sizeof(jump));
     return true;
 }
@@ -1033,7 +1077,7 @@ uint64_t *__fastcall Hooked_Slot(void *cs, uint64_t *out, uint32_t handle) {
         uintptr_t ret = (uintptr_t)_ReturnAddress() - (uintptr_t)g_base;
         bool known = false;
         for (int i = 0; i < n; ++i) known |= seen[i] == ret;
-        if (!known && n < 16) { seen[n++] = ret; Log("MEDIGUN slot read from echovr+%llx", (unsigned long long)ret); }
+        if (!known && n < 16) { seen[n++] = ret; LogDebug("MEDIGUN slot read from echovr+%llx", (unsigned long long)ret); }
         __try {
             uint8_t *rec = *(uint8_t **)((uint8_t *)cs + 0xf8) +
                            (*(uint16_t **)((uint8_t *)cs + 0xc8))[(handle & 0xffff) * 2] * 0x58ull;
@@ -1043,7 +1087,7 @@ uint64_t *__fastcall Hooked_Slot(void *cs, uint64_t *out, uint32_t handle) {
             for (; i < 16 && arms[i] && (arms[i] >> 8) != (actor & 0xffffffffffffffull); ++i) {}
             if (i < 16 && (arms[i] & 0xff) != (uint64_t)(arm + 1)) {
                 arms[i] = (actor & 0xffffffffffffffull) << 8 | (uint8_t)(arm + 1);
-                Log("MEDIGUN player %016llx: arm %d here (%s), gun actor %016llx", (unsigned long long)actor, arm,
+                LogDebug("MEDIGUN player %016llx: arm %d here (%s), gun actor %016llx", (unsigned long long)actor, arm,
                     *(uint32_t *)(rec + 0x10) ? "this machine's player" : "another player",
                     (unsigned long long)*(uint64_t *)(rec + 0x40));
             }
@@ -1117,7 +1161,7 @@ int MediCone(uint8_t *bubble, float off, float dist, float range, int angle, voi
     } else {
         ok = false;
     }
-    if (ok != mine) Log("MEDIGUN %04x: %s %p/%u (%.1f m, %.0f deg)", key, ok ? "heals" : "lets go of", dcs,
+    if (ok != mine) LogDebug("MEDIGUN %04x: %s %p/%u (%.1f m, %.0f deg)", key, ok ? "heals" : "lets go of", dcs,
                         index & 0xffff, dist, off);
     return ok;
 }
@@ -1136,7 +1180,7 @@ void __fastcall Hooked_NetActivate(void *cs, void *msg) {
         __try {
             uint8_t *payload = *(uint8_t **)((uint8_t *)msg + 0x10);
             uint64_t here = *(uint64_t *)(*(uint8_t **)((uint8_t *)cs + 0x80) + 0x58);
-            Log("heal bubble activation from the network: space %016llx (this system's %016llx%s), component %016llx, "
+            LogDebug("heal bubble activation from the network: space %016llx (this system's %016llx%s), component %016llx, "
                 "slot %u gen %u, kind %d", (unsigned long long)*(uint64_t *)payload, (unsigned long long)here,
                 here == *(uint64_t *)payload ? "" : ", NOT THIS ONE", (unsigned long long)*(uint64_t *)(payload + 8),
                 *(uint16_t *)(payload + 0x10), *(uint16_t *)(payload + 0x12), *(int *)(payload + 0x14));
@@ -1152,7 +1196,7 @@ void __fastcall Hooked_ActivateLocal(void *cs, uint32_t handle) {
         uint64_t actor = ComponentActor(cs, handle);
         static volatile LONG told = 0;
         if (InterlockedIncrement(&told) <= 60)
-            Log("heal bubble %08x activated here: component %016llx, actor %016llx", handle,
+            LogDebug("heal bubble %08x activated here: component %016llx, actor %016llx", handle,
                 (unsigned long long)ComponentId(cs, handle), (unsigned long long)actor);
         if (ComponentId(cs, handle) == MEDI_BUBBLE) {
             int owner_slot = SlotOfBubble(cs, handle);
@@ -1239,7 +1283,7 @@ bool FindComet(void *heal_cs, ULONGLONG now) {
                 if (actor != g_weapon_actor[1] || DescField(c, h, 0x1f0) != NCA_SCRIPT) continue;
                 if (logged < 40) {
                     ++logged;
-                    Log("COMET script %p/%08x on actor %016llx (weapon actor %016llx %016llx)", c, h,
+                    LogDebug("COMET script %p/%08x on actor %016llx (weapon actor %016llx %016llx)", c, h,
                         (unsigned long long)actor, (unsigned long long)g_weapon_actor[0], (unsigned long long)g_weapon_actor[1]);
                 }
                 if (actor != ~0ull && actor == g_weapon_actor[1]) {
@@ -1251,7 +1295,7 @@ bool FindComet(void *heal_cs, ULONGLONG now) {
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("MEDIGUN: looking for COMET's script faulted");
+        LogWarning("MEDIGUN: looking for COMET's script faulted");
     }
     return false;
 }
@@ -1313,7 +1357,7 @@ void DiagGunSpace(uint8_t *bubble, const float *hp, const float *hq) {
         void *space = SpaceById(*(void **)((uint8_t *)g_bubble_cs + 0x80), space_id);
         uint64_t *list = space ? SystemsFind(space, NCA_TRANSFORM) : nullptr;
         if (!list) return;
-        Log("gun space %016llx of %016llx (arm %d, equipment gun %016llx): transforms near the head:",
+        LogDebug("gun space %016llx of %016llx (arm %d, equipment gun %016llx): transforms near the head:",
             (unsigned long long)space_id, (unsigned long long)owner, arm, (unsigned long long)gun);
         float inv[4] = { -hq[0], -hq[1], -hq[2], hq[3] };
         int shown = 0;
@@ -1331,13 +1375,13 @@ void DiagGunSpace(uint8_t *bubble, const float *hp, const float *hq) {
                 if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 1.44f) continue;
                 Rotate(inv, d, l);
                 ++shown;
-                Log("  transform %p/%08x actor %016llx: %.2f %.2f %.2f from the head%s", c, h,
+                LogDebug("  transform %p/%08x actor %016llx: %.2f %.2f %.2f from the head%s", c, h,
                     (unsigned long long)DescField(c, h, 0x1e0), l[0], l[1], l[2],
                     DescField(c, h, 0x1e0) == gun ? " (the equipment's gun)" : "");
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("gun space survey faulted");
+        LogDebug("gun space survey faulted");
     }
 }
 #else
@@ -1356,7 +1400,7 @@ bool GunPose(uint8_t *bubble, float pos[3], float q[4]) {
         void *tcs;
         uint32_t th;
         if (FindGunTransform(b->owner, &tcs, &th)) {
-            if (tcs != b->tcs || th != b->th) Log("MEDIGUN %04x: aims from its gun's transform %p/%08x", b->key, tcs, th);
+            if (tcs != b->tcs || th != b->th) LogDebug("MEDIGUN %04x: aims from its gun's transform %p/%08x", b->key, tcs, th);
             b->tcs = tcs;
             b->th = th;
         }
@@ -1412,7 +1456,7 @@ bool OwnerGunPose(uint8_t *bubble, float pos[3], float q[4]) {
         static int told = 0;
         if (told < 20) {
             ++told;
-            Log("OVERCHARGE bubble %p: owner %016llx, %s", bubble, (unsigned long long)a->owner,
+            LogDebug("OVERCHARGE bubble %p: owner %016llx, %s", bubble, (unsigned long long)a->owner,
                 a->tcs ? "aims from its gun" : "no gun found: aims from the head");
         }
     }
@@ -1452,7 +1496,7 @@ void UpdateGunOut() {
     bool out = holstered < 0.5f && retracted < 0.5f;
     static float lh = -1, lr = -1;
     if (fabsf(holstered - lh) > 0.25f || fabsf(retracted - lr) > 0.25f || out != g_gun_out) {
-        Log("COMET holstered %.2f retracted %.2f: %s", holstered, retracted, out ? "drawn" : "away (trigger left to the game)");
+        LogDebug("COMET holstered %.2f retracted %.2f: %s", holstered, retracted, out ? "drawn" : "away (trigger left to the game)");
         lh = holstered;
         lr = retracted;
     }
@@ -1497,14 +1541,14 @@ void ShowHeat(void *heal_cs, ULONGLONG now) {
         written = g_heat * heat_max;
         SetScriptReal(g_comet_cs, g_comet_handle, HEAT_CURRENT, written);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        if (faults++ < 5) Log("MEDIGUN: setting COMET's heat faulted (%08x)", GetExceptionCode());
+        if (faults++ < 5) LogWarning("MEDIGUN: setting COMET's heat faulted (%08x)", GetExceptionCode());
         g_comet_cs = nullptr;
         return;
     }
     static ULONGLONG logged = 0;
     if (now - logged > 2000 && g_heat > 0) {
         logged = now;
-        Log("MEDIGUN heat %.2f -> COMET heat_current %.1f", g_heat, g_heat * heat_max);
+        LogDebug("MEDIGUN heat %.2f -> COMET heat_current %.1f", g_heat, g_heat * heat_max);
     }
 }
 
@@ -1670,7 +1714,7 @@ uint64_t __fastcall Hooked_PfxNode(int64_t *thread) {
                     bool ok = BoneOffset(data, ArmBone(b->arm), l);
                     if (now - b->told >= 2000) {
                         b->told = now;
-                        Log("MEDIGUN beam of %016llx follows %s, arm %d: %s (%.2f %.2f %.2f)", (unsigned long long)player,
+                        LogDebug("MEDIGUN beam of %016llx follows %s, arm %d: %s (%.2f %.2f %.2f)", (unsigned long long)player,
                             joint == TOOL_L1 ? "EXP_L1" : "EXP_R1", b->arm, ok ? "carried to the arm's bone" : "carry failed",
                             l[0], l[1], l[2]);
                     }
@@ -1737,11 +1781,11 @@ void SurveyBones(void *node, uint8_t *data, bool right) {
         if (n > 1e-4f) {
             for (int k = 0; k < 3; ++k) f[k] /= n;
             for (const HandBone &hb : HAND_BONES) {
-                if (!at(right ? hb.right : hb.left, &b)) { Log("  bone %s: no pose", hb.name); continue; }
+                if (!at(right ? hb.right : hb.left, &b)) { LogDebug("  bone %s: no pose", hb.name); continue; }
                 float d[3] = { b.p[0] - hand.p[0], b.p[1] - hand.p[1], b.p[2] - hand.p[2] };
                 float ahead = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
                 float off = sqrtf(fmaxf(0.0f, d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - ahead * ahead));
-                Log("  bone %-22s %s: %.3f m ahead of the hand, %.3f m off the forearm line", hb.name, right ? "R" : "L", ahead, off);
+                LogDebug("  bone %-22s %s: %.3f m ahead of the hand, %.3f m off the forearm line", hb.name, right ? "R" : "L", ahead, off);
             }
         }
         // the beam's bone's own axes, in the forearm's frame: forward (Arm2 -> Hand1), up (toward
@@ -1759,14 +1803,14 @@ void SurveyBones(void *node, uint8_t *data, bool right) {
                 for (int i = 0; i < 3; ++i) {
                     float w[3];
                     Rotate(jb.q, ax[i], w);
-                    Log("  beam bone %c axis = %.2f forward, %.2f up, %.2f right", "xyz"[i],
+                    LogDebug("  beam bone %c axis = %.2f forward, %.2f up, %.2f right", "xyz"[i],
                         w[0] * f[0] + w[1] * f[1] + w[2] * f[2], w[0] * u[0] + w[1] * u[1] + w[2] * u[2],
                         w[0] * r[0] + w[1] * r[1] + w[2] * r[2]);
                 }
             }
         }
     } else {
-        Log("  bone survey: no pose for the arm / hand");
+        LogDebug("  bone survey: no pose for the arm / hand");
     }
     *(uint64_t *)(data + 0x60) = joint;
 }
@@ -1791,7 +1835,7 @@ void PlaceBeams(ULONGLONG now) {
             memcpy(inst + 0x338, local, sizeof(local));
             if (now - b.told >= 5000) {
                 b.told = now;
-                Log("MEDIGUN beam %p at %.3f %.3f %.3f from its bone", b.data, local[0], local[1], local[2]);
+                LogDebug("MEDIGUN beam %p at %.3f %.3f %.3f from its bone", b.data, local[0], local[1], local[2]);
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             b.data = nullptr;
@@ -1810,7 +1854,7 @@ void __fastcall Hooked_Resolve(void *node, uint8_t *data) {
             bool medigun = MedigunPlayer(player);
             static volatile LONG told = 0;
             if (InterlockedIncrement(&told) <= 30)
-                Log("heal beam of %016llx (joint %016llx): %s", (unsigned long long)player, (unsigned long long)joint,
+                LogDebug("heal beam of %016llx (joint %016llx): %s", (unsigned long long)player, (unsigned long long)joint,
                     medigun ? "MEDIGUN -> the gun hand" : "not a MEDIGUN player, left alone");
             if (medigun && (joint == HAND_L1 || joint == HAND_R1))
                 *(uint64_t *)(data + 0x60) = joint == HAND_L1 ? HAND_R1 : HAND_L1;   // the other hand: the gun's
@@ -1830,14 +1874,14 @@ void __fastcall Hooked_Resolve(void *node, uint8_t *data) {
                 *(uint64_t *)(data + 0x60) = arm == 1 ? hb.right : hb.left;
                 static volatile LONG surveyed = 0;
                 if (*(uint64_t *)data == BLUE_BEAM && AttachPose && InterlockedIncrement(&surveyed) <= 3) {
-                    Log("MEDIGUN beam on %s_%s; hand bones:", arm == 1 ? "EXP_R1" : "EXP_L1", hb.name);
+                    LogDebug("MEDIGUN beam on %s_%s; hand bones:", arm == 1 ? "EXP_R1" : "EXP_L1", hb.name);
                     SurveyBones(node, data, arm == 1);
                 }
             }
             // (the beam's offset from the bone is the script's: fix_medigun.beam_offset)
             static volatile LONG told = 0;
             if (InterlockedIncrement(&told) <= 60)
-                Log("MEDIGUN effect %016llx of %016llx: arm %d -> %s", (unsigned long long)*(uint64_t *)data,
+                LogDebug("MEDIGUN effect %016llx of %016llx: arm %d -> %s", (unsigned long long)*(uint64_t *)data,
                     (unsigned long long)player, arm, arm == 1 ? "EXP_R1_ToolAttach1 (right)" :
                     arm == 0 ? "EXP_L1_ToolAttach1 (left)" : "hand not known here, left alone");
         }
@@ -1921,7 +1965,7 @@ void MedigunTick(void *cs, ULONGLONG now) {
             static ULONGLONG warned;
             if (now - warned > 5000) {
                 warned = now;
-                Log("MEDIGUN: no medigun bubble on this player's actor %016llx (Repair Matrix's: %08x, %u bubbles)",
+                LogWarning("MEDIGUN: no medigun bubble on this player's actor %016llx (Repair Matrix's: %08x, %u bubbles)",
                     (unsigned long long)g_local_actor, FindBubble(cs, g_local_actor, 0xb1fda2a83f3debd1ull),
                     *(uint16_t *)((uint8_t *)cs + 0xf4));
             }
@@ -1944,7 +1988,7 @@ void MedigunTick(void *cs, ULONGLONG now) {
                 (unsigned long long)*(uint64_t *)(*(uint8_t **)((uint8_t *)cs + 0x80) + 0x58));
             ActivateBubble(cs, h);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            Log("MEDIGUN: activating the bubble faulted");
+            LogWarning("MEDIGUN: activating the bubble faulted");
             return;
         }
         g_beam = true;
@@ -2040,7 +2084,7 @@ void __fastcall Hooked_GunFire(void *cs, uint32_t handle, float charge, void *a4
                                uint64_t a7, uint64_t a8) {
     if (!g_server && g_local_weapon == MEDIGUN && g_medi_allowed) {
         static volatile LONG logged = 0;
-        if (InterlockedIncrement(&logged) <= 20) Log("MEDIGUN: COMET's shot swallowed");
+        if (InterlockedIncrement(&logged) <= 20) LogDebug("MEDIGUN: COMET's shot swallowed");
         return;
     }
     Real_GunFire(cs, handle, charge, a4, a5, a6, a7, a8);
@@ -2059,7 +2103,7 @@ int __cdecl Hooked_Input(void *session, unsigned type, void *state) {
         ULONGLONG now = GetTickCount64();
         const float *f = (const float *)state;
         if (now - last >= 1000 && (f[4] > 0.1f || f[5] > 0.1f)) {
-            Log("ovr input: type %x, %ld calls/s, ctl %x | trig %.2f %.2f | nodz %.2f %.2f | raw %.2f %.2f | buttons %08x touches %08x",
+            LogDebug("ovr input: type %x, %ld calls/s, ctl %x | trig %.2f %.2f | nodz %.2f %.2f | raw %.2f %.2f | buttons %08x touches %08x",
                 type, calls, *(const uint32_t *)((const uint8_t *)state + 0x30), f[4], f[5], f[13], f[14], f[21], f[22],
                 *(const uint32_t *)((const uint8_t *)state + 8), *(const uint32_t *)((const uint8_t *)state + 12));
             last = now;
@@ -2099,7 +2143,8 @@ DWORD WINAPI HookOvr(LPVOID) {
             DetourUpdateThread(GetCurrentThread());
             AttachTracked(&(PVOID &)Real_Input, Hooked_Input);
             LONG rc = DetourTransactionCommit();
-            Log(rc == NO_ERROR ? "MEDIGUN: reading the trigger from LibOVR" : "MEDIGUN: hooking LibOVR failed");
+            if (rc == NO_ERROR) Log("MEDIGUN: reading the trigger from LibOVR");
+            else LogWarning("MEDIGUN: hooking LibOVR failed");
             return 0;
         }
         Sleep(500);
@@ -2238,7 +2283,7 @@ void ReadIni() {
 
 bool Check(uint8_t *at, const uint8_t *bytes, size_t n, const char *name) {
     if (memcmp(at, bytes, n) == 0) return true;
-    Log("prologue mismatch at %s -- wrong echovr build, not hooking", name);
+    LogError("prologue mismatch at %s -- wrong echovr build, not hooking", name);
     return false;
 }
 
@@ -2258,7 +2303,8 @@ bool Install(bool server) {
         OwnerHandle = (handle_fn)(base + OWNER_HANDLE_RVA);
         OwnerObject = (object_fn)(base + OWNER_OBJECT_RVA);
         ReadIni();
-        Log(InstallCone(base) ? "POWER BOOST link: cone on the heal bubble radius check" : "cone patch failed");
+        if (InstallCone(base)) Log("POWER BOOST link: cone on the heal bubble radius check");
+        else LogWarning("cone patch failed");
     }
     g_server = server;
     Real_Heal = (heal_fn)(base + HEAL_RVA);
@@ -2283,7 +2329,7 @@ bool Install(bool server) {
     }
     LONG rc = DetourTransactionCommit();
     if (rc == NO_ERROR) Log("hooked HealServer and ProcessDamageServer (%s)", g_server ? "server" : "client");
-    else Log("hook failed (%ld)", rc);
+    else LogError("hook failed (%ld)", rc);
     g_hooked = rc == NO_ERROR;
     return g_hooked;
 }
@@ -2357,7 +2403,7 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 }
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
-    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "PowerBoost");
+    PluginLogBind(ctx);
     EchoCombatBesideDll(g_self, g_ini_path, sizeof(g_ini_path), "PowerBoost.ini");
     return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
 }

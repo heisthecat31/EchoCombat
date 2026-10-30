@@ -108,4 +108,7 @@ def local() -> dict:
         # NvrContentOverlay.dll, the nEVR plugin that serves the content pack; deploys copy it
         # into each install's plugins/ when set (the launcher installs it for players)
         "content_overlay": cfg.get("content_overlay"),
+        # nevr-runtime's sdk/include (nevr/plugin_interface.h, nevr/plugin_logger.h); the build_*.bat
+        # scripts read it as NEVR_SDK_INCLUDE, which deploy_and_launch.py sets for them
+        "nevr_sdk_include": cfg.get("nevr_sdk_include"),
     }

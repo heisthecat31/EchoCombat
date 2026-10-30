@@ -32,8 +32,8 @@
 // server without EchoCombat: it hides the three new tac mods (UMBRAL VEIL, OVERCHARGE,
 // POINT) from the tac mod list until one comes (TacModsFor).
 // A nEVR plugin (nevr_plugin.h): set up from NvrPluginInitEx, taken down in
-// NvrPluginShutdown; the host says whether this is the server. Log (built with
-// ECHOCOMBAT_LOG): plugin_logs\VeilNet\VeilNet.log.
+// NvrPluginShutdown; the host says whether this is the server. Its lines go to nEVR's host
+// log, tagged plugin=VeilNet; the per-packet and per-tick lines are Debug.
 //
 // POINT goes the same way as 'P' packets: its script (also a barrier-script copy) bumps
 // the u32 at +0x2104f80, every machine gets a "point token" (+0x2104ce0, same layout as
@@ -64,8 +64,14 @@
 #include <stdarg.h>
 #include "detours.h"
 #include "nevr_plugin.h"
+#include "nevr/plugin_logger.h"
 
 #pragma comment(lib, "ws2_32.lib")
+
+// Lines go to nEVR's host log, tagged plugin=<config.yaml name> (docs/standards/logging.md, Rule 15).
+NEVR_DEFINE_PLUGIN_LOG("[VeilNet]")
+
+constexpr const char *kLogName = "VeilNet";   // names the plugin in its log-cap Warning
 
 namespace {
 
@@ -121,29 +127,65 @@ Shared *g_point;                                // POINT's tokens (+10: walls th
 Shared *g_loc;                                  // TRANSLOCATOR's tokens (+10: teleports shown)
 Shared *g_oc;                                   // OVERCHARGE's tokens (+10: bubbles shown purple)
 bool g_server;
-char g_log_path[MAX_PATH];
-volatile LONG g_logged = 0;
 SRWLOCK g_lock = SRWLOCK_INIT;
 volatile bool g_stop = false;                   // NvrPluginShutdown: the tick thread ends
 HANDLE g_tick = nullptr;
 
+// One line through nEVR's host log. Debug and Info are counted apart, so a burst of Debug lines
+// never takes Info's room: Debug stops after kDebugCap lines and Info after kInfoCap, and the
+// first line past either cap writes one Warning that says so. A Warning or an Error is always
+// written.
+constexpr LONG kDebugCap = 5000;
+constexpr LONG kInfoCap = 20000;
+volatile LONG g_logged_debug = 0;
+volatile LONG g_logged_info = 0;
+
+void LogLine(uint32_t level, const char *fmt, va_list args) {
+    if (level < NEVR_LOG_WARNING) {
+        bool debug = level == NEVR_LOG_DEBUG;
+        LONG cap = debug ? kDebugCap : kInfoCap;
+        LONG n = InterlockedIncrement(debug ? &g_logged_debug : &g_logged_info);
+        if (n > cap) {
+            if (n == cap + 1) {
+                char note[160];
+                snprintf(note, sizeof(note), "%s log cap reached: further %s lines are dropped (cap %ld)",
+                         kLogName, debug ? "Debug" : "Info", static_cast<long>(cap));
+                PluginLogFields(NEVR_LOG_WARNING, note, {});
+            }
+            return;
+        }
+    }
+    char line[1024];
+    vsnprintf(line, sizeof(line), fmt, args);
+    PluginLogFields(level, line, {});
+}
+
 void Log(const char *fmt, ...) {
-    if (InterlockedIncrement(&g_logged) > 2000) return;
-    va_list echo;
-    va_start(echo, fmt);
-    EchoCombatToStderr(fmt, echo);
-    va_end(echo);
-    FILE *f = nullptr;
-    if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    fprintf(f, "[%02d:%02d:%02d.%03d] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
     va_list args;
     va_start(args, fmt);
-    vfprintf(f, fmt, args);
+    LogLine(NEVR_LOG_INFO, fmt, args);
     va_end(args);
-    fputc('\n', f);
-    fclose(f);
+}
+
+void LogDebug(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_DEBUG, fmt, args);
+    va_end(args);
+}
+
+void LogWarning(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_WARNING, fmt, args);
+    va_end(args);
+}
+
+void LogError(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_ERROR, fmt, args);
+    va_end(args);
 }
 
 ULONGLONG InterruptTime() { return *(volatile ULONGLONG *)0x7ffe0008; }
@@ -348,7 +390,7 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
         if (Carried(p.type) && FirstTime(p.id)) {
             if (p.type != 'T') AddToken(Tokens(p.type));   // a teleport has nothing to show here
             int n = Relay(from, p.type, p.id);
-            Log("%s %08x from %s: %srelayed to %d client(s)", What(p.type), p.id,
+            LogDebug("%s %08x from %s: %srelayed to %d client(s)", What(p.type), p.id,
                 Addr(from, buf, sizeof(buf)), p.type != 'T' ? "token here, " : "", n);
         }
     } else if (p.type == 'A') {
@@ -366,10 +408,13 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
             if (HMODULE dronefix = GetModuleHandleW(L"DroneFix.dll"))
                 killed = (killed_fn)GetProcAddress(dronefix, "DroneFix_Killed");
         if (killed) killed(p.id & 0xffff);
-        Log("drone %u killed on the server: shut down here%s", p.id & 0xffff, killed ? "" : " (no DroneFix.dll)");
+        if (killed)
+            LogDebug("drone %u killed on the server: shut down here", p.id & 0xffff);
+        else
+            LogWarning("drone %u killed on the server: NOT shut down here (no DroneFix.dll)", p.id & 0xffff);
     } else if (Carried(p.type) && FirstTime(p.id)) {
         AddToken(Tokens(p.type));
-        Log("%s %08x from the server: token here", What(p.type), p.id);
+        LogDebug("%s %08x from the server: token here", What(p.type), p.id);
     }
 }
 
@@ -517,6 +562,10 @@ void TacModsFor(bool server_has_it) {
 // tac mods (client) and logs what the barrier walls decided (both).
 void HookSelectionLogs();
 
+// SawLog (in the platform module's logger hook) hands the selected tac mod to Tick here,
+// so the hook itself never logs; Tick writes the "selected:" line. One producer, one consumer.
+volatile LONG64 g_selected_pending = 0;
+
 DWORD WINAPI Tick(LPVOID) {
     volatile LONG *uses = (volatile LONG *)(g_base + USE_COUNTER_RVA);
     volatile LONG *point_uses = (volatile LONG *)(g_base + POINT_COUNTER_RVA);
@@ -555,9 +604,11 @@ DWORD WINAPI Tick(LPVOID) {
                 bool ok = ServerDest(d);
                 SendToServer(type, id);
                 SendToServer(type, id);                          // once more, against loss
-                Log(ok ? "%s used here: token here, %08x sent to the server"
-                       : "%s used here: token here (%08x not sent: no game server connection seen yet)",
-                    What(type), id);
+                if (ok)
+                    Log("%s used here: token here, %08x sent to the server", What(type), id);
+                else
+                    LogWarning("%s used here: token here (%08x not sent: no game server connection seen yet)",
+                        What(type), id);
             }
             ULONGLONG now = GetTickCount64();
             if (now >= next_pick) {
@@ -580,6 +631,8 @@ DWORD WINAPI Tick(LPVOID) {
                 }
             }
         }
+        LONG64 selected = InterlockedExchange64(&g_selected_pending, 0);
+        if (selected) Log("selected: %s", TacMod((uint64_t)selected));
         LONG v = g_shared->veils, b = g_shared->barriers;
         if (v != seen_veils) { seen_veils = v; Log("a barrier wall took a token: UMBRAL VEIL (%ld so far)", v); }
         if (b != seen_barriers) { seen_barriers = b; Log("a barrier wall found no token: energy barrier (%ld so far)", b); }
@@ -620,7 +673,8 @@ DWORD WINAPI Tick(LPVOID) {
 // code that logs that line (lea r8, <format>; ...; call WriteLog; WriteLog calls
 // PrintfImpl(level, flags, fmt, va_list)) and hooked. echovr.exe has a copy too, but its
 // logger is nEVR's: nEVR hooks it itself, and a second hook there breaks nEVR's log and
-// stops a server (its hook guard), so that one is left alone.
+// stops a server (its hook guard), so that one is left alone. The hook does no logging (it
+// runs inside the platform module's own logger); Tick writes the "selected:" line.
 using printf_fn = void(*)(int, uint64_t, const char *, va_list);
 constexpr char kProfileFmt[] = "[NSUSER] sent profile update: %s";
 const wchar_t *const kLogModules[] = {L"pnsovr.dll", L"pnsrad.dll"};
@@ -650,7 +704,7 @@ void SawLog(const char *fmt, va_list args) {
     if (!sym) return;
     *(volatile LONG *)(g_base + EQUIP_RVA + 0x20) = 0;                // a new selection: re-runs allowed
     *(volatile uint64_t *)(g_base + EQUIP_RVA) = sym;
-    Log("selected: %s", TacMod(sym));
+    InterlockedExchange64(&g_selected_pending, (LONG64)sym);         // Tick logs it
 }
 
 template <int I> void HookedLog(int level, uint64_t flags, const char *fmt, va_list args) {
@@ -712,8 +766,10 @@ void HookSelectionLogs() {
         DetourAttach(&(PVOID &)g_real_log[i], (PVOID)kHookedLog[i]);
         LONG rc = DetourTransactionCommit();
         if (rc != NO_ERROR) g_real_log[i] = nullptr;
-        Log(rc == NO_ERROR ? "watching tac mod selections in %ls" : "hooking the logger in %ls failed",
-            kLogModules[i]);
+        if (rc == NO_ERROR)
+            Log("watching tac mod selections in %ls", kLogModules[i]);
+        else
+            LogWarning("hooking the logger in %ls failed", kLogModules[i]);
     }
 }
 
@@ -733,7 +789,7 @@ bool Install(bool server) {
     DetourAttach(&(PVOID &)Real_sendto, Hooked_sendto);
     DetourAttach(&(PVOID &)Real_recvfrom, Hooked_recvfrom);
     LONG rc = DetourTransactionCommit();
-    if (rc != NO_ERROR) { Log("hooking sendto / recvfrom failed (%ld): UMBRAL VEIL stays local", rc); return false; }
+    if (rc != NO_ERROR) { LogWarning("hooking sendto / recvfrom failed (%ld): UMBRAL VEIL stays local", rc); return false; }
     g_hooked = true;
     Log(g_server ? "server: relaying UMBRAL VEIL over the game's own connection"
                  : "client: UMBRAL VEIL goes over the game's own connection");
@@ -779,14 +835,14 @@ void InstallQuickExit() {
     uint8_t *base = (uint8_t *)GetModuleHandleW(nullptr);
     uint8_t *call = base + TEARDOWN_CALL_RVA + 3;
     if (memcmp(base + TEARDOWN_CALL_RVA, TEARDOWN_CALL_BYTES, sizeof TEARDOWN_CALL_BYTES) != 0) {
-        Log("shutdown call not found (another build?): the game exits as stock");
+        LogWarning("shutdown call not found (another build?): the game exits as stock");
         return;
     }
     uint8_t *stub = nullptr;                              // a call rel32 reaches +-2 GB
     for (uintptr_t at = ((uintptr_t)base & ~0xffffull) - 0x10000; at > (uintptr_t)base - 0x70000000; at -= 0x10000)
         if ((stub = (uint8_t *)VirtualAlloc((void *)at, 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE))) break;
     if (!stub) {
-        Log("no room for the shutdown stub: the game exits as stock");
+        LogWarning("no room for the shutdown stub: the game exits as stock");
         return;
     }
     uint8_t code[] = {
@@ -827,7 +883,7 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 }
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
-    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "VeilNet");
+    PluginLogBind(ctx);
     HMODULE self = nullptr;                              // MEDIGUN: PowerBoost.ini [server] medigun, beside the DLLs
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                        (LPCWSTR)&NvrPluginInitEx, &self);

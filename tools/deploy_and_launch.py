@@ -373,8 +373,11 @@ def build_dlls():
     """Build the plugins with MSVC (the build_*.bat scripts). A DLL that fails to build
     falls back to the copy already in out/."""
     print("\n== building DLLs")
+    env = dict(os.environ)
+    if LOCAL.get("nevr_sdk_include"):          # local.json: nevr-runtime's sdk/include, read by the .bat files
+        env["NEVR_SDK_INCLUDE"] = LOCAL["nevr_sdk_include"]
     for bat, dll in DLLS:
-        r = subprocess.run(["cmd", "/c", os.path.join(ROOT, bat)], cwd=ROOT, capture_output=True, text=True)
+        r = subprocess.run(["cmd", "/c", os.path.join(ROOT, bat)], cwd=ROOT, capture_output=True, text=True, env=env)
         out = (r.stdout + r.stderr).strip()
         if r.returncode:
             print(f"   {bat} FAILED ({r.returncode}); using the previous out/{dll}\n      "
