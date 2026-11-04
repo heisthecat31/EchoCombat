@@ -60,7 +60,21 @@ ATLASES = {
                          ["1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1"]),
     0x9EC57C5DF16FEF80: ("echocombat_gear_icons_ui",
                          ["13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b"]),
+    # ui_mp_combat_spectator (1920x700): the 2D spectator HUD's sheet. Its gear icons are
+    # sprites only: the spectator script (2fc9bd819d5b9acc) sets a slot's icon element to
+    # the sprite "<type>_<item>_b" (ability_heal_b, grenade_det_b, weapon_scout_b, ...),
+    # and the kill ticker uses the small "<type>_<item>". The sheet has them for the
+    # stock items only, so the new gear showed whatever the slot held before.
+    0x7DA6DD100D552A00: ("echocombat_gear_icons_spectator",
+                         ["5546fc45ea60c419",     # ui_mp_combat_spectator_gearstates
+                          "6705b33841b53ba3",     # ui_mp_combat_spectator_playername_orange
+                          "8839cd82f4f101e7",     # ui_mp_combat_spectator_playername_blue
+                          "6705ba254cb733b1",     # ui_mp_combat_spectator_playername_follow
+                          "d97d0f6bb809966d"]),   # ui_mp_combat_spectator_killticker_entry
 }
+#: atlases whose canvases look icons up by "<type>_<item>[_b]" sprites (see above) rather
+#: than by the plain item name
+SPECTATOR_ATLASES = {0x7DA6DD100D552A00}
 
 #: every gear item: (element prefix, gear name, display name). Items in STOCK_ICON keep
 #: their stock icon (each one distinct); the others get a cell of their own, with the
@@ -136,6 +150,7 @@ def cells_image(w: int, h: int):
         y0, y1 = round(cy * h / GRID), round((cy + 1) * h / GRID)
         ix0, ix1 = round(x0 + (x1 - x0) * CELL_MARGIN), round(x1 - (x1 - x0) * CELL_MARGIN)
         iy0, iy1 = round(y0 + (y1 - y0) * CELL_MARGIN), round(y1 - (y1 - y0) * CELL_MARGIN)
+        ox, oy, side = cell_square(cell, w, h)
         png = icon_png(name, display)
         if png:
             icon = Image.open(png).convert("RGBA")
@@ -145,10 +160,8 @@ def cells_image(w: int, h: int):
             half = max(x1b - x0b, y1b - y0b) * (0.5 + ICON_PAD)
             mx, my = (x0b + x1b) / 2, (y0b + y1b) / 2
             icon = icon.crop((round(mx - half), round(my - half), round(mx + half), round(my + half)))
-            side = min(ix1 - ix0, iy1 - iy0)
             icon = icon.resize((side, side), Image.LANCZOS)
             a = np.asarray(icon)[:, :, 3]
-            ox, oy = ix0 + (ix1 - ix0 - side) // 2, iy0 + (iy1 - iy0 - side) // 2
             img[oy:oy + side, ox:ox + side, 3] = a
             used.append(f"{name} <- {os.path.basename(png)}")
         else:
@@ -242,14 +255,24 @@ def build_dds(stock: bytes):
     return bytes(header) + bytes(out), nw, h, mips_new, used
 
 
-def cell_uv(cell: int, width_ratio: float = 0.5):
-    """UV rect of a right-half cell (u 0.5..1 of the new texture), inside its margin."""
+def cell_square(cell: int, w: int, h: int):
+    """(x, y, side) in the right half (w x h pixels): the square a cell's icon is drawn
+    in, centred inside its margin. Square so a wide atlas (the spectator sheet's cells
+    are 384x140) does not stretch it."""
     cx, cy = cell % GRID, cell // GRID
-    u0 = 0.5 + (cx + CELL_MARGIN) / GRID * width_ratio
-    u1 = 0.5 + (cx + 1 - CELL_MARGIN) / GRID * width_ratio
-    v0 = (cy + CELL_MARGIN) / GRID
-    v1 = (cy + 1 - CELL_MARGIN) / GRID
-    return u0, v0, u1, v1
+    x0, x1 = round(cx * w / GRID), round((cx + 1) * w / GRID)
+    y0, y1 = round(cy * h / GRID), round((cy + 1) * h / GRID)
+    ix0, ix1 = round(x0 + (x1 - x0) * CELL_MARGIN), round(x1 - (x1 - x0) * CELL_MARGIN)
+    iy0, iy1 = round(y0 + (y1 - y0) * CELL_MARGIN), round(y1 - (y1 - y0) * CELL_MARGIN)
+    side = min(ix1 - ix0, iy1 - iy0)
+    return ix0 + (ix1 - ix0 - side) // 2, iy0 + (iy1 - iy0 - side) // 2, side
+
+
+def cell_uv(cell: int, w: int, h: int):
+    """UV rect of a right-half cell's icon square (u 0.5..1 of the new texture, which
+    is 2w x h)."""
+    x, y, side = cell_square(cell, w, h)
+    return 0.5 + x / (2 * w), y / h, 0.5 + (x + side) / (2 * w), (y + side) / h
 
 
 def descriptor(stock_desc: bytes, dds: bytes, w: int, h: int, mips: int) -> bytes:
@@ -279,9 +302,34 @@ def element(d, j: int, field: int, fmt: str = "<Q"):
     return struct.unpack_from(fmt, d, ELEMENTS + j * ELEMENT_SIZE + field)
 
 
-def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
-    """The canvas's `atlas` elements on `new_tex`, every item on its own cell, LOCK
-    blank. Returns (bytes, report)."""
+def sprite_names(atlas: int, kind: str, item: str) -> list:
+    """The sprite names an item's icon is looked up by on canvases of `atlas`."""
+    if atlas in SPECTATOR_ATLASES:
+        return [f"{kind.lower()}_{item}_b", f"{kind.lower()}_{item}"]
+    return [item]
+
+
+def sprite_candidates(d: bytes, atlas: int) -> set:
+    """Names of the sprites that may be `atlas`'s on this canvas: those with one copy per
+    element on the atlas. Other textures can match too -- the spectator gear slot's two
+    cooldown textures, one element each, share their newsprite0..95 frames, two copies
+    -- so main() keeps only the names every canvas of the atlas agrees on."""
+    n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
+    mine = [element(d, j, E_TEX)[0] for j in range(n)].count(atlas)
+    if not mine:
+        return set()
+    start, count = sprite_table(d)
+    copies = {}
+    for k in range(count):
+        h = struct.unpack_from("<Q", d, start + k * RECORD)[0]
+        copies[h] = copies.get(h, 0) + 1
+    return {h for h, c in copies.items() if c == mine}
+
+
+def patch_canvas(d: bytes, atlas: int, new_tex: int, aw: int, ah: int, known=None) -> tuple:
+    """The canvas's `atlas` (aw x ah) elements on `new_tex`, every item on its own cell,
+    LOCK blank. `known`: the atlas's sprite names (see sprite_candidates). Returns
+    (bytes, report)."""
     d = bytearray(d)
     report = []
     n = struct.unpack_from("<I", d, ELEMENT_COUNT)[0]
@@ -295,12 +343,10 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
                          f"cannot tell their sprites apart")
     start, count = sprite_table(d)
     recs = [bytearray(d[start + k * RECORD:start + (k + 1) * RECORD]) for k in range(count)]
-    copies = {}
-    for r in recs:
-        h = struct.unpack_from("<Q", r)[0]
-        copies[h] = copies.get(h, 0) + 1
-    atlas_sprites = {h for h, c in copies.items() if c == mine}       # one copy per atlas element
-    for r in recs:                                                   # the atlas's sprites, halved
+    atlas_sprites = sprite_candidates(d, atlas)
+    if known is not None:
+        atlas_sprites &= known
+    for r in recs:                                                 # the atlas's sprites, halved
         if struct.unpack_from("<Q", r)[0] in atlas_sprites:
             f = struct.unpack_from("<4f", r, 8)
             struct.pack_into("<4f", r, 8, f[0] * 0.5, f[1], f[2] * 0.5, f[3])
@@ -355,31 +401,46 @@ def patch_canvas(d: bytes, atlas: int, new_tex: int) -> tuple:
                 extra.append(bytearray(r))
         recs += extra
         report.append(f"{new_name} added (e{n - 1}, a copy of {from_name})")
-    # items with a cell of their own: their element and their plain-name sprite on it
+    # items with a cell of their own: their element and their sprites on it
     pointed, added = [], []
+
+    def sprite_recs(name_hash: int):
+        return [r for r in recs if struct.unpack_from("<Q", r)[0] == name_hash]
+
     for kind, item, _ in ITEMS:
         cell = own_cells().get(item)
+        names_of = sprite_names(atlas, kind, item)
         if cell is None:
+            # a stock icon: a variant the canvas lacks (the spectator sheet has no small
+            # ability_wraith / weapon_rocket) takes the UV of one it has
+            have = [sprite_recs(symbol64(n)) for n in names_of]
+            uv = next((struct.unpack_from("<4f", r[0], 8) for r in have if r), None)
+            if uv is None or len(names_of) < 2:
+                continue
+            for n, rs in zip(names_of, have):
+                if not rs:
+                    recs += [bytearray(struct.pack("<Q4f", symbol64(n), *uv)) for _ in range(mine)]
+                    added.append(n)
             continue
-        uv = cell_uv(cell)
+        uv = cell_uv(cell, aw, ah)
         j = names.get(symbol64(f"{kind}_{item.upper()}"))
         if j is not None and element(d, j, E_TEX)[0] == new_tex:
             struct.pack_into("<4f", d, ELEMENTS + j * ELEMENT_SIZE + E_UV, *uv)
             pointed.append(item)
-        h = symbol64(item)
-        mine_recs = [r for r in recs if struct.unpack_from("<Q", r)[0] == h]
-        if mine_recs:
-            for r in mine_recs:
-                struct.pack_into("<4f", r, 8, *uv)
-        else:
-            recs += [bytearray(struct.pack("<Q4f", h, *uv)) for _ in range(mine)]
-            added.append(item)
+        for n in names_of:
+            mine_recs = sprite_recs(symbol64(n))
+            if mine_recs:
+                for r in mine_recs:
+                    struct.pack_into("<4f", r, 8, *uv)
+            else:
+                recs += [bytearray(struct.pack("<Q4f", symbol64(n), *uv)) for _ in range(mine)]
+                added.append(n)
     report.append(f"on their own cells: {', '.join(pointed) or 'none'}")
     if added:
         report.append(f"sprites added: {', '.join(added)}")
     j = names.get(symbol64("LOCK"))
     if j is not None:                                                # the "next slot" padlock: blank
-        struct.pack_into("<Q4f", d, ELEMENTS + j * ELEMENT_SIZE + E_TEX, new_tex, *cell_uv(EMPTY_CELL))
+        struct.pack_into("<Q4f", d, ELEMENTS + j * ELEMENT_SIZE + E_TEX, new_tex, *cell_uv(EMPTY_CELL, aw, ah))
         report.append(f"LOCK (e{j}) blanked")
     recs.sort(key=lambda r: struct.unpack_from("<q", r)[0])
     d[start:start + count * RECORD] = b"".join(recs)
@@ -478,9 +539,14 @@ def main(argv) -> int:
             open(os.path.join(args.out, t, name), "wb").write(blob)
         print(f"gear icons: {a} -> texture {name} ({tex_name}) {w}x{h}, {len(dds) >> 10} KB; "
               f"cells: {'; '.join(used)}")
-        for c in canvases:
-            d = read(args.src, CANVAS, c, os.path.join(fb, "canvases"))
-            out, report = patch_canvas(d, atlas, new_tex)
+        blobs = {c: read(args.src, CANVAS, c, os.path.join(fb, "canvases")) for c in canvases}
+        known = None
+        for d in blobs.values():
+            cand = sprite_candidates(d, atlas)
+            if cand:
+                known = cand if known is None else known & cand
+        for c, d in blobs.items():
+            out, report = patch_canvas(d, atlas, new_tex, w // 2, h, known)
             os.makedirs(os.path.join(args.out, CANVAS), exist_ok=True)
             open(os.path.join(args.out, CANVAS, c), "wb").write(out)
             print(f"   canvas {c}: " + "; ".join(report))

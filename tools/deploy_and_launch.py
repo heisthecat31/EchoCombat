@@ -122,11 +122,13 @@ DRONE_SCRIPT = "221a0a3a2e56d247"        # the drone's own script (fix_drone_fx.
 GLOBAL_LEVEL = "3f9915d3001dc28e"
 #: gear icons (gear_icons.py): the stock icon atlases (descriptor + DDS) -- the HUD's
 #: gear sheet and the shared UI sheet the equipment station uses -- and their canvases
-GEAR_ICON_ATLASES = ("d8b84ca5707d3bd2", "9ec57c5df16fef80")
+GEAR_ICON_ATLASES = ("d8b84ca5707d3bd2", "9ec57c5df16fef80", "7da6dd100d552a00")   # last: spectator HUD
 GEAR_ICON_TEXTURE_TYPES = ("4a4c32c49300b8a0", "beac1969cb7b8861")
 GEAR_ICON_CANVAS_TYPE = "59a9bd6e4525ecc4"
 GEAR_ICON_CANVASES = ("1e5d2a97184cad81", "2262b1c4c25c734e", "6083f456d52ef5f1", "b138c20e60e662a1",
                       "13361c4773e07b3e", "2d06e14794a11e31", "8fcec01d07930956", "f4cc172339347e8b",
+                      "5546fc45ea60c419", "6705b33841b53ba3", "8839cd82f4f101e7", "6705ba254cb733b1",
+                      "d97d0f6bb809966d",    # the spectator HUD's gear slots / name plates / kill ticker
                       "72e4349798ae3ea1")    # the last: the station's element index (gear_icons.INDEX_CANVAS)
 SOURCE = os.path.join(ROOT, "build", "source")
 #: what fix_dot_field.py copies the DOT's red field bubble from: the arc mine's bubble model
