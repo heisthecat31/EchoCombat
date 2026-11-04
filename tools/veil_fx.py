@@ -831,7 +831,7 @@ def renew_stub(at: int, cont: int, after: int = RENEW_AFTER) -> bytes:
 #: The last token any wall on this machine took: +00 u64 interrupt time, +08 u32 its
 #: decision (DECIDED_*). Spare bytes after POINT_RECORD's 0x50.
 LAST_TAKE_RVA = 0x2104FE0
-#: One use can bring two copies of its wall to a machine (VeilNet.log: a wall takes the
+#: One use can bring two copies of its wall to a machine (VeilNet's log lines: a wall takes the
 #: token, a second finds none 0.27 s later and stands as a plain barrier; when the copy
 #: that took it is the one never seen, nothing shows at all). A wall that finds no
 #: token within ADOPT_WINDOW of the last take makes the same decision.

@@ -12,8 +12,9 @@
 // The hook skips the update until a target is set, and contains an access violation inside it
 // rather than letting it take the game down. The prologue is verified first; on a mismatch
 // nothing is hooked (and nEVR unloads the plugin). A nEVR plugin (nevr_plugin.h): hooked from
-// NvrPluginInitEx, unhooked in NvrPluginShutdown. Log (built with ECHOCOMBAT_LOG):
-// plugin_logs\DroneFix\DroneFix.log.
+// NvrPluginInitEx, unhooked in NvrPluginShutdown. Its lines go to nEVR's host log, tagged
+// plugin=DroneFix; the per-shot and per-tick lines are Debug, and the extra diagnostic hooks
+// and their lines are built with ECHOCOMBAT_LOG.
 //
 // It also fires the drone's bullets from its gun. CR15NetAutoTargetCS aims by turning the
 // drone's ROOT transform toward the target (+Z at it) and spawns each bullet at that root:
@@ -34,8 +35,15 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <stdarg.h>
 #include "detours.h"
 #include "nevr_plugin.h"
+#include "nevr/plugin_logger.h"
+
+// Lines go to nEVR's host log, tagged plugin=<config.yaml name> (docs/standards/logging.md, Rule 15).
+NEVR_DEFINE_PLUGIN_LOG("[DroneFix]")
+
+constexpr const char *kLogName = "DroneFix";   // names the plugin in its log-cap Warning
 
 namespace {
 
@@ -97,29 +105,65 @@ void NoteAtHandle(uint32_t handle) {
     ReleaseSRWLockExclusive(&g_at_lock);
 }
 
-char g_log_path[MAX_PATH];
-volatile LONG g_logged = 0;
 volatile LONG g_muzzle_shots = 0;
 volatile LONG g_skipped = 0;
 volatile LONG g_faults = 0;
 
+// One line through nEVR's host log. Debug and Info are counted apart, so a burst of Debug lines
+// never takes Info's room: Debug stops after kDebugCap lines and Info after kInfoCap, and the
+// first line past either cap writes one Warning that says so. A Warning or an Error is always
+// written.
+constexpr LONG kDebugCap = 5000;
+constexpr LONG kInfoCap = 20000;
+volatile LONG g_logged_debug = 0;
+volatile LONG g_logged_info = 0;
+
+void LogLine(uint32_t level, const char *fmt, va_list args) {
+    if (level < NEVR_LOG_WARNING) {
+        bool debug = level == NEVR_LOG_DEBUG;
+        LONG cap = debug ? kDebugCap : kInfoCap;
+        LONG n = InterlockedIncrement(debug ? &g_logged_debug : &g_logged_info);
+        if (n > cap) {
+            if (n == cap + 1) {
+                char note[160];
+                snprintf(note, sizeof(note), "%s log cap reached: further %s lines are dropped (cap %ld)",
+                         kLogName, debug ? "Debug" : "Info", static_cast<long>(cap));
+                PluginLogFields(NEVR_LOG_WARNING, note, {});
+            }
+            return;
+        }
+    }
+    char line[1024];
+    vsnprintf(line, sizeof(line), fmt, args);
+    PluginLogFields(level, line, {});
+}
+
 void Log(const char *fmt, ...) {
-    if (InterlockedIncrement(&g_logged) > 20000) return;   // a cap, so a long session stays cheap
-    va_list echo;
-    va_start(echo, fmt);
-    EchoCombatToStderr(fmt, echo);
-    va_end(echo);
-    FILE *f = nullptr;
-    if (fopen_s(&f, g_log_path, "a") != 0 || !f) return;
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    fprintf(f, "[%02d:%02d:%02d] ", t.wHour, t.wMinute, t.wSecond);
     va_list args;
     va_start(args, fmt);
-    vfprintf(f, fmt, args);
+    LogLine(NEVR_LOG_INFO, fmt, args);
     va_end(args);
-    fputc('\n', f);
-    fclose(f);
+}
+
+void LogDebug(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_DEBUG, fmt, args);
+    va_end(args);
+}
+
+void LogWarning(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_WARNING, fmt, args);
+    va_end(args);
+}
+
+void LogError(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    LogLine(NEVR_LOG_ERROR, fmt, args);
+    va_end(args);
 }
 
 bool CallGuarded(uintptr_t cs) {
@@ -224,13 +268,13 @@ void *DroneCtx(void *node, bool quiet = false) {
     if (!quiet && last && InterlockedIncrement(&dumps) <= 6)
         __try {                                                // which field of a context names its drone?
             const uint64_t *c = (const uint64_t *)last, *n = (const uint64_t *)node;
-            Log("[test] node %p: %llx %llx %llx %llx | slot ctx %p: %llx %llx %llx %llx %llx %llx %llx %llx",
+            LogDebug("[test] node %p: %llx %llx %llx %llx | slot ctx %p: %llx %llx %llx %llx %llx %llx %llx %llx",
                 node, n[0], n[1], n[2], n[3], last, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
 #endif
     if (!quiet && ctx != last && InterlockedIncrement(&g_ctx_misses) <= 10)
-        Log("drone script %p: the last node was another drone's (%p); %s", instance, last_instance,
+        LogDebug("drone script %p: the last node was another drone's (%p); %s", instance, last_instance,
             ctx != last ? "its own context kept from before" : "none of its own yet: the last one");
     return ctx;
 }
@@ -308,7 +352,7 @@ void QueueDeathFx(void *ctx, const Comp *sound, int nsound) {
     ReleaseSRWLockExclusive(&g_fx_lock);
     if (!f) {                                                     // (8 at once: no explosion, sound off now)
         for (int i = 0; i < nsound; ++i) Real_Disable(sound[i].system, sound[i].index, 1);
-        Log("drone explosion queue full: skipped");
+        LogWarning("drone explosion queue full: skipped");
     }
 }
 
@@ -318,7 +362,7 @@ void QueueDeathFx(void *ctx, const Comp *sound, int nsound) {
 void SpawnDeathFx(void *ctx) {
     using stub_fn = void(__fastcall *)(void *);
     auto slots = (stub_fn volatile *)((uint8_t *)GetModuleHandleW(nullptr) + DEATH_TOKEN_RVA + 0x28);
-    if (!slots[0]) { Log("drone explosion: no spawn stub (drone script unpatched?)"); return; }
+    if (!slots[0]) { LogWarning("drone explosion: no spawn stub (drone script unpatched?)"); return; }
     __try {
         auto state = (uint64_t *)((uint8_t *)ctx + 0x18);
         uint64_t saved = *state;
@@ -327,7 +371,7 @@ void SpawnDeathFx(void *ctx) {
         *state = saved;
         Log("drone explosion spawned (ctx %p)", ctx);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("drone explosion faulted and was contained (ctx %p)", ctx);
+        LogWarning("drone explosion faulted and was contained (ctx %p)", ctx);
     }
 }
 
@@ -369,7 +413,7 @@ void RunWallFx(void *ctx, uintptr_t stub) {
         ((stub_fn)stub)(ctx);
         *state = saved;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("NEUTRON effect faulted and was contained (ctx %p)", ctx);
+        LogWarning("NEUTRON effect faulted and was contained (ctx %p)", ctx);
     }
 }
 
@@ -456,7 +500,7 @@ void Revive(uint8_t *cs, uint32_t index) {                        // health back
         rec[2] &= ~4;
         Log("drone %u deployed: health %.0f", index & 0xffff, *(float *)(rec + 0x20));
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("drone %u deployed: its damageable record is unreadable", index & 0xffff);
+        LogWarning("drone %u deployed: its damageable record is unreadable", index & 0xffff);
     }
 }
 
@@ -643,7 +687,7 @@ void __fastcall Hooked_Death(void *cs, uint32_t index) {
             if (HMODULE veilnet = GetModuleHandleW(L"VeilNet.dll"))
                 tell = (killed_fn)GetProcAddress(veilnet, "VeilNet_DroneKilled");
         if (tell) tell(index & 0xffff);
-        else Log("drone %u: no VeilNet.dll, the clients won't see it go", index & 0xffff);
+        else LogWarning("drone %u: no VeilNet.dll, the clients won't see it go", index & 0xffff);
     }
 }
 
@@ -673,7 +717,7 @@ void KillTestDue() {                                              // (test) kill
         Log("[test] drone %u: health 0, killing it", index & 0xffff);
         Death(cs, index);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("[test] killing drone %u faulted", index & 0xffff);
+        LogWarning("[test] killing drone %u faulted", index & 0xffff);
     }
 }
 
@@ -695,7 +739,7 @@ void __fastcall Hooked_FollowUpdate(uintptr_t cs) {
         return;
     }
     if (!CallGuarded(cs) && InterlockedIncrement(&g_faults) <= 5)
-        Log("follow update faulted and was contained (cs %p, target system %p, index %u)", (void *)cs,
+        LogWarning("follow update faulted and was contained (cs %p, target system %p, index %u)", (void *)cs,
             *(void **)(cs + TARGET_BODY_SYSTEM), *(uint16_t *)(cs + 0x190));
 }
 
@@ -831,8 +875,8 @@ void LockedOn(uint32_t handle) {
         Log("drone %u locked on: its touch interact %p #%u belongs to no live drone, left alone", handle, system, index);
     } else if (system) {
         bool ok = SafeDisable(system, index);
-        Log(ok ? "drone %u locked on: no longer grabbable (touch interact %p #%u)"
-               : "drone %u locked on: disabling touch interact %p #%u faulted, contained", handle, system, index);
+        if (ok) Log("drone %u locked on: no longer grabbable (touch interact %p #%u)", handle, system, index);
+        else LogWarning("drone %u locked on: disabling touch interact %p #%u faulted, contained", handle, system, index);
     }
 }
 
@@ -858,7 +902,7 @@ void __fastcall Hooked_EnableEnter(void *node, const uint64_t *data) {
     if (data[0] == DRONE_ACTOR) DroneCtx(node, true);       // each drone node: learn its drone's context
 #ifdef ECHOCOMBAT_LOG
     if (data[0] == DRONE_ACTOR && InterlockedIncrement(&g_dbg_enables) <= 400)
-        Log("[test] drone script: %s %016llx/%016llx", (uint32_t)data[4] ? "on " : "off", data[2], data[3]);
+        LogDebug("[test] drone script: %s %016llx/%016llx", (uint32_t)data[4] ? "on " : "off", data[2], data[3]);
 #endif
     if (data[0] == DRONE_ACTOR && !(uint32_t)data[4] && Real_EnableComp && Real_Disable
         && (data[2] == DRONE_SOUND || data[2] == R14_DAMAGEABLE)) {
@@ -901,7 +945,7 @@ void __fastcall Hooked_EnableEnter(void *node, const uint64_t *data) {
         copy[3] = PORT;
         Real_EnableEnter(node, copy);
         if (InterlockedIncrement(&g_mirrored) <= 5)
-            Log("drone gun %s: body and port too", (uint32_t)data[4] ? "shown" : "hidden");
+            LogDebug("drone gun %s: body and port too", (uint32_t)data[4] ? "shown" : "hidden");
     }
 }
 
@@ -936,7 +980,7 @@ Pose *__fastcall MuzzleTransform(void *transforms, Pose *out, uint32_t index) {
         out->p[i] += MUZZLE[0] * x[i] + MUZZLE[1] * y[i] + MUZZLE[2] * z[i] - v[i] * back;
     LONG n = InterlockedIncrement(&g_muzzle_shots);
     if (n <= SHOT_LOG)
-        Log("[pid %lu] shot %ld%s: root (%.3f %.3f %.3f) spawn (%.3f %.3f %.3f) velocity (%.2f %.2f %.2f) "
+        LogDebug("[pid %lu] shot %ld%s: root (%.3f %.3f %.3f) spawn (%.3f %.3f %.3f) velocity (%.2f %.2f %.2f) "
             "frame %.1f ms", GetCurrentProcessId(), n, t_remote ? " (remote)" : "", root[0], root[1], root[2],
             out->p[0], out->p[1], out->p[2], v[0], v[1], v[2], dt * 1000.0f);
     return out;
@@ -985,12 +1029,12 @@ void WatchDue() {
             Pose p;
             Real_TransformGet(*(void **)(rec + 0x30), &p, *(uint32_t *)(rec + 0x38));
             const float *dir = (const float *)(rec + 0x104), *sp = (const float *)(rec + 0x128);
-            Log("  bullet %d (#%u slot %u) %llu ms: pos (%.2f %.2f %.2f) flags %x to-hit %.2f dir (%.2f %.2f %.2f) "
+            LogDebug("  bullet %d (#%u slot %u) %llu ms: pos (%.2f %.2f %.2f) flags %x to-hit %.2f dir (%.2f %.2f %.2f) "
                 "hits %llu shooter (%.2f %.2f %.2f)", w.n, w.index & 0xffff, slot, age, p.p[0], p.p[1], p.p[2],
                 *(uint32_t *)(rec + 0xb4), *(float *)(rec + 0xd0), dir[0], dir[1], dir[2],
                 *(unsigned long long *)(rec + 0xd8), sp[0], sp[1], sp[2]);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            Log("  bullet %d: record gone", w.n);
+            LogDebug("  bullet %d: record gone", w.n);
             w.sys = nullptr;
         }
         if (age > 1500) w.sys = nullptr;
@@ -1014,7 +1058,7 @@ void __fastcall Hooked_BulletSpawn(uint8_t *sys, uint64_t index, void *ref, floa
         for (int i = 0; i < 3; ++i) { shooter_vel[i] = 0.0f; shooter_pos[i] = pose->p[i]; }
         NoteDroneShot((uint8_t *)rec);
         if (InterlockedIncrement(&g_tracers) <= 3)
-            Log("drone bullet tracer starts at the drone (%.2f %.2f %.2f)", pose->p[0], pose->p[1], pose->p[2]);
+            LogDebug("drone bullet tracer starts at the drone (%.2f %.2f %.2f)", pose->p[0], pose->p[1], pose->p[2]);
         WatchBullet(sys, (uint32_t)index);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
@@ -1093,7 +1137,7 @@ void ChaseTarget(uint8_t *cs, uint32_t handle) {
     SetDroneVelocity(cs, rec, v);
     c->moving = true;
     if (InterlockedIncrement(&g_chases) <= 5)
-        Log("drone %u chasing its target: %.1f m away, %.1f m/s", handle & 0xffff, dist, speed);
+        LogDebug("drone %u chasing its target: %.1f m away, %.1f m/s", handle & 0xffff, dist, speed);
 }
 
 void __fastcall Hooked_Attack(uint8_t *cs, uint32_t handle) {
@@ -1142,7 +1186,7 @@ void __fastcall Hooked_Impact(uint8_t *sys, uint32_t index, uint8_t *hit) {
             float dx = p.p[0] - d.p[0], dy = p.p[1] - d.p[1], dz = p.p[2] - d.p[2];
             float dist = sqrtf(dx * dx + dy * dy + dz * dz);
             if (dist < HIT_LOG_RANGE && InterlockedIncrement(&g_impact_logs) <= 60)
-                Log("bullet impact %.2f m from drone %u: at (%.2f %.2f %.2f), hit damageable %p #%u, bullet flags %x",
+                LogDebug("bullet impact %.2f m from drone %u: at (%.2f %.2f %.2f), hit damageable %p #%u, bullet flags %x",
                     dist, d.index, p.p[0], p.p[1], p.p[2], hit ? *(void **)(hit + 0x40) : nullptr,
                     hit ? *(uint16_t *)(hit + 0x48) : 0xffff, *(uint32_t *)(rec + 0xb4));
         }
@@ -1160,7 +1204,7 @@ void __fastcall Hooked_WeaponHit(uint8_t *cs, uint32_t index, void *a, void *b, 
         float hp = *(float *)(DamageRecord(cs, index) + 0x20);
         // the drone, or another ordnance (they all sit near 9999: how much an arc mine takes)
         if ((drone || hp > 9000.0f) && InterlockedIncrement(&g_hit_logs) <= 120)
-            Log("weapon hit on %s %u: health %.1f", drone ? "drone" : "ordnance", index & 0xffff, hp);
+            LogDebug("weapon hit on %s %u: health %.1f", drone ? "drone" : "ordnance", index & 0xffff, hp);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     Real_WeaponHit(cs, index, a, b, c, d);
@@ -1169,7 +1213,7 @@ void __fastcall Hooked_WeaponHit(uint8_t *cs, uint32_t index, void *a, void *b, 
 void InstallHitLog(uintptr_t base) {
     auto impact = (uint8_t *)(base + IMPACT_RVA), hit = (uint8_t *)(base + WEAPON_HIT_RVA);
     if (memcmp(impact, IMPACT_BYTES, sizeof IMPACT_BYTES) || memcmp(hit, WEAPON_HIT_BYTES, sizeof WEAPON_HIT_BYTES)) {
-        Log("bullet impact / weapon hit prologue mismatch: no hit log");
+        LogWarning("bullet impact / weapon hit prologue mismatch: no hit log");
         return;
     }
     Real_Impact = (impact_fn)impact;
@@ -1178,8 +1222,8 @@ void InstallHitLog(uintptr_t base) {
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_Impact, Hooked_Impact);
     DetourAttach(&(PVOID &)Real_WeaponHit, Hooked_WeaponHit);
-    Log(DetourTransactionCommit() == NO_ERROR ? "[test] logging bullet impacts near drones and hits on them"
-                                               : "[test] hit log hooks failed");
+    if (DetourTransactionCommit() == NO_ERROR) Log("[test] logging bullet impacts near drones and hits on them");
+    else LogWarning("[test] hit log hooks failed");
 }
 #else
 void NoteDronePos(uint8_t *, uint16_t, const float *) {}
@@ -1224,7 +1268,7 @@ void GrabKeyDue() {                                            // (once a frame)
     bool down = (GetAsyncKeyState(VK_F6) & 0x8000) && (GetAsyncKeyState(VK_SHIFT) & 0x8000) && OurWindowFocused();
     if (down && !was && Real_PouchUpdate && InterlockedCompareExchange(&g_grab_stage, 1, 0) == 0) {
         g_grab_zone = g_grab_blocked = g_grab_grip = g_grab_pouches = 0;
-        Log("[test] [pid %lu] Shift+F6: taking the ordnance out of the pouch (right hand)", GetCurrentProcessId());
+        LogDebug("[test] [pid %lu] Shift+F6: taking the ordnance out of the pouch (right hand)", GetCurrentProcessId());
     }
     was = down;
 }
@@ -1235,7 +1279,7 @@ int __fastcall Hooked_InZone(void *cs, uint32_t index, uint32_t hand) {
             __try {                                            // the pouch record: +10 magazine, +70 flags
                 uint8_t *rec = *(uint8_t **)((uint8_t *)cs + 0x100)
                                + *(uint16_t *)(*(uint8_t **)((uint8_t *)cs + 0xd0) + (index & 0xffff) * 4) * 0x180ull;
-                Log("[test] pouch %u: +10 %llx, flags +70 %x, magazine system %p", index & 0xffff,
+                LogDebug("[test] pouch %u: +10 %llx, flags +70 %x, magazine system %p", index & 0xffff,
                     *(unsigned long long *)(rec + 0x10), *(uint32_t *)(rec + 0x70), *(void **)((uint8_t *)cs + 0x188));
             } __except (EXCEPTION_EXECUTE_HANDLER) {
             }
@@ -1268,12 +1312,12 @@ void __fastcall Hooked_PouchUpdate(void *cs) {
                 uint8_t *rec = *(uint8_t **)(c + 0x100);                     // the first pouch
                 uint8_t *net = *(uint8_t **)(c + 0xb8);
                 uint8_t *g = *(uint8_t **)((uint8_t *)GetModuleHandleW(nullptr) + NO_HANDS_RVA);
-                Log("[test] pouch update: %u pouches; first: flags +70 %x (10 = ours), +10 %llx; net state %llx "
+                LogDebug("[test] pouch update: %u pouches; first: flags +70 %x (10 = ours), +10 %llx; net state %llx "
                     "(bit 4 skips); global +7ae0 %x (bit 0x100000 skips)", *(uint16_t *)(c + 0xfc),
                     *(uint32_t *)(rec + 0x70), *(unsigned long long *)(rec + 0x10),
                     **(unsigned long long **)(net + 0x2da0), g ? *(uint32_t *)(g + 0x7ae0) : 0xffffffffu);
             } __except (EXCEPTION_EXECUTE_HANDLER) {
-                Log("[test] pouch update: unreadable");
+                LogDebug("[test] pouch update: unreadable");
             }
     }
     // a windowed client sets bit 0x100000 of [NO_HANDS_RVA]+7ae0 (no headset?) and the pouch
@@ -1297,7 +1341,7 @@ void __fastcall Hooked_PouchUpdate(void *cs) {
     if (stage == 1) InterlockedExchange(&g_grab_stage, 2);
     else if (stage == 2) {
         InterlockedExchange(&g_grab_stage, 0);
-        Log("[test] Shift+F6 done: pouch updates %ld, in-zone %ld, blocked %ld, grip %ld (0 = that check never ran)",
+        LogDebug("[test] Shift+F6 done: pouch updates %ld, in-zone %ld, blocked %ld, grip %ld (0 = that check never ran)",
             g_grab_pouches, g_grab_zone, g_grab_blocked, g_grab_grip);
     }
 }
@@ -1308,7 +1352,7 @@ void InstallGrabKey(uintptr_t base) {
          bl = (uint8_t *)(base + BLOCKED_RVA), gr = (uint8_t *)(base + GRIP_RVA);
     if (memcmp(pu, POUCH_UPDATE_BYTES, sizeof POUCH_UPDATE_BYTES) || memcmp(iz, IN_ZONE_BYTES, sizeof IN_ZONE_BYTES)
         || memcmp(bl, BLOCKED_BYTES, sizeof BLOCKED_BYTES) || memcmp(gr, GRIP_BYTES, sizeof GRIP_BYTES)) {
-        Log("[test] pouch prologue mismatch: no Shift+F6 grab");
+        LogWarning("[test] pouch prologue mismatch: no Shift+F6 grab");
         return;
     }
     Real_PouchUpdate = (pouch_update_fn)pu;
@@ -1322,7 +1366,7 @@ void InstallGrabKey(uintptr_t base) {
     DetourAttach(&(PVOID &)Real_Blocked, Hooked_Blocked);
     DetourAttach(&(PVOID &)Real_Grip, Hooked_Grip);
     if (DetourTransactionCommit() == NO_ERROR) Log("[test] Shift+F6 takes the selected ordnance out of the pouch");
-    else { Real_PouchUpdate = nullptr; Log("[test] pouch hooks failed: no Shift+F6 grab"); }
+    else { Real_PouchUpdate = nullptr; LogWarning("[test] pouch hooks failed: no Shift+F6 grab"); }
 }
 #else
 void GrabKeyDue() {}
@@ -1402,7 +1446,7 @@ void DroneHitsDue() {                                           // (server, once
         static ULONGLONG said = 0;
         if (GetTickCount64() - said > 2000 && g_last_deploy && GetTickCount64() - g_last_deploy < 30000) {
             said = GetTickCount64();
-            Log("[test] hit sphere: no %s system seen yet", !at ? "auto-target" : "bullet");
+            LogDebug("[test] hit sphere: no %s system seen yet", !at ? "auto-target" : "bullet");
         }
 #endif
         return;
@@ -1462,7 +1506,7 @@ void DroneHitsDue() {                                           // (server, once
     g_hd.matched = nt;
     if (GetTickCount64() - g_hd.at > 1000) {
         if (g_hd.drones)
-            Log("[test] hit sphere: %d auto-targets, %d drones matched, %d bullet records, %d new, %d tested, "
+            LogDebug("[test] hit sphere: %d auto-targets, %d drones matched, %d bullet records, %d new, %d tested, "
                 "closest %.2f m (centre %.2f %.2f %.2f)", g_hd.drones, g_hd.matched, g_hd.bullets, g_hd.fresh,
                 g_hd.checked, g_hd.closest, g_hd.c[0], g_hd.c[1], g_hd.c[2]);
         g_hd.at = GetTickCount64();
@@ -1499,7 +1543,7 @@ void DroneHitsDue() {                                           // (server, once
                 float dd = SegmentDistance(from, p.p, targets[t].c);
                 if (dd < g_hd.closest) g_hd.closest = dd;
                 if (dd < 1.0f && team && targets[t].team && (team & targets[t].team))
-                    Log("[test] hit sphere: a team %u bullet %.2f m from the team %u drone: skipped (same team)",
+                    LogDebug("[test] hit sphere: a team %u bullet %.2f m from the team %u drone: skipped (same team)",
                         team, dd, targets[t].team);
 #endif
                 if (team && targets[t].team && (team & targets[t].team)) continue;   // its own team's
@@ -1513,7 +1557,7 @@ void DroneHitsDue() {                                           // (server, once
                 float hp = *(float *)(dr + 0x20) - dmg;
                 *(float *)(dr + 0x20) = hp > 0 ? hp : 0.0f;
                 if (InterlockedIncrement(&g_sphere_hits) <= 40)
-                    Log("drone %u hit (team %u bullet, drone team %u): %.1f damage, health %.1f",
+                    LogDebug("drone %u hit (team %u bullet, drone team %u): %.1f damage, health %.1f",
                         targets[t].didx & 0xffff, team, targets[t].team, dmg, hp > 0 ? hp : 0.0f);
                 if (hp <= 0) {
                     dr[2] |= 4;
@@ -1529,7 +1573,7 @@ void DroneHitsDue() {                                           // (server, once
 void InstallChase(uintptr_t base) {
     auto attack = (uint8_t *)(base + ATTACK_RVA), spawn = (uint8_t *)(base + BULLET_SPAWN_RVA);
     if (memcmp(attack, ATTACK_BYTES, sizeof ATTACK_BYTES) || memcmp(spawn, BULLET_SPAWN_BYTES, sizeof BULLET_SPAWN_BYTES)) {
-        Log("AttackTarget / bullet spawn prologue mismatch -- the drone stays put, tracers as stock");
+        LogWarning("AttackTarget / bullet spawn prologue mismatch -- the drone stays put, tracers as stock");
         return;
     }
     Real_TransformGet = (transform_get_fn)(base + TRANSFORM_GET_RVA);
@@ -1544,8 +1588,10 @@ void InstallChase(uintptr_t base) {
     DetourAttach(&(PVOID &)Real_Attack, Hooked_Attack);
     DetourAttach(&(PVOID &)Real_BulletSpawn, Hooked_BulletSpawn);
     LONG rc = DetourTransactionCommit();
-    Log(rc == NO_ERROR ? "hooked AttackTarget and bullet spawn: a drone chases its target (%.0f m/s, holds %.0f m)"
-                       : "AttackTarget / bullet spawn hook failed", CHASE_SPEED, CHASE_DISTANCE);
+    if (rc == NO_ERROR)
+        Log("hooked AttackTarget and bullet spawn: a drone chases its target (%.0f m/s, holds %.0f m)", CHASE_SPEED, CHASE_DISTANCE);
+    else
+        LogWarning("AttackTarget / bullet spawn hook failed");
 }
 
 // The call's rel32 has to reach MuzzleTransform: through a jump stub allocated within 2 GB.
@@ -1572,13 +1618,13 @@ uint8_t *g_fire_site = nullptr;
 void InstallMuzzle(uintptr_t base) {
     auto site = (uint8_t *)(base + FIRE_GET_CALL_RVA);
     if (!EchoCombatBytesMatch(site, FIRE_GET_CALL_BYTES, sizeof(FIRE_GET_CALL_BYTES))) {
-        Log("FireBulletLocal call mismatch at +0x%llx -- wrong echovr build, bullets stay at the root",
+        LogWarning("FireBulletLocal call mismatch at +0x%llx -- wrong echovr build, bullets stay at the root",
             (unsigned long long)FIRE_GET_CALL_RVA);
         return;
     }
     auto fire = (uint8_t *)(base + FIRE_LOCAL_RVA);
     if (memcmp(fire, FIRE_LOCAL_BYTES, sizeof(FIRE_LOCAL_BYTES)) != 0) {
-        Log("FireBulletLocal prologue mismatch at +0x%llx -- bullets stay at the root", (unsigned long long)FIRE_LOCAL_RVA);
+        LogWarning("FireBulletLocal prologue mismatch at +0x%llx -- bullets stay at the root", (unsigned long long)FIRE_LOCAL_RVA);
         return;
     }
     Real_FireLocal = (fire_local_fn)fire;
@@ -1586,34 +1632,34 @@ void InstallMuzzle(uintptr_t base) {
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_FireLocal, Hooked_FireLocal);
     if (DetourTransactionCommit() != NO_ERROR) {
-        Log("FireBulletLocal hook failed; bullets stay at the root");
+        LogWarning("FireBulletLocal hook failed; bullets stay at the root");
         return;
     }
     g_fire_hooked = true;
     Real_TransformGet = (transform_get_fn)(base + TRANSFORM_GET_RVA);
     void *stub = StubNear((uintptr_t)site, (void *)MuzzleTransform);
     if (!stub) {
-        Log("no memory near echovr for the muzzle stub; bullets stay at the root");
+        LogWarning("no memory near echovr for the muzzle stub; bullets stay at the root");
         return;
     }
     int32_t rel = (int32_t)((uintptr_t)stub - ((uintptr_t)site + 5));
     // Checked patch: the call must still be the bytes we expect, and the page must be
     // writable, or nothing is written.
     if (!EchoCombatBytesMatch(site, FIRE_GET_CALL_BYTES, sizeof(FIRE_GET_CALL_BYTES))) {
-        Log("muzzle call site changed before patching at +0x%llx -- not patched, bullets stay at the root",
+        LogWarning("muzzle call site changed before patching at +0x%llx -- not patched, bullets stay at the root",
             (unsigned long long)FIRE_GET_CALL_RVA);
         return;
     }
     DWORD old;
     if (!VirtualProtect(site + 1, 4, PAGE_EXECUTE_READWRITE, &old)) {
-        Log("VirtualProtect failed (error %lu) at +0x%llx -- not patched, bullets stay at the root", GetLastError(),
+        LogWarning("VirtualProtect failed (error %lu) at +0x%llx -- not patched, bullets stay at the root", GetLastError(),
             (unsigned long long)FIRE_GET_CALL_RVA);
         return;
     }
     memcpy(site + 1, &rel, 4);
     DWORD ignored;
     if (!VirtualProtect(site + 1, 4, old, &ignored))
-        Log("VirtualProtect could not restore the page protection (error %lu)", GetLastError());
+        LogWarning("VirtualProtect could not restore the page protection (error %lu)", GetLastError());
     FlushInstructionCache(GetCurrentProcess(), site, 5);
     g_fire_site = site;
     Log("drone bullets fire from the muzzle (%.4f %.4f %.4f) (+0x%llx)", MUZZLE[0], MUZZLE[1], MUZZLE[2],
@@ -1623,7 +1669,7 @@ void InstallMuzzle(uintptr_t base) {
 void InstallEnableMirror(uintptr_t base) {
     auto enter = (uint8_t *)(base + ENABLE_ENTER_RVA);
     if (memcmp(enter, ENABLE_ENTER_BYTES, sizeof(ENABLE_ENTER_BYTES)) != 0) {
-        Log("EnableComponentNode prologue mismatch at +0x%llx -- the satellite won't hide with the gun",
+        LogWarning("EnableComponentNode prologue mismatch at +0x%llx -- the satellite won't hide with the gun",
             (unsigned long long)ENABLE_ENTER_RVA);
         return;
     }
@@ -1633,14 +1679,16 @@ void InstallEnableMirror(uintptr_t base) {
     DetourAttach(&(PVOID &)Real_EnableEnter, Hooked_EnableEnter);
     LONG rc = DetourTransactionCommit();
     g_enable_hooked = rc == NO_ERROR;
-    Log(rc == NO_ERROR ? "hooked EnableComponentNode: the satellite shows / hides with the gun (+0x%llx)"
-                       : "EnableComponentNode hook failed (+0x%llx)", (unsigned long long)ENABLE_ENTER_RVA);
+    if (rc == NO_ERROR)
+        Log("hooked EnableComponentNode: the satellite shows / hides with the gun (+0x%llx)", (unsigned long long)ENABLE_ENTER_RVA);
+    else
+        LogWarning("EnableComponentNode hook failed (+0x%llx)", (unsigned long long)ENABLE_ENTER_RVA);
 }
 
 void InstallGrabRule(uintptr_t base) {
     auto target = (uint8_t *)(base + DISABLE_RVA);
     if (memcmp(target, DISABLE_BYTES, sizeof(DISABLE_BYTES)) != 0) {
-        Log("component disable prologue mismatch at +0x%llx -- the drone can't be grabbed after release, as stock",
+        LogWarning("component disable prologue mismatch at +0x%llx -- the drone can't be grabbed after release, as stock",
             (unsigned long long)DISABLE_RVA);
         return;
     }
@@ -1650,15 +1698,17 @@ void InstallGrabRule(uintptr_t base) {
     DetourAttach(&(PVOID &)real, Hooked_Disable);
     LONG rc = DetourTransactionCommit();
     if (rc == NO_ERROR) Real_Disable = real;
-    Log(rc == NO_ERROR ? "hooked component disable: a drone stays grabbable until it locks on (+0x%llx)"
-                       : "component disable hook failed (+0x%llx)", (unsigned long long)DISABLE_RVA);
+    if (rc == NO_ERROR)
+        Log("hooked component disable: a drone stays grabbable until it locks on (+0x%llx)", (unsigned long long)DISABLE_RVA);
+    else
+        LogWarning("component disable hook failed (+0x%llx)", (unsigned long long)DISABLE_RVA);
 }
 
 void InstallDeathRule(uintptr_t base) {
     g_is_server = strstr(GetCommandLineA(), "-server") != nullptr;
     auto en = (uint8_t *)(base + ENABLE_COMP_RVA), death = (uint8_t *)(base + DEATH_RVA);
     if (memcmp(en, ENABLE_COMP_BYTES, sizeof(ENABLE_COMP_BYTES)) || memcmp(death, DEATH_BYTES, sizeof(DEATH_BYTES))) {
-        Log("component enable / death prologue mismatch -- the drone can't be shot down");
+        LogWarning("component enable / death prologue mismatch -- the drone can't be shot down");
         return;
     }
     enable_comp_fn real_en = (enable_comp_fn)en;
@@ -1669,7 +1719,7 @@ void InstallDeathRule(uintptr_t base) {
     DetourAttach(&(PVOID &)real_death, Hooked_Death);
     LONG rc = DetourTransactionCommit();
     if (rc != NO_ERROR) {
-        Log("component enable / death hook failed -- the drone can't be shot down");
+        LogWarning("component enable / death hook failed -- the drone can't be shot down");
         return;
     }
     Real_EnableComp = real_en;
@@ -1693,7 +1743,7 @@ bool Install() {
     InstallGrabRule(base);
     auto target = (uint8_t *)(base + FOLLOW_UPDATE_RVA);
     if (memcmp(target, FOLLOW_UPDATE_BYTES, sizeof(FOLLOW_UPDATE_BYTES)) != 0) {
-        Log("prologue mismatch at +0x%llx -- wrong echovr build, not hooking", (unsigned long long)FOLLOW_UPDATE_RVA);
+        LogError("prologue mismatch at +0x%llx -- wrong echovr build, not hooking", (unsigned long long)FOLLOW_UPDATE_RVA);
         return false;
     }
     QueryPerformanceFrequency(&g_qpf);
@@ -1702,8 +1752,10 @@ bool Install() {
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)Real_FollowUpdate, Hooked_FollowUpdate);
     LONG rc = DetourTransactionCommit();
-    Log(rc == NO_ERROR ? "hooked CR15NetFollowPlayerCS update (+0x%llx)" : "hook failed (+0x%llx)",
-        (unsigned long long)FOLLOW_UPDATE_RVA);
+    if (rc == NO_ERROR)
+        Log("hooked CR15NetFollowPlayerCS update (+0x%llx)", (unsigned long long)FOLLOW_UPDATE_RVA);
+    else
+        LogError("hook failed (+0x%llx)", (unsigned long long)FOLLOW_UPDATE_RVA);
     if (rc == NO_ERROR && !g_is_server) {                         // NEUTRON's effects come here now
         *(volatile LONG *)(base + FX_DEFER_RVA) = 1;
         Log("NEUTRON's effects run on the follow update, not inside its wall's node");
@@ -1724,8 +1776,8 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
     return NEVR_PLUGIN_CAP_ALTERS_GAMEPLAY | NEVR_PLUGIN_CAP_HOOKS_ENGINE;
 }
 
-ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *, const char *) {
-    EchoCombatLogPath(g_log_path, sizeof(g_log_path), "DroneFix");
+ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
+    PluginLogBind(ctx);
     return Install() ? 0 : 1;
 }
 

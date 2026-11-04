@@ -2,5 +2,6 @@
  "_about": "Copy to local.json (gitignored) and set the two Echo VR installs: the headless servers run from server_install, the VR client from client_install (they may be the same folder). extract / gunpatch default to the repo's data/extract and data/gunpatch.",
  "server_install": "D:/Games/ready-at-dawn-echo-arena",
  "client_install": "C:/Program Files/Oculus/Software/Software/ready-at-dawn-echo-arena",
- "content_overlay": "C:/path/to/NvrContentOverlay.dll"
+ "content_overlay": "C:/path/to/NvrContentOverlay.dll",
+ "nevr_sdk_include": "C:/path/to/nevr-runtime/sdk/include"
 }

@@ -58,8 +58,8 @@ Game servers (no launcher)
          file: "PowerBoost.dll"
        - name: "VeilNet"
          file: "VeilNet.dll"
-  3. bin\win10\plugin_logs\NvrContentOverlay\NvrContentOverlay.log should say
-     "serving the pack", and nEVR's log "Loaded:" for each plugin.
+  3. nEVR's run log should have a line tagged plugin=NvrContentOverlay that says
+     "serving the pack", and nEVR's log has a "Loaded:" line for each plugin.
 
 Installed with install.bat before?
   That version repacked the game's own files. The launcher sees it and offers to
@@ -78,10 +78,11 @@ OVERCHARGE gives no damage bonus or cheat death?
   Those are decided on the server: the server needs EchoCombat installed.
 
 The new gear isn't there?
-  bin\win10\plugin_logs\NvrContentOverlay\NvrContentOverlay.log says why: a game
+  nEVR's run log, the lines tagged plugin=NvrContentOverlay (NvrContentOverlay 1.2.0
+  and newer), says why: a game
   file that isn't stock, a pack file that changed, or "loaded too late" (nEVR
   without the early load pass, or the entry without early: true).
-  (EchoCombat's own plugins write no logs, so they cost slow PCs nothing.)
+  (EchoCombat's own plugins log into the same nEVR run log.)
 
 Tuning (for server hosts building their own)
   Every value EchoCombat changes (drone, DOT FIELD, UMBRAL VEIL, NEUTRON, TRANSLOCATOR
