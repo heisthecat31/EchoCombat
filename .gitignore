@@ -15,3 +15,5 @@ local.json
 .mcp.json
 sound_candidates/
 overcharge_textures/
+obj_log/
+out_log/

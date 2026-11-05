@@ -528,8 +528,15 @@ using apply_fn = void(__fastcall *)(void *cs, uint64_t handle, float damage, uin
                                     uint64_t a6, uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10);
 apply_fn Real_Apply = nullptr;
 
+bool PartyShooter(uint64_t shooter);
+
 void __fastcall Hooked_Apply(void *cs, uint64_t handle, float damage, uint64_t shooter, uint64_t a5, uint64_t a6,
                              uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10) {
+    if (shooter != ~0ull && PartyShooter(shooter)) {     // a party gun's hit: no damage
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 20) Log("PARTY GUN: hit by %016llx dropped (%.1f)", (unsigned long long)shooter, damage);
+        return;
+    }
     bool outer = !t_in_apply;
     uint64_t s0 = t_shooter, g0 = t_gun;
     int p0 = t_part;
@@ -838,6 +845,53 @@ constexpr uint64_t SCOUT = 0xe32dc7c9da8051a4ull;         // CSymbol64("scout"):
 constexpr uint64_t MEDI_BUBBLE = 0x51ef178e73ccf82full;   // CSymbol64("echocombat_medigun_bubble")
 constexpr int CONE_TAG = 500;
 
+// --- PARTY GUNS ---------------------------------------------------------------------------
+// CONFETTI GUN, BUBBLE GUN, MONEY GUN (tools/fix_party_guns.py): weapons with no gun actors of
+// their own. The enable manager reads them as "assault" (Hooked_Slot), so the player holds the
+// Pulsar; the shooter's client lets one shot through every PARTY_SHOT_MS (Hooked_GunFire); and on
+// every machine the Pulsar's muzzle flash of a party gun's owner becomes the party effect
+// (Hooked_PfxNode: CreateParticleEffect data +0 the effect, +48h the actor it is attached to).
+constexpr uint64_t CONFETTI_GUN = 0x58bf8464917ddffeull;  // CSymbol64("confetti_gun")
+constexpr uint64_t BUBBLE_GUN = 0xcf9247c008baa680ull;    // CSymbol64("bubble_gun")
+constexpr uint64_t MONEY_GUN = 0x1b0ee501760c0660ull;     // CSymbol64("money_gun")
+constexpr uint64_t ASSAULT = 0x2fd69c8c5f615b9eull;       // CSymbol64("assault"): the Pulsar
+constexpr uint64_t ASSAULT_MUZZLE = 0xa8cd797f5e8693feull; // pfx_wpn_cbt_assault_muzzle_flash
+constexpr uint64_t ASSAULT_BREAKER = 0x5859d9f1deba8f62ull; // pfx_wpn_cbt_assault_breaker (the shot's flame)
+constexpr uint64_t CONFETTI_ORANGE = 0x3116554e1e6b17b3ull; // fx_party_confetti_orange (tools/fix_party_fx.py)
+constexpr uint64_t CONFETTI_BLUE = 0x31121feed13ae191ull;   // fx_party_confetti_blue
+constexpr uint64_t PARTY_EMPTY = 0x3cc02f53518abe25ull;    // fx_party_empty (a burst of no particles)
+constexpr uint32_t PARTY_FN = 0x38;                       // RULES mailbox +38h: PartyEffect (the Pulsar's muzzle node)
+constexpr uint32_t PARTY_GUN_FN = 0x40;                    // RULES mailbox +40h: PartyGunActor (the Pulsar's shot sound node)
+constexpr uint32_t RULES_BELOW_PAGE_END = 0x140;           // the RULES mailbox (VeilNet.dll, deploy_and_launch.py)
+constexpr ULONGLONG PARTY_SHOT_MS = 3000;                  // one shot, then this long before the next
+inline bool PartyGun(uint64_t w) { return w == CONFETTI_GUN || w == BUBBLE_GUN || w == MONEY_GUN; }
+volatile ULONGLONG g_party_shot_at = 0;                    // this machine's last party gun shot let through
+// One shot per trigger pull, PARTY_SHOT_MS apart (the Pulsar is full auto): while a party gun is
+// equipped the game sees the gun hand's trigger let go (LibOVR, as for MEDIGUN), except for a
+// PARTY_PULSE_MS pull when the player pulls and the last pull let through is PARTY_SHOT_MS old.
+// (Dropping the game's shots instead left them queued in the Pulsar script, which fired them
+// later by itself, tested 2026-11-05.)
+constexpr ULONGLONG PARTY_PULSE_MS = 60;
+volatile ULONGLONG g_party_input_at = 0;
+volatile ULONGLONG g_party_pulse_at = 0;                    // last pull let through (diagnostics)                    // last trigger reading (0: none: another runtime)
+volatile ULONGLONG g_party_bullet_until = 0;               // ... no bullet of this machine's until then
+
+// The game's item catalogue (a table of 68h-byte records: +0 unlock level, +4 Arena's, +8 Combat's)
+// has no record for the party guns, so the equipment station saw them as not purchased / never
+// unlocked ("Looking for purchased status of unknown item"): their cells could not be picked.
+// For the three of them these answer purchased (1) and unlocked from the start (level 0).
+constexpr uintptr_t PURCHASED_RVA = 0x177860;           // (this, item) -> purchased
+constexpr uint8_t PURCHASED_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57 };
+constexpr uintptr_t UNLOCK_RVAS[3] = { 0x178500, 0x178560, 0x1785c0 };   // (this, item) -> Arena / Combat / unlock level
+constexpr uint8_t UNLOCK_BYTES[] = { 0x48, 0x89, 0x54, 0x24, 0x10, 0x53, 0x48, 0x83, 0xec, 0x20, 0xe8 };
+using item_fn = int(__fastcall *)(void *self, uint64_t item);
+item_fn Real_Purchased = nullptr;
+item_fn Real_Unlock[3] = {};
+int __fastcall Hooked_Purchased(void *self, uint64_t item) { return PartyGun(item) ? 1 : Real_Purchased(self, item); }
+int __fastcall Hooked_Unlock0(void *self, uint64_t item) { return PartyGun(item) ? 0 : Real_Unlock[0](self, item); }
+int __fastcall Hooked_Unlock1(void *self, uint64_t item) { return PartyGun(item) ? 0 : Real_Unlock[1](self, item); }
+int __fastcall Hooked_Unlock2(void *self, uint64_t item) { return PartyGun(item) ? 0 : Real_Unlock[2](self, item); }
+
 using slot_fn = uint64_t *(__fastcall *)(void *cs, uint64_t *out, uint32_t handle);
 using update_fn = void(__fastcall *)(void *cs);
 using activate_fn = void(__fastcall *)(void *cs, uint32_t handle);
@@ -1035,6 +1089,8 @@ uint64_t *__fastcall Hooked_Slot(void *cs, uint64_t *out, uint32_t handle) {
 #endif
     if (r && *r == MEDIGUN && (!g_medi_allowed || (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + MANAGER_RET_RVA)))
         *r = SCOUT;                                        // the enable manager: COMET's gun
+    else if (r && PartyGun(*r) && (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + MANAGER_RET_RVA))
+        *r = ASSAULT;                                      // the enable manager: the Pulsar
     return r;
 }
 
@@ -1508,6 +1564,14 @@ using resolve_fn = void(__fastcall *)(void *node, uint8_t *data);
 resolve_fn Real_Resolve = nullptr;
 
 // A player's (by actor reference) gun: equipment record +38h space id, +40h actor reference.
+bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon, int *arm);
+
+// Does `shooter` (a player actor) hold a party gun? (no damage from their shots)
+bool PartyShooter(uint64_t shooter) {
+    uint64_t space_id, gun, weapon = 0;
+    return GunOf(shooter, &space_id, &gun, &weapon) && PartyGun(weapon);
+}
+
 bool GunOf(uint64_t player, uint64_t *space_id, uint64_t *gun, uint64_t *weapon, int *arm) {
     void *equip = g_equip_cs;
     if (!equip) return false;
@@ -1621,7 +1685,182 @@ bool BoneOffset(uint8_t *data, uint64_t bone, float local[3]) {
     }
 }
 
+// The party gun (or 0) of the player whose gun actor is `gun` or one of its first children (the
+// muzzle flash is attached to the gun's model, the gun actor + 1): their equipment record's +40h.
+// *local: that player is this machine's.
+uint64_t PartyWeaponOfGun(uint64_t gun, bool *local) {
+    *local = false;
+    uint8_t *c = (uint8_t *)g_equip_cs;
+    if (!c || gun == ~0ull) return 0;
+    __try {
+        uint16_t count = *(uint16_t *)(c + 0xf4);
+        uint16_t *index = *(uint16_t **)(c + 0xd8);
+        uint16_t *table = *(uint16_t **)(c + 0xc8);
+        for (uint16_t i = 0; i < count; ++i) {
+            uint16_t idx = index[i];
+            uint8_t *rec = *(uint8_t **)(c + 0xf8) + table[idx * 2] * 0x58ull;
+            uint64_t g = *(uint64_t *)(rec + 0x40);
+            if ((g >> 16) != (gun >> 16) || (gun & 0xffff) < (g & 0xffff) || (gun & 0xffff) - (g & 0xffff) > 4) continue;
+            uint64_t w = *(uint64_t *)(rec + 0x18);
+            *local = *(uint32_t *)(rec + 0x10) != 0;
+            return PartyGun(w) ? w : 0;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return 0;
+}
+
+// The muzzle flash's team tint (the gun script hands it each team's pair): more blue than red = blue.
+// Its place in the node data is looked for once: a colour triple (r, g, b) in [0, 1.5] whose
+// largest part is 1, as both teams' stock tints are.
+bool BlueTint(const uint8_t *data, bool *known) {
+    *known = false;
+    for (int o = 0x60; o + 12 <= 0x230; o += 4) {
+        const float *f = (const float *)(data + o);
+        bool range = true;
+        for (int k = 0; k < 3; ++k) range &= f[k] >= 0.0f && f[k] <= 1.5f;
+        if (!range) continue;
+        float m = f[0] > f[1] ? (f[0] > f[2] ? f[0] : f[2]) : (f[1] > f[2] ? f[1] : f[2]);
+        if (m < 0.95f || m > 1.05f || (f[0] < 0.9f && f[2] < 0.9f)) continue;
+        if (f[0] > 0.9f && f[2] > 0.9f) continue;          // white / pink: not a team tint
+        *known = true;
+        return f[2] > f[0];
+    }
+    return false;
+}
+
+// The Pulsar script's muzzle-flash node asks this (tools/fix_party_fx.py, RULES mailbox +38h) which
+// effect to spawn: gun = the gun actor (script instance +3B0h), stock = the muzzle flash, inst = the
+// script's instance data (+220h the team's begin colour). Not a party gun: the stock flash. A party
+// gun: the team's confetti for a shot, at most one burst per PARTY_BURST_MS per gun; else 0 (the
+// node spawns nothing and finishes: a new effect from the node replaces its last one, so anything
+// spawned on the frames after a shot killed the confetti at once).
+constexpr ULONGLONG PARTY_BURST_MS = 2000;
+struct BurstAt { uint64_t gun; ULONGLONG at; };
+BurstAt g_burst_at[32];
+uint64_t __fastcall PartyEffect(uint64_t gun, uint64_t stock, const uint8_t *inst) {
+    __try {
+        bool local = false;
+        uint64_t weapon = PartyWeaponOfGun(gun, &local);
+        static volatile LONG asked = 0;
+        if (InterlockedIncrement(&asked) <= 20)
+            Log("PARTY GUN: muzzle node of %016llx asks (party weapon %016llx, %s, last shot %llu ms ago)",
+                (unsigned long long)gun, (unsigned long long)weapon, local ? "local" : "remote",
+                g_party_shot_at ? (unsigned long long)(GetTickCount64() - g_party_shot_at) : 0ull);
+        if (!weapon) return stock;
+        // this machine's own gun runs the node every trigger frame, shot or not: only the one right
+        // after a shot let through (Hooked_GunFire) gets the confetti
+        ULONGLONG now = GetTickCount64();
+        if (local) {
+            ULONGLONG shot = g_party_shot_at;
+            if (!shot || now - shot > 300) return 0;
+            g_party_shot_at = 0;
+        }
+        BurstAt *b = &g_burst_at[(gun ^ (gun >> 16)) & 31];  // every gun: one burst per PARTY_BURST_MS
+        if (b->gun == gun && now - b->at < PARTY_BURST_MS) return 0;
+        *b = { gun, now };
+        const float *tint = (const float *)(inst + 0x220);   // blue #194bff, orange #ff7d52
+        bool blue = tint[2] > tint[0] + 0.2f;
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 40)
+            Log("PARTY GUN: %016llx's shot -> %s confetti (%s, tint %.2f %.2f %.2f)", (unsigned long long)gun,
+                blue ? "blue" : "orange", local ? "local" : "remote", tint[0], tint[1], tint[2]);
+        return blue ? CONFETTI_BLUE : CONFETTI_ORANGE;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return stock;
+    }
+}
+
+// The Pulsar script's shot sound, flame and muzzle light nodes ask this (RULES mailbox +40h): is
+// `gun` (the gun actor) a party-gun owner's? Then no sound, no flame, no light. Looked up at most every 100 ms per gun.
+struct GunCache { uint64_t gun; ULONGLONG at; bool party; };
+GunCache g_gun_cache[32];
+int __fastcall PartyGunActor(uint64_t gun) {
+    __try {
+        ULONGLONG now = GetTickCount64();
+        GunCache *c = &g_gun_cache[(gun ^ (gun >> 16)) & 31];
+        if (c->gun != gun || now - c->at > 100) {
+            bool local = false;
+            *c = { gun, now, PartyWeaponOfGun(gun, &local) != 0 };
+        }
+        return c->party;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+uint32_t RulesMailboxRva(const uint8_t *base) {
+    auto nt = base + *(const uint32_t *)(base + 0x3c);
+    uint16_t count = *(const uint16_t *)(nt + 6), opt = *(const uint16_t *)(nt + 20);
+    for (uint16_t i = 0; i < count; ++i) {
+        const uint8_t *s = nt + 24 + opt + i * 40;
+        if (memcmp(s, ".data\0\0\0", 8)) continue;
+        uint32_t vsize = *(const uint32_t *)(s + 8), va = *(const uint32_t *)(s + 12);
+        uint32_t page_end = (va + vsize + 0xfff) & ~0xfffu;
+        return page_end - (va + vsize) < RULES_BELOW_PAGE_END ? 0 : page_end - RULES_BELOW_PAGE_END;
+    }
+    return 0;
+}
+
+// At CreateParticleEffect's state 1 (the spawn data built): the party effect PartyEffect picked gets
+// [party] rot / scale.
+void PartySwap(int64_t *thread) {
+    uint8_t *data = (uint8_t *)thread[0x16];
+#ifdef ECHOCOMBAT_LOG
+    if (data) {                                            // every effect id / state seen, once each
+        static uint64_t seen[64];
+        static int nseen = 0;
+        uint64_t key = *(uint64_t *)data ^ (uint64_t)thread[3];
+        bool known = false;
+        for (int i = 0; i < nseen; ++i) known |= seen[i] == key;
+        if (!known && nseen < 64) {
+            seen[nseen++] = key;
+            Log("PFX node: effect %016llx state %lld attached to %016llx", (unsigned long long)*(uint64_t *)data,
+                (long long)thread[3], (unsigned long long)*(uint64_t *)(data + 0x48));
+        }
+    }
+#endif
+    if (thread[3] != 1 || !data) return;
+    uint64_t fx = *(uint64_t *)data;
+    float *sc = (float *)(data + 0x30);
+    if (fx != CONFETTI_BLUE && fx != CONFETTI_ORANGE) return;
+    // its direction: [party] rot = the effect's rotation (degrees x y z, node data +24h; the burst
+    // fires along its own +Y, the muzzle flash along the barrel); its size: [party] scale (live),
+    // only where all three read 1, so a wrong guess of the layout changes nothing
+    char v[32];
+    GetPrivateProfileStringA("party", "rot", "90,0,0", v, sizeof(v), g_ini_path);
+    float r[3] = { 0, 0, 0 };
+    if (sscanf_s(v, "%f,%f,%f", &r[0], &r[1], &r[2]) == 3) memcpy(data + 0x24, r, sizeof(r));
+    GetPrivateProfileStringA("party", "scale", "1", v, sizeof(v), g_ini_path);
+    float k = (float)atof(v);
+    bool scaled = k > 0.0f && sc[0] == 1.0f && sc[1] == 1.0f && sc[2] == 1.0f;
+    if (scaled) sc[0] = sc[1] = sc[2] = k;
+    static volatile LONG logged = 0;
+    if (InterlockedIncrement(&logged) <= 20)
+        Log("PARTY GUN: confetti spawning, rot %.0f %.0f %.0f, %s", r[0], r[1], r[2],
+            scaled ? "scaled" : "scale left (not 1 1 1 at +30h)");
+}
+
+// CREATEPARTICLEEFFECTNODE's own handler (+0xdda7f0; read from a loaded script's nodefunction slot):
+// the gun scripts' muzzle flashes go through it, not through +0x10aba30. Same thread layout: +18h
+// state (0 defaults, 1 creates the effect from data, 2 runs), +B0h data (+0 effect, +30h scale,
+// +48h the actor it is attached to).
+constexpr uintptr_t CREATE_PFX_RVA = 0xdda7f0;
+constexpr uint8_t CREATE_PFX_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48, 0x89, 0x7c };
+pfx_node_fn Real_CreatePfx = nullptr;
+uint64_t __fastcall Hooked_CreatePfx(int64_t *thread) {
+    __try {
+        PartySwap(thread);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return Real_CreatePfx(thread);
+}
+
 uint64_t __fastcall Hooked_PfxNode(int64_t *thread) {
+    __try {
+        PartySwap(thread);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
     __try {
         uint8_t *data = (uint8_t *)thread[0x16];
         int64_t state = thread[3];
@@ -2014,6 +2253,7 @@ void __fastcall Hooked_BubbleUpdate(void *cs) {
 }
 
 // LibOVR: the gun hand's index trigger, taken from the game while MEDIGUN is equipped.
+thread_local bool t_party_fire = false;     // a party gun's shot is being fired on this thread
 using fire_fn = void(__fastcall *)(void *cs, uint32_t handle, float charge, void *a4, uint64_t a5, uint64_t a6,
                                    uint64_t a7, uint64_t a8);
 fire_fn Real_GunFire = nullptr;
@@ -2025,7 +2265,42 @@ void __fastcall Hooked_GunFire(void *cs, uint32_t handle, float charge, void *a4
         if (InterlockedIncrement(&logged) <= 20) Log("MEDIGUN: COMET's shot swallowed");
         return;
     }
+    if (!g_server && PartyGun(g_local_weapon)) {          // a party gun's shot (the trigger is shaped in Hooked_Input)
+        static ULONGLONG last = 0;
+        ULONGLONG now = GetTickCount64();
+        // no trigger readings (another runtime): a time gap instead -- but a dropped shot stays
+        // queued in the Pulsar script and goes out later, by itself (tested 2026-11-05)
+        if (now - g_party_input_at >= 1000 && now - last < PARTY_SHOT_MS) return;
+        last = now;
+        Log("PARTY GUN: shot (%016llx), last trigger reading %llu ms ago, last pull let through %llu ms ago",
+            (unsigned long long)g_local_weapon, g_party_input_at ? (unsigned long long)(now - g_party_input_at) : 0ull,
+            g_party_pulse_at ? (unsigned long long)(now - g_party_pulse_at) : 0ull);
+        g_party_shot_at = now;                             // its muzzle flash becomes the party effect
+        g_party_bullet_until = now + 300;                  // and its bullet (spawned after the fire call) is dropped
+        t_party_fire = true;                               // ... with no bullet (Hooked_BulletSpawn)
+        Real_GunFire(cs, handle, charge, a4, a5, a6, a7, a8);
+        t_party_fire = false;
+        return;
+    }
     Real_GunFire(cs, handle, charge, a4, a5, a6, a7, a8);
+}
+
+// The bullet system's spawn (+0xce2020, from FireBulletLocal; DroneFix hooks it too): none while a
+// party gun's shot is being fired on this thread.
+constexpr uintptr_t BULLET_SPAWN_RVA = 0xce2020;
+constexpr uint8_t BULLET_SPAWN_BYTES[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55 };
+using bullet_spawn_fn = void(__fastcall *)(uint8_t *, uint64_t, void *, float, const void *, const float *, int, uint32_t);
+bullet_spawn_fn Real_BulletSpawn = nullptr;
+void __fastcall Hooked_BulletSpawn(uint8_t *sys, uint64_t a2, void *a3, float a4, const void *pose, const float *v, int a7, uint32_t a8) {
+    // [party] drop_bullet (live, default 1). (Keeping the bullet did not stop the Pulsar firing by
+    // itself, tested 2026-11-05.)
+    if ((t_party_fire || (!g_server && GetTickCount64() < g_party_bullet_until)) &&
+        GetPrivateProfileIntA("party", "drop_bullet", 1, g_ini_path)) {
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 10) Log("PARTY GUN: bullet not spawned");
+        return;
+    }
+    Real_BulletSpawn(sys, a2, a3, a4, pose, v, a7, a8);
 }
 
 using input_fn = int(__cdecl *)(void *session, unsigned type, void *state);
@@ -2049,6 +2324,38 @@ int __cdecl Hooked_Input(void *session, unsigned type, void *state) {
         }
     }
 #endif
+    if (r >= 0 && state && PartyGun(g_local_weapon)) {    // party guns: one short pull per real pull, 3 s apart
+        int hand = g_local_arm == 0 ? 0 : 1;
+        if (type & (hand ? 2u : 1u)) {
+            float *trigger = (float *)((uint8_t *)state + 0x10);
+            float v = trigger[hand];
+            ULONGLONG now = GetTickCount64();
+            static bool held = false;
+            static ULONGLONG pulse_until = 0, pulse_at = 0;
+            if (v >= 0.55f && !held) {                         // a new pull
+                held = true;
+                bool through = now - pulse_at >= PARTY_SHOT_MS;
+                if (through) {
+                    pulse_at = now;
+                    pulse_until = now + PARTY_PULSE_MS;
+                    g_party_pulse_at = now;
+                }
+                Log("PARTY GUN: pull (%.2f) %s", v, through ? "let through" : "ignored (too soon)");
+            } else if (v < 0.3f && held) {
+                held = false;
+                Log("PARTY GUN: release");
+            }
+            if (now >= pulse_until) {                           // the game sees the trigger let go
+                trigger[hand] = 0.0f;
+                static const size_t kMore[] = { 0x34, 0x54 };   // IndexTriggerNoDeadzone, IndexTriggerRaw
+                for (size_t at : kMore) {
+                    float *f = (float *)((uint8_t *)state + at) + hand;
+                    if (*f >= 0.0f && *f <= 1.0001f) *f = 0.0f;
+                }
+            }
+            g_party_input_at = now;
+        }
+    }
     if (r >= 0 && state && g_local_weapon == MEDIGUN && g_medi_allowed && g_gun_out) {
         int hand = g_medi.hand >= 0 ? g_medi.hand : g_local_arm == 0 ? 0 : 1;
         if (type & (hand ? 2u : 1u)) {
@@ -2132,6 +2439,11 @@ void InstallMedigun(uint8_t *base) {
     if (Check(base + GUN_FIRE_RVA, GUN_FIRE_BYTES, sizeof(GUN_FIRE_BYTES), "FireIntegratedGunLocal")) {
         Real_GunFire = (fire_fn)(base + GUN_FIRE_RVA);
         DetourAttach(&(PVOID &)Real_GunFire, Hooked_GunFire);
+        if (base[BULLET_SPAWN_RVA] == 0xe9 ||               // DroneFix's hook already there: chain on it
+            Check(base + BULLET_SPAWN_RVA, BULLET_SPAWN_BYTES, sizeof(BULLET_SPAWN_BYTES), "bullet spawn")) {
+            Real_BulletSpawn = (bullet_spawn_fn)(base + BULLET_SPAWN_RVA);
+            DetourAttach(&(PVOID &)Real_BulletSpawn, Hooked_BulletSpawn);
+        }
     }
     ReadMedigunIni(g_ini_path);
     if (Check(base + SYSTEMS_FIND_RVA, SYSTEMS_FIND_BYTES, sizeof(SYSTEMS_FIND_BYTES), "systems by name") &&
@@ -2152,6 +2464,18 @@ void InstallMedigun(uint8_t *base) {
     Real_ActivateLocal = (activate_fn)(base + ACTIVATE_LOCAL_RVA);
     ActivateBubble = (activate_fn)(base + ACTIVATE_RVA);
     DetourAttach(&(PVOID &)Real_Slot, Hooked_Slot);
+    if (Check(base + PURCHASED_RVA, PURCHASED_BYTES, sizeof(PURCHASED_BYTES), "item purchased status")) {
+        Real_Purchased = (item_fn)(base + PURCHASED_RVA);
+        DetourAttach(&(PVOID &)Real_Purchased, Hooked_Purchased);
+    }
+    {
+        item_fn hooks[3] = { Hooked_Unlock0, Hooked_Unlock1, Hooked_Unlock2 };
+        for (int k = 0; k < 3; ++k)
+            if (Check(base + UNLOCK_RVAS[k], UNLOCK_BYTES, sizeof(UNLOCK_BYTES), "item unlock level")) {
+                Real_Unlock[k] = (item_fn)(base + UNLOCK_RVAS[k]);
+                DetourAttach(&(PVOID &)Real_Unlock[k], hooks[k]);
+            }
+    }
     DetourAttach(&(PVOID &)Real_BubbleUpdate, Hooked_BubbleUpdate);
     DetourAttach(&(PVOID &)Real_ActivateLocal, Hooked_ActivateLocal);
     if (Check(base + RESOLVE_ATTACH_RVA, RESOLVE_ATTACH_BYTES, sizeof(RESOLVE_ATTACH_BYTES), "particle effect attachment")) {
@@ -2160,10 +2484,19 @@ void InstallMedigun(uint8_t *base) {
         if (Check(base + PFX_NODE_RVA, PFX_NODE_BYTES, sizeof(PFX_NODE_BYTES), "particle effect node")) {
             Real_PfxNode = (pfx_node_fn)(base + PFX_NODE_RVA);
             DetourAttach(&(PVOID &)Real_PfxNode, Hooked_PfxNode);
+            if (Check(base + CREATE_PFX_RVA, CREATE_PFX_BYTES, sizeof(CREATE_PFX_BYTES), "CreateParticleEffect node")) {
+                Real_CreatePfx = (pfx_node_fn)(base + CREATE_PFX_RVA);
+                DetourAttach(&(PVOID &)Real_CreatePfx, Hooked_CreatePfx);
+            }
             if (Check(base + ATTACH_POSE_RVA, ATTACH_POSE_BYTES, sizeof(ATTACH_POSE_BYTES), "attachment pose")) {
                 AttachPose = (attach_pose_fn)(base + ATTACH_POSE_RVA);
             }
         }
+    }
+    if (uint32_t mb = RulesMailboxRva(base)) {             // the Pulsar script asks PartyEffect / PartyGun
+        *(void *volatile *)(base + mb + PARTY_FN) = (void *)PartyEffect;
+        *(void *volatile *)(base + mb + PARTY_GUN_FN) = (void *)PartyGunActor;
+        Log("PARTY GUN: PartyEffect / PartyGunActor at RULES mailbox +%#x / +%#x", PARTY_FN, PARTY_GUN_FN);
     }
     if (Check(base + NET_ACTIVATE_RVA, NET_ACTIVATE_BYTES, sizeof(NET_ACTIVATE_BYTES), "heal bubble network activation")) {
         Real_NetActivate = (net_activate_fn)(base + NET_ACTIVATE_RVA);
