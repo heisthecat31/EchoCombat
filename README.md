@@ -181,7 +181,7 @@ python tools/record_nav.py          # while you play the map; Ctrl+C to stop
 The launcher's mod pack is built from the **`nevr-pack`** branch (nEVR plugin API, content
 overlay instead of repacking the game's files; `main` is merged into it). Its `build_*.bat`
 need `NEVR_SDK_INCLUDE` set to nevr-runtime's `sdk/include`; then
-`deploy_and_launch.py --stage-only` and `make_release.py --url-base files/`.
+`deploy_and_launch.py --stage-only` and `make_release.py`.
 
 ## Offline effect preview
 
