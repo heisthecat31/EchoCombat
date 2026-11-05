@@ -15,11 +15,17 @@
      fix_vo.py                               announcer equip callouts for the gear with none (assets/vo/)
      fix_buff.py                            POWER BOOST tac mod: Repair Matrix in purplish red
      fix_point.py                            POINT tac mod: a stun field where its wall lands
+     fix_party_guns.py                       CONFETTI / BUBBLE / MONEY GUN: Pulsar party guns (data half)
      fix_medigun.py                          MEDIGUN: COMET's gun with a one-teammate Repair Matrix beam
      gear_icons.py                           gear table / HUD icons for the new gear, from a texture of our own
      fix_loc_fx.py                           TRANSLOCATOR: stun field effect + sound on teleport
      fix_dot_trigger.py                      stacks onto the drone's script table
      fix_starburst_div.py                    STARBURST: no divide-by-zero log every frame
+     fix_rules_terminal.py                   private Combat matches: RULES button on the podium terminal
+     fix_capture_points.py                   RULES starting scores = capture-point starting points
+     fix_rules_pages.py                      RULES page 2 (LOADOUTS) behind RESTART = NEXT
+     fix_rules_netsettings.py                Combat levels get a synced rules-settings actor (paged RULES)
+     fix_team_ready.py                       TEAM READY works with more than one player (6fa8 flag toggle)
 2. Each install is made stock again if an old install.bat repacked it (`evrtool clean`),
    then `evrtool pack` builds the content pack from its stock files into
    `bin/win10/content/echocombat/`: the game's own files are never changed.
@@ -117,6 +123,38 @@ BUFF_PARTICLES = ("39424707bb2df316", "be696d7d300cbaf7",   # Repair Matrix's be
 WRAITH_SCRIPT = "e1971566197d460"
 LOC_SCRIPT = "9398a165c004a9c0"          # TRANSLOCATOR (fix_loc_fx.py: teleport effect + sound)
 STARBURST_SCRIPT = "a9db89899292a98f"    # STARBURST gun (fix_starburst_div.py: divide-by-zero log)
+TERMINAL_SCRIPT = "d4653fc2065e8184"     # private-match podium terminal (fix_rules_terminal.py: RULES in Combat)
+ORB_SCRIPT = "e57332952e1cd478"          # spawn orbs (fix_orb_pause.py: PAUSE gives the pre-match orbs)
+STATION_SCRIPT = "e0fdfda9a944e8ff"      # equipment station (fix_station_cells.py: LOADOUTS column changes)
+COMBAT_MODE_SCRIPT = "6fa8cc9cd721a563"  # Combat game mode: keeps the RULES values (fix_capture_points.py)
+CAPTURE_POINT_SCRIPT = "b7d10bcffcb2a780" # capture point: each team's points (fix_capture_points.py)
+#: the private-match rules settings actor (fix_rules_netsettings.py): its level resources
+#: in each patched Combat level, read beside Arena's (the source of the copies), and the
+#: settings file it names (config/combat_custom_rules.json -> sourcedb uisettings)
+RULES_LEVELS = ("43e2da7914642604",)      # Dyson first
+ARENA_LEVEL = "576ed3f8428ebc4b"
+RULES_LEVEL_TYPES = ("347869ce492dc7da", "ac05e44816844a00", "c29715d62e039402",
+                     "6901365c8bb8bf50", "2a41cf1c1d9e5d32")
+RULES_NETUI_TYPE = "515bf2b6e2687c68"
+#: the levels with a loadout terminal: fix_party_guns.py adds the confetti to their archives
+PARTY_FX_SOURCES = ("1432f4f2b0f840df", "7676880776a1f757")   # the round-win confetti (orange, blue)
+PULSAR_SCRIPT = "cff4557b7d2ce426"       # the Pulsar's weapon script (fix_party_fx.py: gated, and copied as the party gun script)
+PARTY_GUN_LEVELS = ("cb9977f7fc2b4526", "43e2da7914642604", "42670f2bed45703c", "df5ca7b7dfa383d4", "43e2da7a0c623a19")
+RULES_SETTINGS = "combat_custom_rules.json"
+#: Off: the paged RULES screen is the podium's own (fix_rules_pages.py), so the settings actor is
+#: not needed (and it is the suspect for a black screen on a Dyson client, 2026-11-04).
+RULES_SETTINGS_ACTOR = False
+#: the post-match terminal's map buttons (fix_map_terminal.py): copies of its REMATCH button in
+#: these levels, rows added to each table the button's actors own
+MAP_TERMINAL_LEVELS = ("43e2da7914642604", "42670f2bed45703c", "df5ca7b7dfa383d4", "43e2da7a0c623a19")
+MAP_TERMINAL_TYPES = ("347869ce492dc7da", "142026f469321d54", "22f9fcb2d5e52e3c", "2464c4ed290f3268",
+                      "7f49abae39aaf2aa", "92abd3e1432bf5e8", "ca5a03d5a497238c", "d99f6bbd8009c92c",
+                      "e9b24ea816dece48", "4127ff2ffe6be26a", "822fd4ccb42e8a3c")
+#: The RULES mailbox (fix_capture_points.py, fix_rules_pages.py, VeilNet.dll): 0x30 spare bytes
+#: past echovr.exe's .data, this far below the veil's mailbox (veil_fx.mailbox_rva): page end
+#: - 0x140, 0x2104EC0 on the current exe, clear of every fixed rva the other patches use (the
+#: veil's LAST_TAKE_RVA sits at page end - 0x20).
+RULES_MAILBOX_BELOW_VEIL = 0x130
 VO_SCRIPT = "7c10e713aec2f12b"           # the announcer's equip callouts (fix_vo.py)
 DRONE_SCRIPT = "221a0a3a2e56d247"        # the drone's own script (fix_drone_fx.py: its death effect)
 GLOBAL_LEVEL = "3f9915d3001dc28e"
@@ -189,6 +227,12 @@ def overlay(base: str, extract: str):
                                                     (SCRIPTS_TYPE, WRAITH_SCRIPT),
                                                     (SCRIPTS_TYPE, LOC_SCRIPT),
                                                     (SCRIPTS_TYPE, STARBURST_SCRIPT),
+                                                    (SCRIPTS_TYPE, TERMINAL_SCRIPT),
+                                                    (SCRIPTS_TYPE, STATION_SCRIPT),
+                                                    (SCRIPTS_TYPE, ORB_SCRIPT),
+                                                    (GEAR_ICON_CANVAS_TYPE, "b655c5c7eaa080d7"),   # rules page (fix_rules_terminal.py)
+                                                    (SCRIPTS_TYPE, COMBAT_MODE_SCRIPT),
+                                                    (SCRIPTS_TYPE, CAPTURE_POINT_SCRIPT),
                                                     (SCRIPTS_TYPE, VO_SCRIPT),
                                                     (SCRIPTS_TYPE, DRONE_SCRIPT),
                                                     ("bd1868f576836696", "42670f2bed45703c"),   # drone health (fix_drone_health.py)
@@ -201,6 +245,12 @@ def overlay(base: str, extract: str):
         (t, fx) for t in PARTICLE_TYPES for fx in BUFF_PARTICLES] + [   # POWER BOOST's gold beam / hand
         (t, a) for t, a in BUFF_ARROW_SOURCES] + [                     # OVERCHARGE's arrows / sparks (buff_assets.py)
         (t, a) for t, a in DOT_BUBBLE_SOURCES] + [                     # the DOT field bubble (fix_dot_field.py)
+        (t, lvl) for t in RULES_LEVEL_TYPES for lvl in RULES_LEVELS + (ARENA_LEVEL,)] + [   # fix_rules_netsettings.py
+        (RULES_NETUI_TYPE, ARENA_LEVEL)] + [
+        (t, lvl) for t in MAP_TERMINAL_TYPES for lvl in MAP_TERMINAL_LEVELS] + [   # fix_map_terminal.py
+        ("2a41cf1c1d9e5d32", lvl) for lvl in PARTY_GUN_LEVELS] + [     # fix_party_guns.py: the confetti
+        (t, fx) for t in PARTICLE_TYPES for fx in PARTY_FX_SOURCES] + [  # fix_party_fx.py: the burst's sources
+        (SCRIPTS_TYPE, PULSAR_SCRIPT)] + [                             # ... and the Pulsar's muzzle node
         (t, a) for t, a in DRONE_MODEL_SOURCES] + [                    # the drone's CubeSat (fix_drone_model.py)
         (GEAR_ICON_CANVAS_TYPE, c) for c in GEAR_ICON_CANVASES] + [     # gear icons (gear_icons.py)
         (t, atlas) for t in GEAR_ICON_TEXTURE_TYPES for atlas in GEAR_ICON_ATLASES]
@@ -234,7 +284,7 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
           buff_dr: float = None, buff_charge: float = None, buff_fx_test: bool = False,
           buff_rez: bool = True, point: bool = True, point_sound_preview: bool = False,
           point_event: str = None, buff_purple_fx: bool = True, drone_model: bool = True,
-          medigun: bool = True):
+          medigun: bool = True, points_mailbox: int = 0):
     base = gunpatch_root(gunpatch)
     for d in (STAGE, SOURCE):
         if os.path.isdir(d):
@@ -271,6 +321,11 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
             tool("fix_vo.py", *src)           # the announcer's listeners for those callouts
     # MEDIGUN: a COMET-looking gun with Repair Matrix's beam (its own heal bubble and script;
     # PowerBoost.dll drives it). After fix_buff: stacks on its global level tables.
+    # CONFETTI / BUBBLE / MONEY GUN: Pulsar party guns (PowerBoost.dll swaps the muzzle flash);
+    # before MEDIGUN, which must stay the weapon list's last entry.
+    tool("fix_party_guns.py", "--base", STAGE, *src)
+    # ... their shot: their own gun script (a Pulsar copy beside it) spawns the confetti
+    tool("fix_party_fx.py", *src, "--mailbox", hex(points_mailbox))
     if medigun:
         tool("fix_medigun.py", "--base", STAGE, *src)
     # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound
@@ -291,11 +346,55 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
     tool("fix_dot_trigger.py", *src)          # after fix_drone_script: stacks on its table
     # STARBURST: its script's divide-by-zero log, written every frame while the gun is out.
     tool("fix_starburst_div.py", *src)
+    # Private Combat matches: the podium terminal's RULES button is pressable (it reads Arena).
+    tool("fix_rules_terminal.py", *src)
+    # ... and its starting scores become each team's capture-point points at round start,
+    # passed through spare bytes of echovr.exe (the RULES mailbox, RULES_MAILBOX_BELOW_VEIL).
+    tool("fix_capture_points.py", *src, "--mailbox", hex(points_mailbox))
+    # ... and POINT RATE: a multiplier on how fast a held point's points rise (mailbox +2Dh)
+    tool("fix_point_rate.py", *src, "--mailbox", hex(points_mailbox))
+    # ... and a second RULES page (LOADOUTS) behind RESTART, which reads NEXT there.
+    tool("fix_rules_pages.py", *src, "--mailbox", hex(points_mailbox))
+    # LOADOUTS changes the equipment station's columns while the match runs: its unused grid
+    # cells go off the canvas (cell counts from VeilNet.dll in the same mailbox)
+    tool("fix_station_cells.py", *src, "--mailbox", hex(points_mailbox))
+    # PAUSE: the orbs read pre_match while paused, and say whether the match is live
+    tool("fix_orb_pause.py", *src, "--mailbox", hex(points_mailbox))
+    # ... and Combat's clocks (6fa8: game_timer, countdown_timer, lobbylock_timer) stand still while paused
+    tool("fix_clock_pause.py", *src, "--mailbox", hex(points_mailbox))
+    # TEAM READY with more than one player: the ready handlers set the team flag instead of flipping it
+    tool("fix_team_ready.py", *src)
+    # ... and a synced rules-settings actor in the Combat levels, for the paged RULES screen.
+    if RULES_SETTINGS_ACTOR:
+        tool("fix_rules_netsettings.py", *src, *(a for lvl in RULES_LEVELS for a in ("--level", lvl)))
+    # The post-match terminal: three map buttons (the other maps; copies of REMATCH) beside LOBBY / REMATCH.
+    # After every other level-table fix: it appends rows to the staged tables.
+    tool("fix_map_terminal.py", *src, *(a for lvl in MAP_TERMINAL_LEVELS for a in ("--level", lvl)))
     # last: every value in config/mp_weapon_settings.json into the packed settings
     tool("apply_config.py", "--base", STAGE, "--out", STAGE)
     # Particle effect preview: each stun mine shows the next effect (for UMBRAL VEIL's smoke).
     if fx_preview:
         tool("fx_preview.py", *src, "--start", str(fx_preview))
+
+
+#: payload maps' settings JSONs (balance; spawn_timers = the orb timers): Fission, Gauss
+PAYLOAD_MAP_SETTINGS = ("e885fd337739bea3", "158ef86fd84ef3dd")
+
+
+def zero_orb_timers(extract: str):
+    """TEST ONLY (--zero-orb-timers): every spawn_timers value of the payload maps' settings
+    staged as 0 (same length: "10.0" -> "0.00"), so players spawn at once."""
+    import re
+    for h in PAYLOAD_MAP_SETTINGS:
+        b = open(os.path.join(extract, JSON_TYPE, h), "rb").read()
+        i = b.find(b'"spawn_timers"')
+        j = b.find(b"}", i)
+        if i < 0 or j < 0:
+            sys.exit(f"{h}: no spawn_timers")
+        seg = re.sub(rb'(_time":)(\d+\.\d+)', lambda m: m.group(1) + b"0." + b"0" * (len(m.group(2)) - 2), b[i:j])
+        os.makedirs(os.path.join(STAGE, JSON_TYPE), exist_ok=True)
+        open(os.path.join(STAGE, JSON_TYPE, h), "wb").write(b[:i] + seg + b[j:])
+        print(f"   {h}: orb timers 0 (test): {seg.decode()}")
 
 
 def evrtool():
@@ -457,6 +556,16 @@ def write_config(install: str, server: bool):
     print(f"   wrote {path} (plugins for the {'server' if server else 'client'})")
 
 
+def install_rules_settings(install: str):
+    """The Combat rules settings file, where the engine reads a level's R15NetUISettings
+    file from: sourcedb/rad15/json/r14/config/uisettings/<name>.json."""
+    folder = os.path.join(install, "sourcedb", "rad15", "json", "r14", "config", "uisettings")
+    os.makedirs(folder, exist_ok=True)
+    dst = os.path.join(folder, RULES_SETTINGS)
+    shutil.copy2(os.path.join(ROOT, "config", RULES_SETTINGS), dst)
+    print(f"   wrote {dst}")
+
+
 def launch(install: str, args: str, label: str):
     exe = os.path.join(install, EXE)
     print(f"launching {label}: {exe} {args}")
@@ -475,7 +584,8 @@ def stage_from_args(args):
              ("--mailbox", veil_mailbox((args.server_install, args.client_install)))), args.fx_preview,
           not args.veil_stock_sound, not args.no_buff, args.buff_dr, args.buff_charge, args.buff_fx_test,
           not args.no_buff_rez, not args.no_point, args.point_sound_preview, args.point_event,
-          not args.no_buff_purple_fx, not args.no_drone_model, not args.no_medigun)
+          not args.no_buff_purple_fx, not args.no_drone_model, not args.no_medigun,
+          int(veil_mailbox((args.server_install, args.client_install)), 0) - RULES_MAILBOX_BELOW_VEIL)
 
 
 def main(argv) -> int:
@@ -538,6 +648,8 @@ def main(argv) -> int:
     ap.add_argument("--client-args", default=CLIENT_ARGS)
     ap.add_argument("--kill", action="store_true", help="close running echovr.exe first")
     ap.add_argument("--no-launch", action="store_true")
+    ap.add_argument("--zero-orb-timers", action="store_true",
+                    help="TEST: Fission / Gauss orb (spawn) timers all 0")
     ap.add_argument("--launch-only", action="store_true")
     ap.add_argument("--stage-only", action="store_true",
                     help="only stage build/stage (no installs needed; any OS): what make_release.py packs")

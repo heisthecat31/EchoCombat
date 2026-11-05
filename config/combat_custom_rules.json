@@ -1,0 +1,54 @@
+{
+    "networked" : true,
+    "serialized" : false,
+    "pages" : [
+        {
+            "rows" : [
+                {
+                    "path": "POINT UNLOCK",
+                    "name" : "POINT UNLOCK",
+                    "value" : 45,
+                    "type" : "INT FORMAT",
+                    "format" : "%02d",
+                    "min" : 0,
+                    "max" : 99
+                },
+                {
+                    "path": "CAPTURE TIME",
+                    "name" : "CAPTURE TIME",
+                    "value" : 4,
+                    "type" : "INT FORMAT",
+                    "format" : "%02d",
+                    "min" : 0,
+                    "max" : 59
+                },
+                {
+                    "path": "BLUE SCORE",
+                    "name" : "BLUE SCORE",
+                    "value" : 0,
+                    "type" : "INT",
+                    "min" : 0,
+                    "max" : 74
+                },
+                {
+                    "path": "ORANGE SCORE",
+                    "name" : "ORANGE SCORE",
+                    "value" : 0,
+                    "type" : "INT",
+                    "min" : 0,
+                    "max" : 74
+                }
+            ]
+        },
+        {
+            "rows" : [
+                {
+                    "path": "CLASSIC GEAR",
+                    "name" : "CLASSIC GEAR",
+                    "value" : false,
+                    "type" : "FLAG"
+                }
+            ]
+        }
+    ]
+}
