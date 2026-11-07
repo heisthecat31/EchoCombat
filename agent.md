@@ -226,6 +226,10 @@ xmm7 threshold); whether override_game_timer (+0xFA) makes overtime copy overrid
 
 ## MEDIGUN (answered 2026-11-04)
 
+**DISABLED (user, 2026-11-07):** `tools/fix_medigun.py` `MEDIGUN_SHOWN = False` keeps it out of
+gear_table.weapons (no terminal lists it, whatever the server switch says), like the party guns.
+Release 2.0.0 ships without it. Set True to bring it back (the server switch below then applies).
+
 Off unless the server's build has `medigun.enabled: true` in `config/mp_weapon_settings.json`
 (-> `PowerBoost.ini [server] medigun=1`; missing = off). The repo has `false`. Clients show it
 only while their current server's answer carries the flag; a selected MEDIGUN elsewhere is a

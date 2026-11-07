@@ -1,5 +1,5 @@
-EchoCombat
-==========
+EchoCombat 2.0.1
+================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
 Everything is prebuilt: the content pack (content\echocombat\: the game data and
@@ -18,7 +18,27 @@ What it adds
   * TRANSLOCATOR: a teleport effect and sound everyone sees and hears.
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
-  * Station and HUD icons for the new gear.
+  * Station, HUD and spectator HUD icons for the new gear.
+
+Fixed in 2.0.1
+  * A crash on a Pulsar shot after someone had used UMBRAL VEIL.
+
+New in 2.0: private match rules (Combat private matches)
+  The game server needs EchoCombat 2.0.1 too; on a stock server you get stock Combat.
+  * RULES on the podium terminal (like Arena's): change values with - / +, NEXT for
+    page 2. Every player sees the server's values.
+      Page 1: POINT UNLOCK (seconds before the point unlocks; the announcer follows
+      it), CAPTURE TIME (0 = instant capture), BLUE / ORANGE SCORE (starting points,
+      75 wins).
+      Page 2: LOADOUTS (ALL / CLASSIC: the 12 stock items / NEW: only the new guns;
+      players on banned gear are swapped), SERIES-10 ONLY (everyone shows the
+      Series-10 body), POINT RATE (how fast a held point scores, 0.25x to 2.5x).
+  * PAUSE / UNPAUSE: once both teams are ready, TEAM READY becomes PAUSE. Pausing
+    sends everyone back to the war room with guns, tac mods and ordnances off and
+    every clock frozen; unpausing counts down 5..1.
+  * Payload maps (Fission, Gauss): LOADOUTS, SERIES-10 ONLY and PAYLOAD SPEED. While
+    the payload moves, PAUSE waits for the next checkpoint (QUEUED).
+  * Post-match terminal: buttons for the other Combat maps beside LOBBY / REMATCH.
 
 Install
   In the Echo VR launcher: Mods, More mods, EchoCombat, Get. Switch it off or

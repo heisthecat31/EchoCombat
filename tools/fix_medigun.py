@@ -39,6 +39,10 @@ import cr_table as ct
 import fix_buff
 
 MEDIGUN = int(symbol64("medigun"), 16)
+#: DISABLED (user, 2026-11-07): MEDIGUN stays out of gear_table.weapons, so no loadout terminal
+#: lists it, whatever the server's [server] medigun says. The rest (its bubble, script, PowerBoost
+#: hooks) stays built and is inert without it. True: back on the terminals (server switch applies).
+MEDIGUN_SHOWN = False
 MEDIGUN_GEAR = {"name": "medigun", "display_name": "MEDIGUN"}
 MEDI_SCRIPT = int(symbol64("mp_combat_ability_medigun"), 16)
 MEDI_BUBBLE = int(symbol64("echocombat_medigun_bubble"), 16)
@@ -275,8 +279,11 @@ def main(argv) -> int:
 
     eq_path, equipment = load(args.base, EQUIPMENT)
     weapons = equipment["gear_table"]["weapons"]
-    if not any(w["name"] == "medigun" for w in weapons):
+    if MEDIGUN_SHOWN and not any(w["name"] == "medigun" for w in weapons):
         weapons.append(dict(MEDIGUN_GEAR))
+    if not MEDIGUN_SHOWN:
+        weapons[:] = [w for w in weapons if w["name"] != "medigun"]
+        print("MEDIGUN: disabled, hidden (fix_medigun.MEDIGUN_SHOWN)")
     print(save(args.out, EQUIPMENT, eq_path, equipment))
     print("weapons:", [w["name"] for w in weapons])
 
