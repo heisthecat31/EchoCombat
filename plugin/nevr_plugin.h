@@ -21,9 +21,9 @@
 
 #include "nevr/plugin_interface.h"
 
-#define ECHOCOMBAT_VERSION_MAJOR 1
-#define ECHOCOMBAT_VERSION_MINOR 1
-#define ECHOCOMBAT_VERSION_PATCH 9
+#define ECHOCOMBAT_VERSION_MAJOR 2
+#define ECHOCOMBAT_VERSION_MINOR 0
+#define ECHOCOMBAT_VERSION_PATCH 0
 
 #define ECHOCOMBAT_EXPORT extern "C" __declspec(dllexport)
 
