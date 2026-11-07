@@ -1,4 +1,4 @@
-EchoCombat 2.0.0
+EchoCombat 2.0.2
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -19,6 +19,14 @@ What it adds
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
+
+New in 2.0.2
+  * Post-match map buttons now work on every EchoCombat server. Before, a server
+    without a symbol-name plugin took private matches for public ones and ignored
+    the buttons. Update the game server.
+  * The F8 END MATCH test key is gone.
+  * (Has the fix for the launcher 2.0.0 pack's crash when firing the Pulsar after
+    using UMBRAL VEIL.)
 
 New in 2.0.0: private match rules (Combat private matches)
   The game server needs EchoCombat 2.0.0 too; on a stock server you get stock Combat.

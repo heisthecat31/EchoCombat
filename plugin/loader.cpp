@@ -13,6 +13,11 @@
 // A DLL in plugins\ that is itself a plugin loader (another mod's dbgcore.dll,
 // moved there by the installer) is skipped: it would load every plugin a second
 // time and hook everything twice. Log (built with ECHOCOMBAT_LOG): <game>\_local\echoCombatBetaLogs\loader.log.
+//
+// -plugins A,B,... on the game's command line loads only those plugins (names without
+// .dll, any case), e.g. a headless spectator that needs SpectatorMic and nothing that
+// hooks the renderer or the headset. echovr.exe quits on an argument it doesn't know, so
+// the option and its value are blanked out of the command line before the game reads it.
 
 #include <windows.h>
 #include <stdint.h>
@@ -72,6 +77,65 @@ bool IsLoader(const wchar_t *path) {
     return loader;
 }
 
+// -plugins A,B: the names, lower case, each ending in ",". Empty: every plugin loads.
+wchar_t g_only[1024];
+
+// Finds -plugins <list> in the wide command line, keeps the list, and blanks both
+// words in place there and in the ANSI copy (same layout: the option is plain ASCII).
+void TakePluginsOption() {
+    wchar_t *w = GetCommandLineW();
+    char *a = GetCommandLineA();
+    if (!w) return;
+    const wchar_t opt[] = L"-plugins";
+    size_t n = wcslen(opt);
+    for (wchar_t *p = w; *p; ++p) {
+        if (p != w && p[-1] != L' ' && p[-1] != L'\t') continue;
+        if (_wcsnicmp(p, opt, n) != 0 || (p[n] != L' ' && p[n] != L'\t')) continue;
+        wchar_t *v = p + n;
+        while (*v == L' ' || *v == L'\t') ++v;
+        wchar_t *end = v;
+        while (*end && *end != L' ' && *end != L'\t') ++end;
+        size_t len = 0;
+        for (wchar_t *c = v; c < end && len + 2 < _countof(g_only); ++c)
+            g_only[len++] = (wchar_t)towlower(*c);
+        if (len && g_only[len - 1] != L',') g_only[len++] = L',';
+        g_only[len] = 0;
+        // blank "-plugins <list>" in both strings: find the same words in the ANSI one
+        size_t from = p - w, to = end - w;
+        for (size_t i = from; i < to; ++i) w[i] = L' ';
+        if (a)
+            for (char *q = a; *q; ++q) {
+                if (q != a && q[-1] != ' ' && q[-1] != '\t') continue;
+                if (_strnicmp(q, "-plugins", n) != 0 || (q[n] != ' ' && q[n] != '\t')) continue;
+                char *e = q + n;
+                while (*e == ' ' || *e == '\t') ++e;
+                while (*e && *e != ' ' && *e != '\t') ++e;
+                for (; q < e; ++q) *q = ' ';
+                break;
+            }
+        return;
+    }
+}
+
+// True when -plugins was not given, or names this file.
+bool Wanted(const wchar_t *file) {
+    if (!g_only[0]) return true;
+    wchar_t name[MAX_PATH];
+    size_t len = 0;
+    for (const wchar_t *c = file; *c && len + 2 < MAX_PATH; ++c) name[len++] = (wchar_t)towlower(*c);
+    name[len] = 0;
+    if (len > 4 && !wcscmp(name + len - 4, L".dll")) name[len - 4] = 0;
+    wcscat_s(name, L",");
+    size_t nl = wcslen(name);
+    for (const wchar_t *p = g_only; *p;) {
+        if (!wcsncmp(p, name, nl)) return true;
+        const wchar_t *comma = wcschr(p, L',');
+        if (!comma) break;
+        p = comma + 1;
+    }
+    return false;
+}
+
 void LoadPlugins() {
     wchar_t pattern[MAX_PATH];
     swprintf_s(pattern, L"%s\\*.dll", g_dir);
@@ -87,6 +151,10 @@ void LoadPlugins() {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
         wchar_t path[MAX_PATH];
         swprintf_s(path, L"%s\\%s", g_dir, fd.cFileName);
+        if (!Wanted(fd.cFileName)) {
+            Log("skipped %ls: not in -plugins", fd.cFileName);
+            continue;
+        }
         if (IsLoader(path)) {
             Log("skipped %ls: it is a plugin loader itself (it would load every plugin again)", fd.cFileName);
             continue;
@@ -209,6 +277,8 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID) {
         CreateDirectoryW(g_dir, nullptr);
         EchoCombatLogPath(self, 2, "loader.log", g_log, sizeof(g_log));
         Log("EchoCombat plugin loader (%s)", GetCommandLineA());
+        TakePluginsOption();
+        if (g_only[0]) Log("-plugins: only %ls", g_only);
         InstallQuickExit();
         LoadPlugins();
     }

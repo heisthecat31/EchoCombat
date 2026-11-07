@@ -503,6 +503,12 @@ Test: Combat private match to the end (celebration room), then the terminal.
   not yet known whether it predates the map-terminal build.
 - TEST 2 (screenshot): layout v2 fits. User: move REMATCH/LOBBY and the map row up a bit ->
   STOCK_Y -0.085, MAP_Y +0.045 (installed, untested).
+- 2026-11-07: F8 END MATCH REMOVED from VeilNet (test-only code; WANT_END, the capture point scan,
+  EndMatchCapture/Step, GameOverSeen). Map buttons did nothing on the hosted server: SawLog's
+  private-match test was strstr(gametype, "private"), but without SymbolNames.dll (not shipped)
+  the engine logs the gametype as its hash ("0x33BBF6842DF97A3F" = echo_combat_private), so the
+  server took every match as public and refused silently. IsPrivateGametype() now accepts the
+  hash form (echo_combat_private / echo_arena_private) and any-case "private".
 - END MATCH (user: "get to this terminal quicker, end matches instantly"; built, installed,
   untested): F8 with the Echo window in front -> 'C' WANT_END (0x10000000) -> server, private
   matches only (g_private_match from its "[NETLOBBY] Starting session (gametype " log line; the
