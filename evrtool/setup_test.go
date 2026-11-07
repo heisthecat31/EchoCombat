@@ -81,6 +81,8 @@ func TestReinstallTakesBackDroppedScripts(t *testing.T) {
 	put(t, filepath.Join(scripts, "bbbb.dll"), "added-by-old")
 	put(t, filepath.Join(scripts, createdList), "bbbb\n")
 	put(t, filepath.Join(scripts, "unrelated.dll"), "someone-else")
+	put(t, filepath.Join(scripts, "23819c478e9d7e22.dll"), "other-mod-patch") // another mod's, with a .orig
+	put(t, filepath.Join(scripts, "23819c478e9d7e22.dll.orig"), "other-stock")
 	put(t, filepath.Join(plugins, "OldThing.dll"), "old plugin")
 	put(t, filepath.Join(plugins, pluginsList), "OldThing.dll\nVeilNet.dll\n")
 	put(t, filepath.Join(plugins, "OtherMod.dll"), "other mod")
@@ -112,6 +114,7 @@ func TestReinstallTakesBackDroppedScripts(t *testing.T) {
 		filepath.Join(scripts, "aaaa.dll.orig"):             "stock-a",
 		filepath.Join(scripts, "bbbb.dll"):                  "<missing>", // added by the old build: gone
 		filepath.Join(scripts, "unrelated.dll"):             "someone-else",
+		filepath.Join(scripts, "23819c478e9d7e22.dll"):      "other-mod-patch", // not EchoCombat's: untouched
 		filepath.Join(plugins, "OldThing.dll"):              "<missing>",
 		filepath.Join(plugins, "OtherMod.dll"):              "other mod",
 		filepath.Join(plugins, "VeilNet.dll"):               "new veilnet",

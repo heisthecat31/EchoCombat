@@ -160,17 +160,28 @@ func writeList(dir, name string, m map[string]bool) {
 func readCreated(dir string) map[string]bool     { return readList(dir, createdList) }
 func writeCreated(dir string, m map[string]bool) { writeList(dir, createdList, m) }
 
-// ourScripts: every script DLL an EchoCombat install has touched: the last install's list,
-// the ones it added, and (installs from before the list) every <hash>.dll with a .orig beside
-// it, which only an EchoCombat install makes.
+// everShipped: every script EchoCombat has ever written (the 19 of every release up to 2.0.3,
+// and the party-gun Pulsar script of the unfinished party-gun builds). For an install from
+// before scriptsList existed, only these are taken back: a script some other mod changed stays.
+var everShipped = map[string]bool{
+	"190ed14fe6c74dd3": true, "221a0a3a2e56d247": true, "4b65d1b0088d2682": true, "4b65d1b009973281": true,
+	"4e8af51fe7d6af8c": true, "6a0f689e5b91c666": true, "6fa8cc9cd721a563": true, "7c10e713aec2f12b": true,
+	"9398a165c004a9c0": true, "94ba7ca09dcf7b0b": true, "94ba7ca39fc97e1a": true, "97d0806e6ea89130": true,
+	"a9db89899292a98f": true, "ac4e9374a146d3a4": true, "b7d10bcffcb2a780": true, "b874a615800a8d42": true,
+	"d4653fc2065e8184": true, "e0fdfda9a944e8ff": true, "e57332952e1cd478": true,
+	"cff4557b7d2ce426": true, // the Pulsar (party guns)
+}
+
+// ourScripts: every script DLL an EchoCombat install has touched: the last install's list, the
+// ones it added, and (installs from before the list) the scripts EchoCombat ever shipped that
+// have a .orig beside them. Nothing else in scripts\ is looked at.
 func ourScripts(dir string, created map[string]bool) []string {
 	set := readList(dir, scriptsList)
 	for n := range created {
 		set[n] = true
 	}
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if n, ok := strings.CutSuffix(e.Name(), ".dll.orig"); ok {
+	for n := range everShipped {
+		if _, err := os.Stat(filepath.Join(dir, n+".dll.orig")); err == nil {
 			set[n] = true
 		}
 	}
