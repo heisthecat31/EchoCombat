@@ -670,14 +670,19 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
         Remember(s, from);
         if (p.type == 'H') {
             Send(s, from, 'A', g_medigun_on_server ? ANSWER_MEDIGUN : 0);   // "this server has EchoCombat"
-            uint32_t total = g_rules_total ? *(volatile uint32_t *)g_rules_total : 0;
-            if (total) Send(s, from, 'R', total);                            // its RULES unlock / capture time
+            // its RULES unlock / capture time, 0 too (a new session's reset must reach the clients)
+            if (g_rules_total) Send(s, from, 'R', *(volatile uint32_t *)g_rules_total);
             Send(s, from, 'G', RulesWord());                                 // its LOADOUTS / SERIES-10 ONLY
         }
+        // RULES and PAUSE asks count in a private match only (the map buttons check it themselves)
+        const bool rule_ask = p.type == 'C' && g_private_match == 1;
+        if (p.type == 'C' && !rule_ask && (p.id & 0xF0000000) != WANT_MAP)
+            Log("RULES ask %08x from %s: refused (%s)", p.id, Addr(from, buf, sizeof(buf)),
+                g_private_match == 0 ? "not a private match" : "match type unknown");
         uint8_t asked_rate = (uint8_t)(p.id >> 8);   // a podium asks for a POINT RATE (the value itself)
         // on a payload map the row is PAYLOAD SPEED: the same asks (and steps) set that instead
         volatile LONG &rate_rule = g_payload_map ? g_pspeed : g_rate;
-        if (p.type == 'C' && (p.id & (WANT_CHASSIS | WANT_RATE)) == WANT_RATE &&
+        if (rule_ask && (p.id & (WANT_CHASSIS | WANT_RATE)) == WANT_RATE &&
             memchr(kRateSteps, asked_rate, sizeof(kRateSteps)) && asked_rate != (uint8_t)rate_rule) {
             rate_rule = asked_rate;
             if (g_rules) g_rules[g_payload_map ? PSPEED_SHOWN : RATE_SHOWN] = asked_rate;
@@ -686,7 +691,7 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
             Log("%s %d/4 (asked by %s): told %d client(s)", g_payload_map ? "PAYLOAD SPEED" : "POINT RATE",
                 (int)asked_rate, Addr(from, buf, sizeof(buf)), r);
         }
-        if (p.type == 'C' && (p.id & (WANT_CHASSIS | WANT_RATE | WANT_PAUSE)) == WANT_PAUSE) {   // PAUSE / UNPAUSE
+        if (rule_ask && (p.id & (WANT_CHASSIS | WANT_RATE | WANT_PAUSE)) == WANT_PAUSE) {   // PAUSE / UNPAUSE
             // PAUSE from running or resuming; UNPAUSE only from paused, and it starts the countdown
             LONG now = g_paused, want = (p.id & 1) ? PAUSE_ON : now == PAUSE_ON ? PAUSE_RESUMING : now;
             // payload maps: a pause only happens while the payload is held (before the attackers
@@ -721,7 +726,7 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
                 Log("MAP SWITCH to %s asked by %s", kMapNames[k], Addr(from, buf, sizeof(buf)));
             }
         }
-        if (p.type == 'C' && (p.id & WANT_CHASSIS)) {                        // a podium asks for SERIES-10 ONLY
+        if (rule_ask && (p.id & WANT_CHASSIS)) {                        // a podium asks for SERIES-10 ONLY
             LONG want = (LONG)(p.id & 1);
             if (InterlockedExchange(&g_chassis, want) != want) {
                 if (g_rules) g_rules[CHASSIS_SHOWN] = (uint8_t)want;
@@ -730,7 +735,7 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
                 Log("SERIES-10 ONLY %s (asked by %s): told %d client(s)", want ? "on" : "off", Addr(from, buf, sizeof(buf)), n);
             }
         }
-        if (p.type == 'C' && p.id <= LOADOUT_NEW) {                          // a podium asks for LOADOUTS
+        if (rule_ask && p.id <= LOADOUT_NEW) {                          // a podium asks for LOADOUTS
             LONG want = (LONG)p.id;
             if (InterlockedExchange(&g_classic, want) != want) {
                 if (g_rules) g_rules[CLASSIC_SHOWN] = (uint8_t)want;
@@ -2164,11 +2169,40 @@ uint64_t AbilitySymbol(const char *name, size_t n) {
     return 0;
 }
 
+// Server: a new lobby session starts with the default RULES. They live in the RULES mailbox and
+// VeilNet's own state, both kept for the life of the server process, so without this a match
+// took the last private match's POINT UNLOCK / CAPTURE TIME etc. (user, 2026-11-07). A map switch
+// (ApplyMapSwitch: the engine's Session Started, no "Starting session" line) keeps them.
+// The clients get the defaults with the next hello answers ('R' and 'G', every 2 s).
+void ResetRules() {
+    if (g_rules) {
+        __try {
+            for (uint32_t o = 0; o < 0x10; o += 4) *(volatile float *)(g_rules + o) = 0.0f;   // scores, T, capture
+            g_rules[CLASSIC_SHOWN] = LOADOUT_ALL;
+            g_rules[CHASSIS_SHOWN] = 0;
+            g_rules[RATE_SHOWN] = 4;
+            g_rules[PSPEED_SHOWN] = 4;
+            g_rules[PAUSED_SHOWN] = PAUSE_OFF;
+            g_rules[PAUSE_QUEUED_SHOWN] = 0;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    g_classic = LOADOUT_ALL;
+    g_chassis = 0;
+    g_rate = 4;
+    g_pspeed = 4;
+    g_paused = PAUSE_OFF;
+    g_pause_queued = 0;
+    g_resume_at = 0;
+    Log("new session: RULES back to the defaults");
+}
+
 constexpr char kSessionFmt[] = "[NETLOBBY] Starting session (gametype ";
 void SawLog(const char *fmt, va_list args) {
     if (fmt && g_server && !strncmp(fmt, kSessionFmt, sizeof(kSessionFmt) - 1)) {
         va_list copy = args;
         const char *gametype = va_arg(copy, const char *);
+        ResetRules();
         __try {
             g_private_match = IsPrivateGametype(gametype) ? 1 : 0;
             Log("session gametype %s: %s match", gametype ? gametype : "?", g_private_match ? "private" : "public");
