@@ -1,4 +1,4 @@
-EchoCombat 2.0.3
+EchoCombat 2.0.4
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -19,6 +19,9 @@ What it adds
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
+
+New in 2.0.4
+  * Fixed: a crash (with no crash report) when a DRONE was destroyed or ran out.
 
 New in 2.0.3
   * A new match starts with the default RULES. Before, a server kept the last
