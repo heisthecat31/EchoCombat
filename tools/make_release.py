@@ -19,6 +19,7 @@ the stage on purpose: setup patches them from the player's own install.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -29,7 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STAGE = os.path.join(ROOT, "build", "stage")
 OUT = os.path.join(ROOT, "build", "release", "EchoCombat")
 #: the release's version: the zip's name, version.txt in it, README.txt's title
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 ZIP = os.path.join(ROOT, "release", f"EchoCombat-{VERSION}.zip")
 #: Patched at install time (evrtool install), never shipped.
 INSTALL_TIME = ("4fd65c8d2b63d470", "21a09c2016d8f3e6")
@@ -66,6 +67,17 @@ def main() -> int:
         shutil.copy2(os.path.join(ROOT, "release", f), OUT)
     with open(os.path.join(OUT, "version.txt"), "w", encoding="ascii", newline="\r\n") as fh:
         fh.write(f"EchoCombat {VERSION}\n")
+    # files.txt: every file in the release with its sha256. evrtool setup installs these only
+    # (checked), so a zip extracted over an older one can't install the older one's leftovers.
+    lines = []
+    for path, dirs, files in os.walk(OUT):
+        dirs.sort()
+        for f in sorted(files):
+            full = os.path.join(path, f)
+            with open(full, "rb") as fh:
+                lines.append(f"{hashlib.sha256(fh.read()).hexdigest()}  {os.path.relpath(full, OUT).replace(os.sep, '/')}")
+    with open(os.path.join(OUT, "files.txt"), "w", encoding="ascii", newline="\n") as fh:
+        fh.write("\n".join(lines) + "\n")
     with zipfile.ZipFile(ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for path, _, files in os.walk(OUT):
             for f in sorted(files):

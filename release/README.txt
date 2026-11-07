@@ -1,4 +1,4 @@
-EchoCombat 2.0.2
+EchoCombat 2.0.3
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -19,6 +19,13 @@ What it adds
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
+
+New in 2.0.3
+  * A new match starts with the default RULES. Before, a server kept the last
+    private match's rules (POINT UNLOCK, CAPTURE TIME, ...) for every match after
+    it, public ones too. A map switch from the post-match terminal keeps them.
+  * RULES and PAUSE only work in private matches.
+  Update the game server.
 
 New in 2.0.2
   * Post-match map buttons now work on every EchoCombat server. Before, a server

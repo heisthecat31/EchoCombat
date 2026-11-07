@@ -98,6 +98,18 @@ func installScripts(game string, b bundle) {
 	}
 	created := readCreated(dir)
 	defer writeCreated(dir, created)
+	// What an earlier EchoCombat wrote and this one no longer ships goes back to stock first,
+	// so no old script stays behind (the party-gun Pulsar script did, 2026-11-07).
+	staged := map[string]bool{}
+	for _, e := range entries {
+		staged[e.Name()] = true
+	}
+	for _, name := range ourScripts(dir, created) {
+		if !staged[name] {
+			restoreScript(dir, name, created)
+		}
+	}
+	writeList(dir, scriptsList, staged)
 	for _, e := range entries {
 		asset, err := os.ReadFile(filepath.Join(b.stage(), scriptsType, e.Name()))
 		if err != nil {
@@ -122,22 +134,67 @@ func installScripts(game string, b bundle) {
 // a reinstall does not take its own DLL for an original.
 const createdList = "echocombat_created.txt"
 
-func readCreated(dir string) map[string]bool {
+// scriptsList names every script DLL the last install wrote; pluginsList (in plugins\) every
+// plugin file. A reinstall takes back what the new build no longer ships.
+const scriptsList = "echocombat_scripts.txt"
+const pluginsList = "echocombat_plugins.txt"
+
+func readList(dir, name string) map[string]bool {
 	m := map[string]bool{}
-	data, _ := os.ReadFile(filepath.Join(dir, createdList))
+	data, _ := os.ReadFile(filepath.Join(dir, name))
 	for _, n := range strings.Fields(string(data)) {
 		m[n] = true
 	}
 	return m
 }
 
-func writeCreated(dir string, m map[string]bool) {
+func writeList(dir, name string, m map[string]bool) {
 	var names []string
 	for n := range m {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	writeChecked(filepath.Join(dir, createdList), []byte(strings.Join(names, "\n")+"\n"))
+	writeChecked(filepath.Join(dir, name), []byte(strings.Join(names, "\n")+"\n"))
+}
+
+func readCreated(dir string) map[string]bool     { return readList(dir, createdList) }
+func writeCreated(dir string, m map[string]bool) { writeList(dir, createdList, m) }
+
+// ourScripts: every script DLL an EchoCombat install has touched: the last install's list,
+// the ones it added, and (installs from before the list) every <hash>.dll with a .orig beside
+// it, which only an EchoCombat install makes.
+func ourScripts(dir string, created map[string]bool) []string {
+	set := readList(dir, scriptsList)
+	for n := range created {
+		set[n] = true
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if n, ok := strings.CutSuffix(e.Name(), ".dll.orig"); ok {
+			set[n] = true
+		}
+	}
+	var out []string
+	for n := range set {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// restoreScript puts script `name` back to stock: its .orig, or no file when EchoCombat added it.
+func restoreScript(dir, name string, created map[string]bool) {
+	dst := filepath.Join(dir, name+".dll")
+	if _, err := os.Stat(dst + ".orig"); err == nil && !created[name] {
+		os.Remove(dst)
+		if err := os.Rename(dst+".orig", dst); err != nil {
+			die("restore %s: %v", dst, err)
+		}
+		fmt.Println("restored stock", dst)
+	} else if err := os.Remove(dst); err == nil {
+		fmt.Println("removed", dst)
+	}
+	delete(created, name)
 }
 
 // isPluginLoader: a dbgcore.dll that loads a plugins folder.
@@ -175,15 +232,31 @@ func installPlugins(game string, b bundle) {
 		fmt.Println("  WARNING: the plugin loader cannot load on this PC until that is installed; " +
 			"Echo may fail to start (run doctor.bat to check again)")
 	}
+	shipped := map[string]bool{}
+	for _, name := range b.plugins() {
+		shipped[name] = true
+	}
+	for name := range readList(plugins, pluginsList) { // an older EchoCombat's, not shipped now
+		if !shipped[name] {
+			if err := os.Remove(filepath.Join(plugins, name)); err == nil {
+				fmt.Println("removed", filepath.Join(plugins, name), "(no longer part of EchoCombat)")
+			}
+		}
+	}
 	for _, name := range b.plugins() {
 		copyChecked(b.bin("plugins", name), filepath.Join(plugins, name))
 		fmt.Println("wrote", filepath.Join(plugins, name))
 	}
+	writeList(plugins, pluginsList, shipped)
 }
 
 // setup is the whole player install: merge the packages, then the loose files.
 func setup(game, dir string) {
 	b := bundle{dir}
+	if clean, ok := b.cleanCopy(); ok { // only this release's files, checked
+		defer os.RemoveAll(clean.dir)
+		b = clean
+	}
 	b.preflight()
 	data := gameDataDir(game)
 	if _, err := os.Stat(manifestPath(data)); err != nil {
@@ -207,25 +280,30 @@ func remove(game, dir string) {
 	}
 	pkg = mainPkg
 	scripts := filepath.Join(game, "bin", "win10", "scripts")
-	entries, _ := os.ReadDir(filepath.Join(b.stage(), scriptsType))
 	created := readCreated(scripts)
+	names := map[string]bool{} // everything EchoCombat touched, any version
+	for _, n := range ourScripts(scripts, created) {
+		names[n] = true
+	}
+	entries, _ := os.ReadDir(filepath.Join(b.stage(), scriptsType))
 	for _, e := range entries {
-		dst := filepath.Join(scripts, e.Name()+".dll")
-		if _, err := os.Stat(dst + ".orig"); err == nil && !created[e.Name()] {
-			os.Remove(dst)
-			if err := os.Rename(dst+".orig", dst); err != nil {
-				die("restore %s: %v", dst, err)
-			}
-			fmt.Println("restored", dst)
-		} else if err := os.Remove(dst); err == nil {
-			fmt.Println("removed", dst)
-		}
+		names[e.Name()] = true
+	}
+	for n := range names {
+		restoreScript(scripts, n, created)
 	}
 	os.Remove(filepath.Join(scripts, createdList))
+	os.Remove(filepath.Join(scripts, scriptsList))
+	plugins := filepath.Join(game, "bin", "win10", "plugins")
+	ours := readList(plugins, pluginsList)
 	for _, name := range b.plugins() {
-		p := filepath.Join(game, "bin", "win10", "plugins", name)
+		ours[name] = true
+	}
+	for name := range ours {
+		p := filepath.Join(plugins, name)
 		if err := os.Remove(p); err == nil {
 			fmt.Println("removed", p)
 		}
 	}
+	os.Remove(filepath.Join(plugins, pluginsList))
 }
