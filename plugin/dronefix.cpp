@@ -356,6 +356,20 @@ void QueueDeathFx(void *ctx, const Comp *sound, int nsound) {
     }
 }
 
+// A kept node context is still usable: its node data block (+B0h, the SpawnParticleEffect
+// node's "thread[0x16]") is there. A drone's context kept at its release can be released
+// before the drone dies; replaying the spawn node on it then wrote through a null data block
+// (echovr.exe+0xde52d3, mov [rbx], -1 with rbx 0) and the game died: the __try below never
+// sees it, as Windows can't unwind through the stub (the script's added section has no unwind
+// table), so it was a crash with no BugSplat (2026-11-07, 21:14).
+bool CtxUsable(void *ctx) {
+    __try {
+        return ctx && *(void *volatile *)((uint8_t *)ctx + 0xB0) != nullptr;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // fix_drone_fx.py's spawn and sound stubs (their addresses left by the drone script) with a
 // dead drone's node context: the detonator's explosion and POINT's sound on that drone. Its
 // node state kept round each, as the translocator's dispatcher hook does.
@@ -363,6 +377,7 @@ void SpawnDeathFx(void *ctx) {
     using stub_fn = void(__fastcall *)(void *);
     auto slots = (stub_fn volatile *)((uint8_t *)GetModuleHandleW(nullptr) + DEATH_TOKEN_RVA + 0x28);
     if (!slots[0]) { LogWarning("drone explosion: no spawn stub (drone script unpatched?)"); return; }
+    if (!CtxUsable(ctx)) { LogWarning("drone explosion skipped: its node context is gone (ctx %p)", ctx); return; }
     __try {
         auto state = (uint64_t *)((uint8_t *)ctx + 0x18);
         uint64_t saved = *state;
@@ -406,6 +421,7 @@ bool SoundAgain(uintptr_t wall, ULONGLONG now) {                 // this wall's 
 
 void RunWallFx(void *ctx, uintptr_t stub) {
     using stub_fn = void(__fastcall *)(void *);
+    if (!CtxUsable(ctx)) { LogWarning("NEUTRON effect skipped: its node context is gone (ctx %p)", ctx); return; }
     __try {
         auto state = (uint64_t *)((uint8_t *)ctx + 0x18);
         uint64_t saved = *state;
