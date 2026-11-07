@@ -1,4 +1,4 @@
-"""Pack the player zip: release/EchoCombat.zip.
+"""Pack the player zip: release/EchoCombat-<VERSION>.zip.
 
 Takes what a deploy stages and builds -- run deploy_and_launch.py (or its stage
 step) first:
@@ -28,7 +28,9 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STAGE = os.path.join(ROOT, "build", "stage")
 OUT = os.path.join(ROOT, "build", "release", "EchoCombat")
-ZIP = os.path.join(ROOT, "release", "EchoCombat.zip")
+#: the release's version: the zip's name, version.txt in it, README.txt's title
+VERSION = "2.0.0"
+ZIP = os.path.join(ROOT, "release", f"EchoCombat-{VERSION}.zip")
 #: Patched at install time (evrtool install), never shipped.
 INSTALL_TIME = ("4fd65c8d2b63d470", "21a09c2016d8f3e6")
 
@@ -62,6 +64,8 @@ def main() -> int:
                    cwd=os.path.join(ROOT, "evrtool"), env=env, check=True)
     for f in ("install.bat", "uninstall.bat", "doctor.bat", "README.txt"):
         shutil.copy2(os.path.join(ROOT, "release", f), OUT)
+    with open(os.path.join(OUT, "version.txt"), "w", encoding="ascii", newline="\r\n") as fh:
+        fh.write(f"EchoCombat {VERSION}\n")
     with zipfile.ZipFile(ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for path, _, files in os.walk(OUT):
             for f in sorted(files):

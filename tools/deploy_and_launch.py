@@ -136,6 +136,11 @@ ARENA_LEVEL = "576ed3f8428ebc4b"
 RULES_LEVEL_TYPES = ("347869ce492dc7da", "ac05e44816844a00", "c29715d62e039402",
                      "6901365c8bb8bf50", "2a41cf1c1d9e5d32")
 RULES_NETUI_TYPE = "515bf2b6e2687c68"
+#: CONFETTI / BUBBLE / MONEY GUN (fix_party_guns.py, fix_party_fx.py): unfinished, not built.
+#: (Their Pulsar script caves called PowerBoost through the RULES mailbox +40h, which is the
+#: veil's use counter, 0x2104F00: a veil use corrupted the pointer and the next Pulsar shot
+#: crashed, 2026-11-07. Move that slot before turning this on.)
+PARTY_GUNS = False
 #: the levels with a loadout terminal: fix_party_guns.py adds the confetti to their archives
 PARTY_FX_SOURCES = ("1432f4f2b0f840df", "7676880776a1f757")   # the round-win confetti (orange, blue)
 PULSAR_SCRIPT = "cff4557b7d2ce426"       # the Pulsar's weapon script (fix_party_fx.py: gated, and copied as the party gun script)
@@ -321,11 +326,12 @@ def stage(gunpatch: str, extract: str, preset: str, drone: bool, damping: float,
             tool("fix_vo.py", *src)           # the announcer's listeners for those callouts
     # MEDIGUN: a COMET-looking gun with Repair Matrix's beam (its own heal bubble and script;
     # PowerBoost.dll drives it). After fix_buff: stacks on its global level tables.
-    # CONFETTI / BUBBLE / MONEY GUN: Pulsar party guns (PowerBoost.dll swaps the muzzle flash);
-    # before MEDIGUN, which must stay the weapon list's last entry.
-    tool("fix_party_guns.py", "--base", STAGE, *src)
-    # ... their shot: their own gun script (a Pulsar copy beside it) spawns the confetti
-    tool("fix_party_fx.py", *src, "--mailbox", hex(points_mailbox))
+    # CONFETTI / BUBBLE / MONEY GUN: Pulsar party guns. UNFINISHED and left out of the build
+    # (PARTY_GUNS False): no gear entries, no confetti, the Pulsar script stays stock.
+    # (PowerBoost.dll's side is behind ECHOCOMBAT_PARTY_GUNS.)
+    if PARTY_GUNS:
+        tool("fix_party_guns.py", "--base", STAGE, *src)
+        tool("fix_party_fx.py", *src, "--mailbox", hex(points_mailbox))
     if medigun:
         tool("fix_medigun.py", "--base", STAGE, *src)
     # TRANSLOCATOR: the stun field's burst and a sound when the player teleports (its sound

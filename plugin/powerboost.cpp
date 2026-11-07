@@ -2439,11 +2439,13 @@ void InstallMedigun(uint8_t *base) {
     if (Check(base + GUN_FIRE_RVA, GUN_FIRE_BYTES, sizeof(GUN_FIRE_BYTES), "FireIntegratedGunLocal")) {
         Real_GunFire = (fire_fn)(base + GUN_FIRE_RVA);
         DetourAttach(&(PVOID &)Real_GunFire, Hooked_GunFire);
+#ifdef ECHOCOMBAT_PARTY_GUNS                                // party guns: unfinished, not built
         if (base[BULLET_SPAWN_RVA] == 0xe9 ||               // DroneFix's hook already there: chain on it
             Check(base + BULLET_SPAWN_RVA, BULLET_SPAWN_BYTES, sizeof(BULLET_SPAWN_BYTES), "bullet spawn")) {
             Real_BulletSpawn = (bullet_spawn_fn)(base + BULLET_SPAWN_RVA);
             DetourAttach(&(PVOID &)Real_BulletSpawn, Hooked_BulletSpawn);
         }
+#endif
     }
     ReadMedigunIni(g_ini_path);
     if (Check(base + SYSTEMS_FIND_RVA, SYSTEMS_FIND_BYTES, sizeof(SYSTEMS_FIND_BYTES), "systems by name") &&
@@ -2464,6 +2466,7 @@ void InstallMedigun(uint8_t *base) {
     Real_ActivateLocal = (activate_fn)(base + ACTIVATE_LOCAL_RVA);
     ActivateBubble = (activate_fn)(base + ACTIVATE_RVA);
     DetourAttach(&(PVOID &)Real_Slot, Hooked_Slot);
+#ifdef ECHOCOMBAT_PARTY_GUNS                                // party guns: unfinished, not built
     if (Check(base + PURCHASED_RVA, PURCHASED_BYTES, sizeof(PURCHASED_BYTES), "item purchased status")) {
         Real_Purchased = (item_fn)(base + PURCHASED_RVA);
         DetourAttach(&(PVOID &)Real_Purchased, Hooked_Purchased);
@@ -2476,6 +2479,7 @@ void InstallMedigun(uint8_t *base) {
                 DetourAttach(&(PVOID &)Real_Unlock[k], hooks[k]);
             }
     }
+#endif
     DetourAttach(&(PVOID &)Real_BubbleUpdate, Hooked_BubbleUpdate);
     DetourAttach(&(PVOID &)Real_ActivateLocal, Hooked_ActivateLocal);
     if (Check(base + RESOLVE_ATTACH_RVA, RESOLVE_ATTACH_BYTES, sizeof(RESOLVE_ATTACH_BYTES), "particle effect attachment")) {
@@ -2484,20 +2488,26 @@ void InstallMedigun(uint8_t *base) {
         if (Check(base + PFX_NODE_RVA, PFX_NODE_BYTES, sizeof(PFX_NODE_BYTES), "particle effect node")) {
             Real_PfxNode = (pfx_node_fn)(base + PFX_NODE_RVA);
             DetourAttach(&(PVOID &)Real_PfxNode, Hooked_PfxNode);
+#ifdef ECHOCOMBAT_PARTY_GUNS                                // party guns: unfinished, not built
             if (Check(base + CREATE_PFX_RVA, CREATE_PFX_BYTES, sizeof(CREATE_PFX_BYTES), "CreateParticleEffect node")) {
                 Real_CreatePfx = (pfx_node_fn)(base + CREATE_PFX_RVA);
                 DetourAttach(&(PVOID &)Real_CreatePfx, Hooked_CreatePfx);
             }
+#endif
             if (Check(base + ATTACH_POSE_RVA, ATTACH_POSE_BYTES, sizeof(ATTACH_POSE_BYTES), "attachment pose")) {
                 AttachPose = (attach_pose_fn)(base + ATTACH_POSE_RVA);
             }
         }
     }
+#ifdef ECHOCOMBAT_PARTY_GUNS                                // party guns: unfinished, not built
+    // (+40h is the veil's use counter, echovr.exe+0x2104F00: writing a pointer there, and the veil
+    // bumping it, crashed the next Pulsar shot, 2026-11-07. Move PARTY_GUN_FN before re-enabling.)
     if (uint32_t mb = RulesMailboxRva(base)) {             // the Pulsar script asks PartyEffect / PartyGun
         *(void *volatile *)(base + mb + PARTY_FN) = (void *)PartyEffect;
         *(void *volatile *)(base + mb + PARTY_GUN_FN) = (void *)PartyGunActor;
         Log("PARTY GUN: PartyEffect / PartyGunActor at RULES mailbox +%#x / +%#x", PARTY_FN, PARTY_GUN_FN);
     }
+#endif
     if (Check(base + NET_ACTIVATE_RVA, NET_ACTIVATE_BYTES, sizeof(NET_ACTIVATE_BYTES), "heal bubble network activation")) {
         Real_NetActivate = (net_activate_fn)(base + NET_ACTIVATE_RVA);
         DetourAttach(&(PVOID &)Real_NetActivate, Hooked_NetActivate);

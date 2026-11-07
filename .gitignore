@@ -5,7 +5,7 @@ out/
 out_debug/
 evrtool/evrtool.exe
 release/EchoCombat/
-release/EchoCombat.zip
+release/EchoCombat*.zip
 __pycache__/
 
 # this machine's paths (copy local.example.json)
