@@ -1,4 +1,4 @@
-EchoCombat 2.0.2
+EchoCombat 2.0.3
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -20,6 +20,13 @@ What it adds
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
 
+New in 2.0.3
+  * A new match starts with the default RULES. Before, a server kept the last
+    private match's rules (POINT UNLOCK, CAPTURE TIME, ...) for every match after
+    it, public ones too. A map switch from the post-match terminal keeps them.
+  * RULES and PAUSE only work in private matches.
+  Update the game server.
+
 New in 2.0.2
   * Post-match map buttons now work on every EchoCombat server. Before, a server
     without a symbol-name plugin took private matches for public ones and ignored
@@ -30,7 +37,7 @@ Fixed in 2.0.1
   * A crash on a Pulsar shot after someone had used UMBRAL VEIL.
 
 New in 2.0: private match rules (Combat private matches)
-  The game server needs EchoCombat 2.0.2 too; on a stock server you get stock Combat.
+  The game server needs EchoCombat 2.0.3 too; on a stock server you get stock Combat.
   * RULES on the podium terminal (like Arena's): change values with - / +, NEXT for
     page 2. Every player sees the server's values.
       Page 1: POINT UNLOCK (seconds before the point unlocks; the announcer follows
