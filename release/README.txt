@@ -1,4 +1,4 @@
-EchoCombat 2.0.7
+EchoCombat 2.0.8
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -19,6 +19,11 @@ What it adds
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
+
+New in 2.0.8
+  * Fixed: on a server running nEVR (launcher Server host), the RULES page, PAUSE and
+    the map buttons did nothing: the server never learned the match was private and
+    refused every change. It now reads the match type from the game itself.
 
 New in 2.0.7
   * Fixed: when the launcher's Content Overlay failed (FAILED on the Mods page), the

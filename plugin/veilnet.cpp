@@ -557,6 +557,13 @@ bool IsPrivateGametype(const char *gametype) {
     return false;
 }
 
+// nEVR servers never log "[NETLOBBY] Starting session" (nEVR replaces the game server module and
+// logs its own "[NEVR.GAMESERVER] session game type stored"), so g_private_match stayed unknown
+// and every RULES / PAUSE / map ask was refused. LearnMatchType reads the session's gametype
+// symbol from CR15NetGame + 0x6A0 (CreateSession, 0x14015E920, reads it there for
+// IsArenaGameType / IsCombatGameType) whenever the log hasn't said.
+void LearnMatchType();
+
 // --- MAP SWITCH (post-match terminal, private matches) --------------------------------------
 // The post-match podium's four map buttons (tools/fix_map_terminal.py) send mapswitch_<map> when
 // pressed (the podium ignores them). A client hears its own press (script events reach the inner
@@ -726,6 +733,7 @@ void Handle(SOCKET s, const Packet &p, const sockaddr_in &from) {
     char buf[48];
     if (g_server) {
         Remember(s, from);
+        LearnMatchType();
         if (p.type == 'H') {
             Send(s, from, 'A', g_medigun_on_server ? ANSWER_MEDIGUN : 0);   // "this server has EchoCombat"
             // its RULES unlock / capture time, 0 too (a new session's reset must reach the clients)
@@ -978,6 +986,32 @@ constexpr ULONGLONG STATION_SETTLE_MS = 400;    // one redraw, once the rows hav
 void __fastcall HookedDispatch(uint64_t netgame, uint64_t event) {
     g_netgame = netgame;
     g_real_dispatch(netgame, event);
+}
+
+constexpr uintptr_t NETGAME_GAMETYPE = 0x6A0;  // CR15NetGame: the session's gametype symbol
+volatile LONG g_match_from_log = 0;             // the session log said (stock server module)
+void ResetRules();
+
+void LearnMatchType() {
+    if (!g_server || g_match_from_log) return;
+    uint64_t netgame = g_netgame;
+    if (!netgame) return;
+    static uint64_t seen = 0;
+    uint64_t sym = 0;
+    __try {
+        sym = *(volatile uint64_t *)(netgame + NETGAME_GAMETYPE);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+    if (!sym || sym == ~0ull || sym == seen) return;
+    const bool first = seen == 0;
+    seen = sym;
+    if (!first) ResetRules();                       // another session's gametype: RULES back to defaults
+    bool priv = false;
+    for (uint64_t p : kPrivateGametypes) priv |= sym == p;
+    g_private_match = priv ? 1 : 0;
+    Log("session gametype 0x%016llx (read from the game): %s match", (unsigned long long)sym,
+        priv ? "private" : "public");
 }
 
 // Each station grid cell holds one icon element per item (and a lock); the script only shows
@@ -2392,6 +2426,7 @@ void SawLog(const char *fmt, va_list args) {
         ResetRules();
         __try {
             g_private_match = IsPrivateGametype(gametype) ? 1 : 0;
+            g_match_from_log = 1;
             Log("session gametype %s: %s match", gametype ? gametype : "?", g_private_match ? "private" : "public");
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             g_private_match = -1;

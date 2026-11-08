@@ -14,7 +14,7 @@ older install wrote is taken out (and its DLL, if this installer put it there).
 
 Usage (PowerShell), with the pack zip next to this script:
   powershell -ExecutionPolicy Bypass -File install_nevr_local.ps1
-  ... -Pack EchoCombat-2.0.7.zip -Root <nevr root>
+  ... -Pack EchoCombat-2.0.8.zip -Root <nevr root>
   ... -Uninstall      (removes our plugins, content and config entries again)
 
 Note: the Echo VR launcher rewrites config.yaml at every start from its Mods page. Start the game directly
