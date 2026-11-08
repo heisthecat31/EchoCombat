@@ -1,4 +1,4 @@
-﻿<#
+<#
 Installs EchoCombat (nEVR pack) for the current Windows user, without the launcher. Nothing else is needed:
 EchoCombatContent.dll (in the pack) serves EchoCombat's game data; NvrContentOverlay isn't used.
 
@@ -14,7 +14,7 @@ older install wrote is taken out (and its DLL, if this installer put it there).
 
 Usage (PowerShell), with the pack zip next to this script:
   powershell -ExecutionPolicy Bypass -File install_nevr_local.ps1
-  ... -Pack EchoCombat-2.0.5.zip -Root <nevr root>
+  ... -Pack EchoCombat-2.0.6.zip -Root <nevr root>
   ... -Uninstall      (removes our plugins, content and config entries again)
 
 Note: the Echo VR launcher rewrites config.yaml at every start from its Mods page. Start the game directly

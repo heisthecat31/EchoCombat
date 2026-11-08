@@ -1,4 +1,4 @@
-EchoCombat 2.0.5
+EchoCombat 2.0.6
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -19,6 +19,15 @@ What it adds
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
+
+New in 2.0.6
+  * Fixed: a game kept sending a small packet every few seconds to the last game
+    server it played on, for as long as the game ran, which could crash a stock
+    server restarting there. EchoCombat now talks to a server only while the game
+    is connected to it, and gives up after a few tries on a server without
+    EchoCombat.
+  * Fixed: the SERIES-10 ONLY rule crashed the game (no crash report) on a server
+    with the standard-loadout setting on; there modded players now get Series-10.
 
 New in 2.0.5
   * EchoCombat serves its own game data (EchoCombatContent.dll): installed with
