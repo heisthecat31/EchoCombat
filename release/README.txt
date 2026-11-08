@@ -1,4 +1,4 @@
-EchoCombat 2.0.8
+EchoCombat 2.0.9
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -20,10 +20,11 @@ What it adds
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
 
-New in 2.0.8
+New in 2.0.9
   * Fixed: on a server running nEVR (launcher Server host), the RULES page, PAUSE and
     the map buttons did nothing: the server never learned the match was private and
-    refused every change. It now reads the match type from the game itself.
+    refused every change (2.0.8's attempt read the wrong value). It now takes the match
+    type from nEVR's own log, and resets RULES for each new session.
 
 New in 2.0.7
   * Fixed: when the launcher's Content Overlay failed (FAILED on the Mods page), the

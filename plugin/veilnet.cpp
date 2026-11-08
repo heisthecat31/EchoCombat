@@ -988,30 +988,120 @@ void __fastcall HookedDispatch(uint64_t netgame, uint64_t event) {
     g_real_dispatch(netgame, event);
 }
 
-constexpr uintptr_t NETGAME_GAMETYPE = 0x6A0;  // CR15NetGame: the session's gametype symbol
 volatile LONG g_match_from_log = 0;             // the session log said (stock server module)
 void ResetRules();
 
+// nEVR logs each session's type itself, through the game's CLog, into its own log file:
+// "[NEVR.GAMESERVER] session game type stored game_type=<type> source=..." in
+// <nEVR root>\logs\nevr-<time>.jsonl (root = the folder above this DLL's plugins folder). The
+// game's logger can't be hooked for it (nEVR's hook guard stops a server), so the server reads
+// the newest log's new lines, at most every 500 ms, until the session log (stock module) says.
 void LearnMatchType() {
     if (!g_server || g_match_from_log) return;
-    uint64_t netgame = g_netgame;
-    if (!netgame) return;
-    static uint64_t seen = 0;
-    uint64_t sym = 0;
-    __try {
-        sym = *(volatile uint64_t *)(netgame + NETGAME_GAMETYPE);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return;
+    static ULONGLONG next = 0;
+    ULONGLONG now = GetTickCount64();
+    if (now < next) return;
+    next = now + 500;
+    static wchar_t logs[MAX_PATH] = L"";
+    if (!logs[0]) {
+        HMODULE self = nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                (LPCWSTR)&LearnMatchType, &self)) return;
+        wchar_t path[MAX_PATH];
+        if (!GetModuleFileNameW(self, path, MAX_PATH)) return;
+        wchar_t *slash = wcsrchr(path, L'\\');
+        if (!slash) return;
+        *slash = 0;                                      // <root>\plugins
+        slash = wcsrchr(path, L'\\');
+        if (!slash || _wcsicmp(slash + 1, L"plugins") != 0) return;
+        *slash = 0;                                      // <root>
+        if (wcslen(path) + 8 >= MAX_PATH) return;
+        wcscpy_s(logs, path);
+        wcscat_s(logs, L"\\logs");
     }
-    if (!sym || sym == ~0ull || sym == seen) return;
-    const bool first = seen == 0;
-    seen = sym;
-    if (!first) ResetRules();                       // another session's gametype: RULES back to defaults
-    bool priv = false;
-    for (uint64_t p : kPrivateGametypes) priv |= sym == p;
-    g_private_match = priv ? 1 : 0;
-    Log("session gametype 0x%016llx (read from the game): %s match", (unsigned long long)sym,
-        priv ? "private" : "public");
+    // the newest nevr-*.jsonl (nevr-update.jsonl is another log)
+    wchar_t pattern[MAX_PATH];
+    if (swprintf_s(pattern, L"%s\\nevr-2*.jsonl", logs) < 0) return;
+    WIN32_FIND_DATAW fd;
+    HANDLE find = FindFirstFileW(pattern, &fd);
+    if (find == INVALID_HANDLE_VALUE) return;
+    wchar_t newest[MAX_PATH] = L"";
+    FILETIME newest_time = {};
+    do {
+        if (CompareFileTime(&fd.ftLastWriteTime, &newest_time) > 0) {
+            newest_time = fd.ftLastWriteTime;
+            swprintf_s(newest, L"%s\\%s", logs, fd.cFileName);
+        }
+    } while (FindNextFileW(find, &fd));
+    FindClose(find);
+    if (!newest[0]) return;
+    static wchar_t reading[MAX_PATH] = L"";
+    static LONGLONG offset = 0;
+    static char carry[512];
+    static size_t carried = 0;
+    if (wcscmp(newest, reading) != 0) { wcscpy_s(reading, newest); offset = 0; carried = 0; }
+    HANDLE h = CreateFileW(reading, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER at;
+    at.QuadPart = offset;
+    static char buf[64 * 1024 + sizeof(carry)];
+    static const char kKey[] = "session game type stored game_type=";
+    if (SetFilePointerEx(h, at, nullptr, FILE_BEGIN)) {
+        for (int chunks = 0; chunks < 256; ++chunks) {   // up to 16 MiB a call
+            memcpy(buf, carry, carried);
+            DWORD got = 0;
+            if (!ReadFile(h, buf + carried, 64 * 1024, &got, nullptr) || !got) break;
+            offset += got;
+            size_t n = carried + got;
+            // the last key in this chunk wins (the newest session)
+            const char *type = nullptr;
+            size_t type_len = 0;
+            char session[64] = "";
+            for (size_t i = 0; i + sizeof(kKey) - 1 <= n; ++i) {
+                if (buf[i] != 's' || memcmp(buf + i, kKey, sizeof(kKey) - 1)) continue;
+                const char *v = buf + i + sizeof(kKey) - 1;
+                size_t len = 0;
+                while (v + len < buf + n && v[len] != ' ' && v[len] != '"' && v[len] != '\\' && len < 63) ++len;
+                if (v + len >= buf + n) continue;
+                type = v; type_len = len;
+                // "... source=<s> session=<id> ..." on the same line (the id's case differs between
+                // nEVR's two lines for one session: compared without case)
+                session[0] = 0;
+                static const char kSession[] = " session=";
+                for (const char *q = v + len; q + sizeof(kSession) - 1 < buf + n && q < v + len + 120 && *q != '"'; ++q) {
+                    if (memcmp(q, kSession, sizeof(kSession) - 1)) continue;
+                    const char *id = q + sizeof(kSession) - 1;
+                    size_t k = 0;
+                    while (id + k < buf + n && id[k] != ' ' && id[k] != '"' && k < sizeof(session) - 1) {
+                        session[k] = (char)tolower((unsigned char)id[k]);
+                        ++k;
+                    }
+                    session[k] = 0;
+                    break;
+                }
+            }
+            // keep the tail: a key split over two reads is found next time
+            carried = n < sizeof(carry) ? n : sizeof(carry);
+            memmove(carry, buf + n - carried, carried);
+            if (type && type_len) {
+                char gametype[64];
+                memcpy(gametype, type, type_len);
+                gametype[type_len] = 0;
+                static char seen_type[64] = "", seen_session[64] = "";
+                const bool new_session = session[0] ? strcmp(session, seen_session) != 0 : strcmp(gametype, seen_type) != 0;
+                if (new_session || g_private_match < 0) {
+                    if (seen_type[0] && new_session) ResetRules();   // another session: RULES back to defaults
+                    strcpy_s(seen_type, gametype);
+                    strcpy_s(seen_session, session);
+                    g_private_match = IsPrivateGametype(gametype) ? 1 : 0;
+                    Log("session gametype %s (from nEVR's log, session %s): %s match", gametype,
+                        session[0] ? session : "?", g_private_match ? "private" : "public");
+                }
+            }
+        }
+    }
+    CloseHandle(h);
 }
 
 // Each station grid cell holds one icon element per item (and a lock); the script only shows
