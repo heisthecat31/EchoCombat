@@ -2880,7 +2880,7 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
     PluginLogBind(ctx);
     static const uintptr_t kOwnHooks[] = {0x510060, 0x37B2D0, 0xCABF10, 0xCF5E60, 0x50FED0};   // content_gate.h: the runtime's copy hooks these too
-    char why_buf[200];
+    char why_buf[1024];
     if (const char *why = EchoCombatGate(kOwnHooks, sizeof(kOwnHooks) / sizeof(kOwnHooks[0]), why_buf, sizeof(why_buf))) {
         const char *how = nullptr;
         if (!EchoCombatContentServed(&how)) {

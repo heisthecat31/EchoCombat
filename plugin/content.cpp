@@ -33,6 +33,7 @@
 #include "nevr_plugin.h"
 #include "nevr/plugin_logger.h"
 #include "nlohmann/json.hpp"
+#include "content_gate.h"
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -390,9 +391,15 @@ void *__fastcall Hooked_LoadModule(const char *path, void *arg, int call_main, i
 
 bool Install() {
     if (g_hooked) return true;
-    if (GetModuleHandleW(L"NvrContentOverlay.dll")) {
-        PluginLog("NvrContentOverlay is loaded: it serves the pack, this plugin stays off");
+    if (EchoCombatOverlayServing()) {
+        PluginLog("NvrContentOverlay serves the pack: this plugin stays off");
         return false;
+    }
+    if (GetModuleHandleW(L"NvrContentOverlay.dll")) {
+        char reason[700];
+        EchoCombatOverlayReason(reason, sizeof(reason));
+        PluginLogWarning("NvrContentOverlay is loaded but refused the pack (%s): trying to serve it here",
+                         reason[0] ? reason : "its log says nothing");
     }
     const std::wstring dir = PluginRoot() + L"\\content\\" + Widen(kPackId);
     if (!LoadPack(dir)) return false;
