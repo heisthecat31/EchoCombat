@@ -1,4 +1,4 @@
-EchoCombat 2.0.4
+EchoCombat 2.0.5
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -20,6 +20,13 @@ What it adds
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
 
+New in 2.0.5
+  * EchoCombat serves its own game data (EchoCombatContent.dll): installed with
+    install_nevr_local.bat, it needs no NvrContentOverlay.
+  * Sturdier: the plugins stay off (stock game, no broken tac mods) when
+    EchoCombat's data isn't served, and when the nEVR runtime has EchoCombat built
+    in already (nEVR 6.17 and newer), which used to run twice and break the tac mods.
+
 New in 2.0.4
   * Fixed: a crash (with no crash report) when a DRONE was destroyed or ran out.
 
@@ -40,7 +47,7 @@ Fixed in 2.0.1
   * A crash on a Pulsar shot after someone had used UMBRAL VEIL.
 
 New in 2.0: private match rules (Combat private matches)
-  The game server needs EchoCombat 2.0.4 too; on a stock server you get stock Combat.
+  The game server needs EchoCombat 2.0.4 or newer too; on a stock server you get stock Combat.
   * RULES on the podium terminal (like Arena's): change values with - / +, NEXT for
     page 2. Every player sees the server's values.
       Page 1: POINT UNLOCK (seconds before the point unlocks; the announcer follows

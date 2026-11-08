@@ -58,6 +58,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <intrin.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -66,6 +67,7 @@
 #include <iterator>
 #include "detours.h"
 #include "nevr_plugin.h"
+#include "content_gate.h"
 #include "nevr/plugin_logger.h"
 #include "station_icon_keys.h"
 
@@ -1568,23 +1570,45 @@ void ApplyPause() {
     g_settext_own = 0;
 }
 
+// A function's entry is the stock bytes, or nEVR's runtime hooked it (6.17+ keeps hooks of its own on
+// some of these with its combat off: a jmp into nevr-runtime.dll). Detours goes on top of such a hook
+// (both run). Anything else is another build: logged with the function, so a log says which.
+// nEVR's built-in EchoCombat is on (the Echo VR launcher rewrites config.yaml at every start, so
+// its combat: block can't turn it off there). VeilNet then runs as 2.0.4 did beside it: the
+// functions nEVR's copy hooks stay its own (nothing hooked on top), and the tac mod selection comes
+// from the profile log. DroneFix and PowerBoost stand down (their gate); nEVR's copy does that work.
+bool g_alongside = false;
+
+bool HeadOk(uintptr_t rva, const uint8_t *head, size_t n, const char *name) {
+    const uint8_t *at = g_base + rva;
+    if (!memcmp(at, head, n)) return true;
+    if (g_alongside) return false;                   // nEVR's copy owns it (as in 2.0.4)
+    if (EchoCombatEntryHooked(at)) {
+        Log("%s (+0x%llx) already hooked (%s): hooking on top", name, (unsigned long long)rva,
+            EchoCombatInModule(EchoCombatHookTarget(at), L"nevr-runtime.dll") ? "nEVR's runtime" : "outside echovr.exe");
+        return true;
+    }
+    Log("%s (+0x%llx): unexpected bytes %02x %02x %02x %02x %02x", name, (unsigned long long)rva, at[0], at[1], at[2], at[3], at[4]);
+    return false;
+}
+
 bool HookDispatch() {
-    if (memcmp(g_base + SET_ALPHA_RVA, kSetAlphaHead, sizeof(kSetAlphaHead)) ||
-        memcmp(g_base + SET_TEXT_RVA, kSetTextHead, sizeof(kSetTextHead))) return false;
-    if (memcmp(g_base + DISPATCH_EVENT_RVA, kDispatchHead, sizeof(kDispatchHead))) return false;
+    if (!HeadOk(SET_ALPHA_RVA, kSetAlphaHead, sizeof(kSetAlphaHead), "SetAlpha") ||
+        !HeadOk(SET_TEXT_RVA, kSetTextHead, sizeof(kSetTextHead), "SetText")) return false;
+    if (!HeadOk(DISPATCH_EVENT_RVA, kDispatchHead, sizeof(kDispatchHead), "DispatchEvent")) return false;
     g_real_dispatch = (dispatch_fn)(g_base + DISPATCH_EVENT_RVA);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     g_real_setalpha = (setalpha_fn)(g_base + SET_ALPHA_RVA);
     g_real_settext = (settext_fn)(g_base + SET_TEXT_RVA);
     DetourAttach(&(PVOID &)g_real_dispatch, (PVOID)HookedDispatch);
-    if (!memcmp(g_base + DISPATCH_COMPONENT_RVA, kDispatchComponentHead, sizeof(kDispatchComponentHead))) {
+    if (HeadOk(DISPATCH_COMPONENT_RVA, kDispatchComponentHead, sizeof(kDispatchComponentHead), "DispatchComponentEvent")) {
         g_real_dce = (dispatch_component_fn)(g_base + DISPATCH_COMPONENT_RVA);
         DetourAttach(&(PVOID &)g_real_dce, (PVOID)HookedDCE);
     }
     const bool inner_hooks = true;                   // clients too: the map buttons' events
-    if (inner_hooks && !memcmp(g_base + DCE_INNER_RVA, kDceInnerHead, sizeof(kDceInnerHead)) &&
-        !memcmp(g_base + DCE_INNER2_RVA, kDceInner2Head, sizeof(kDceInner2Head))) {
+    if (inner_hooks && HeadOk(DCE_INNER_RVA, kDceInnerHead, sizeof(kDceInnerHead), "DCE inner") &&
+        HeadOk(DCE_INNER2_RVA, kDceInner2Head, sizeof(kDceInner2Head), "DCE inner 2")) {
         g_real_dce_inner = (dce_inner_fn)(g_base + DCE_INNER_RVA);
         g_real_dce_inner2 = (dce_inner_fn)(g_base + DCE_INNER2_RVA);
         DetourAttach(&(PVOID &)g_real_dce_inner, (PVOID)HookedDceInner);
@@ -1868,11 +1892,16 @@ void EnforceLocal(const char *why) {
     }
 }
 
+void TacModPicked(uint64_t sym, bool from_slot);   // below, with the profile-log watcher
+
 template <int I> void __fastcall HookedSlot(uint64_t sys, uint32_t idx, uint64_t item) {
     const char *what = nullptr;
     uint64_t swap = ClassicSwap(I, item, &what);
-    if (sys == g_equip_cs && (idx & 0xffff) == (*(volatile uint32_t *)(sys + 0x130) & 0xffff))
-        g_asked[I] = swap ? item : 0;              // the local player's own pick
+    bool local = sys == g_equip_cs && (idx & 0xffff) == (*(volatile uint32_t *)(sys + 0x130) & 0xffff);
+    if (local) g_asked[I] = swap ? item : 0;         // the local player's own pick
+    // Under nEVR the platform module never logs "[NSUSER] sent profile update" (nEVR sends the
+    // profile itself), so the tac mod pick comes from here: the local player's tac mod slot.
+    if (I == 1 && local && !g_alongside) TacModPicked(item, true);
     if (swap) Log("slot %d of component %u set to %016llx: %s", I, idx & 0xffff, item, what);
     g_real_slot[I](sys, idx, swap ? swap : item);
 }
@@ -1975,18 +2004,63 @@ void KeepChassis(uint64_t cs, uint64_t player, uint64_t item, uint64_t slot, int
 
 volatile LONG g_chassis_replay = 0;              // ApplyChassisRule's own calls: not kept
 
+// The game's own net_standard_chassis rule (a server sets it: the server kit's F11 STANDARD
+// LOADOUT, or the stock server scripts). Unmodded, LoadAndApplyItem puts the standard chassis (S11)
+// on by itself. Our S10 swap on top of that fed the two into each other until the stack ran out
+// (the game closed, no BugSplat, 2026-11-08). Now a modded client takes the server's rule as
+// SERIES-10 ONLY: the engine's own check of the flag inside LoadAndApplyItem (+0xCE4460, the net
+// game's flag getter, called from +0xD0D1F4) answers 0 for this one flag (FlagHook), so the engine
+// never swaps to S11, and our S10 swap runs instead. A chassis call made from inside our own is
+// never swapped again (t_chassis_depth).
+using netflag_fn = int(__fastcall *)(uint64_t, uint64_t);
+constexpr uintptr_t NET_FLAG_RVA = 0xCE4460, LOAD_APPLY_FLAG_RET_RVA = 0xD0D1F9;
+const uint8_t kNetFlagHead[] = {0x48, 0x89, 0x5c, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56};
+constexpr uint64_t SYM_NET_STANDARD_CHASSIS_FLAG = 0x29e261a1df774dd3ull;
+thread_local int t_chassis_depth = 0;            // inside one of our chassis calls (this thread)
+netflag_fn g_real_net_flag;                      // set once hooked (clients)
+
+int __fastcall HookedNetFlag(uint64_t netgame, uint64_t sym) {
+    if (sym == SYM_NET_STANDARD_CHASSIS_FLAG &&
+        (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + LOAD_APPLY_FLAG_RET_RVA))
+        return 0;                                // LoadAndApplyItem: no S11 swap, ours makes it S10
+    return g_real_net_flag(netgame, sym);
+}
+
+bool StandardChassisSet(uint64_t cs) {
+    __try {
+        uint64_t vars = *(uint64_t *)(cs + 0xB8);
+        netflag_fn get = g_real_net_flag ? g_real_net_flag : (netflag_fn)(g_base + NET_FLAG_RVA);
+        return vars && get(vars, SYM_NET_STANDARD_CHASSIS_FLAG) != 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// SERIES-10 ONLY (the podium rule) or the server's standard chassis rule. Without the flag hook the
+// engine swaps to S11 itself and ours steps aside (no loop).
+bool ChassisWanted(uint64_t cs) {
+    if (ChassisOn()) return g_real_net_flag || !StandardChassisSet(cs);
+    return g_real_net_flag && StandardChassisSet(cs);
+}
+
+bool SwapChassis(uint64_t cs) { return !t_chassis_depth && ChassisWanted(cs); }
+
 void __fastcall HookedLoadApply(uint64_t cs, uint64_t player, uint64_t item, uint64_t slot, int flag) {
     if (ChassisItem(item)) {
-        if (!g_chassis_replay) KeepChassis(cs, player, item, slot, flag);
-        if (ChassisOn()) item = SYM_CHASSIS_S10;
+        if (!g_chassis_replay && !t_chassis_depth) KeepChassis(cs, player, item, slot, flag);
+        if (SwapChassis(cs)) item = SYM_CHASSIS_S10;
     }
+    ++t_chassis_depth;
     g_real_load_apply(cs, player, item, slot, flag);
+    --t_chassis_depth;
 }
 
 void __fastcall HookedApplyItem(uint64_t cs, uint64_t player, uint64_t item, uint64_t slot, int flag) {
-    if (ChassisItem(item) && item != SYM_CHASSIS_S10 && ChassisOn() && g_real_load_apply) {
+    if (ChassisItem(item) && item != SYM_CHASSIS_S10 && g_real_load_apply && SwapChassis(cs)) {
         if (!g_chassis_replay) KeepChassis(cs, player, item, slot, flag);
+        ++t_chassis_depth;
         g_real_load_apply(cs, player, SYM_CHASSIS_S10, slot, flag);   // S10 may not be loaded yet
+        --t_chassis_depth;
         return;
     }
     g_real_apply_item(cs, player, item, slot, flag);
@@ -1995,39 +2069,61 @@ void __fastcall HookedApplyItem(uint64_t cs, uint64_t player, uint64_t item, uin
 // On the game's thread: the rule changed, so every chassis seen goes on again.
 void ApplyChassisRule() {
     LONG on = ChassisOn() ? 1 : 0;
+    static LONG std_seen = 0;                        // the server's flag, looked at twice a second
+    static ULONGLONG std_next = 0;
+    if (!on && g_real_net_flag && g_chassis_call_count && GetTickCount64() >= std_next) {
+        std_next = GetTickCount64() + 500;
+        std_seen = StandardChassisSet(g_chassis_calls[0].cs) ? 1 : 0;
+    }
+    if (!on && g_real_net_flag) on = std_seen;
     if (on == g_chassis_applied || !g_real_load_apply) return;
     g_chassis_applied = on;
     int n = g_chassis_call_count, done = 0;
     g_chassis_replay = 1;
     for (int k = 0; k < n; ++k) {
         ChassisCall c = g_chassis_calls[k];
+        if (on && !g_real_net_flag && StandardChassisSet(c.cs)) continue;   // the engine's own S11 then
+        ++t_chassis_depth;
         __try {
             g_real_load_apply(c.cs, c.player, on ? SYM_CHASSIS_S10 : c.item, c.slot, c.flag);
             ++done;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
+        --t_chassis_depth;
     }
     g_chassis_replay = 0;
     Log("SERIES-10 ONLY %s: %d of %d chassis put on again", on ? "on" : "off", done, n);
 }
 
 bool HookApplyItem() {
-    if (memcmp(g_base + APPLY_ITEM_RVA, kApplyItemHead, sizeof(kApplyItemHead)) ||
-        memcmp(g_base + LOAD_APPLY_RVA, kLoadApplyHead, sizeof(kLoadApplyHead))) return false;
+    if (!HeadOk(APPLY_ITEM_RVA, kApplyItemHead, sizeof(kApplyItemHead), "ApplyItem") ||
+        !HeadOk(LOAD_APPLY_RVA, kLoadApplyHead, sizeof(kLoadApplyHead), "LoadAndApplyItem")) return false;
     g_real_apply_item = (applyitem_fn)(g_base + APPLY_ITEM_RVA);
     g_real_load_apply = (applyitem_fn)(g_base + LOAD_APPLY_RVA);
+    netflag_fn net_flag = nullptr;
+    const uint8_t *ret = g_base + LOAD_APPLY_FLAG_RET_RVA;   // the call to it in LoadAndApplyItem
+    if (!memcmp(g_base + NET_FLAG_RVA, kNetFlagHead, sizeof(kNetFlagHead)) && ret[-5] == 0xE8 &&
+        ret + *(const int32_t *)(ret - 4) == g_base + NET_FLAG_RVA)
+        net_flag = (netflag_fn)(g_base + NET_FLAG_RVA);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)g_real_apply_item, (PVOID)HookedApplyItem);
     DetourAttach(&(PVOID &)g_real_load_apply, (PVOID)HookedLoadApply);
+    if (net_flag) DetourAttach(&(PVOID &)net_flag, (PVOID)HookedNetFlag);
     if (DetourTransactionCommit() != NO_ERROR) { g_real_apply_item = g_real_load_apply = nullptr; return false; }
+    g_real_net_flag = net_flag;                      // the server's standard chassis shows as S10 here
     return true;
 }
 
+// nEVR (6.17+) hooks the three slot setters itself ("equipment re-fire hooks"), with its combat
+// off too: their entry is then a jmp into nevr-runtime.dll, not the stock bytes. Detours goes on
+// top of that (both run), so that counts as the right build.
+bool SlotEntryOk(uintptr_t rva, const uint8_t *head, size_t n) { return HeadOk(rva, head, n, "equipment"); }
+
 bool HookClassicSlots() {
     for (uintptr_t rva : kSetSlotRva)
-        if (memcmp(g_base + rva, kSetSlotHead, sizeof(kSetSlotHead))) return false;
-    if (memcmp(g_base + EQUIP_INIT_RVA, kEquipInitHead, sizeof(kEquipInitHead))) return false;
+        if (!SlotEntryOk(rva, kSetSlotHead, sizeof(kSetSlotHead))) return false;
+    if (!SlotEntryOk(EQUIP_INIT_RVA, kEquipInitHead, sizeof(kEquipInitHead))) return false;
     for (int i = 0; i < 3; ++i) g_real_slot[i] = (setslot_fn)(g_base + kSetSlotRva[i]);
     g_real_equip_init = (equipinit_fn)(g_base + EQUIP_INIT_RVA);
     DetourTransactionBegin();
@@ -2277,7 +2373,24 @@ void SawLog(const char *fmt, va_list args) {
     a += 11;
     const char *e = strchr(a, '"');
     uint64_t sym = e ? AbilitySymbol(a, e - a) : 0;
-    if (!sym) return;
+    // Under nEVR this line comes once, at login (nEVR sends later profile updates itself), so a
+    // selection from here goes stale at the first switch, and the tac mod guard (equip_guard.py)
+    // then skips the one actually equipped: "a tac mod that is not the selected one (...) was
+    // used: skipped", OVERCHARGE / NEUTRON dead or random (tester, 2026-11-08). The nEVR pack
+    // takes the pick only from the local tac mod slot (HookedSlot<1>); with no selection seen
+    // the guard lets every tac mod through, as the stock game does.
+    if (g_alongside && sym) TacModPicked(sym, false);   // nEVR's copy on: as 2.0.4 did
+}
+
+// A tac mod picked (from the profile log, or from the local tac mod slot under nEVR).
+void TacModPicked(uint64_t sym, bool from_slot) {
+    static const uint64_t kTacMods[] = {0xe32dc7c9d4804fb5ull, 0xe32dc7cad6864aa4ull, 0xc8c33e48386618b6ull,
+                                        0xc8c33e4832761fbcull, 0x41d2d43513260b1aull, 0x41d2d4381430080cull,
+                                        0x41d2d02f1b2a1316ull};
+    bool known = false;
+    for (uint64_t k : kTacMods) known |= k == sym;
+    if (!known) return;
+    if (from_slot && *(volatile uint64_t *)(g_base + EQUIP_RVA) == sym) return;   // nEVR re-fires the setter
     *(volatile LONG *)(g_base + EQUIP_RVA + 0x20) = 0;                // a new selection: re-runs allowed
     *(volatile uint64_t *)(g_base + EQUIP_RVA) = sym;
     InterlockedExchange64(&g_selected_pending, (LONG64)sym);         // Tick logs it
@@ -2733,6 +2846,18 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
     PluginLogBind(ctx);
+    static const uintptr_t kOwnHooks[] = {0x510060, 0x37B2D0, 0xCABF10, 0xCF5E60, 0x50FED0};   // content_gate.h: the runtime's copy hooks these too
+    char why_buf[200];
+    if (const char *why = EchoCombatGate(kOwnHooks, sizeof(kOwnHooks) / sizeof(kOwnHooks[0]), why_buf, sizeof(why_buf))) {
+        const char *how = nullptr;
+        if (!EchoCombatContentServed(&how)) {
+            PluginLogWarning("%s", why);
+            return 1;
+        }
+        g_alongside = true;                          // only nEVR's built-in copy in the way
+        PluginLogWarning("nEVR's built-in EchoCombat is on (config.yaml has no combat: block, e.g. the launcher "
+                         "rewrote it): VeilNet runs beside it as 2.0.4 did, its hooks left to it");
+    }
     HMODULE self = nullptr;                              // MEDIGUN: PowerBoost.ini [server] medigun, beside the DLLs
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                        (LPCWSTR)&NvrPluginInitEx, &self);

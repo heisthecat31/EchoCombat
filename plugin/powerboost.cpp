@@ -83,6 +83,7 @@
 #include <stdarg.h>
 #include "detours.h"
 #include "nevr_plugin.h"
+#include "content_gate.h"
 #include "nevr/plugin_logger.h"
 
 // Lines go to nEVR's host log, tagged plugin=<config.yaml name> (docs/standards/logging.md, Rule 15).
@@ -2747,6 +2748,12 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
     PluginLogBind(ctx);
+    static const uintptr_t kOwnHooks[] = {0xCECC40, 0xD29770, 0xCC0670};   // content_gate.h: the runtime's copy hooks these too
+    char why_buf[200];
+    if (const char *why = EchoCombatGate(kOwnHooks, sizeof(kOwnHooks) / sizeof(kOwnHooks[0]), why_buf, sizeof(why_buf))) {
+        PluginLogWarning("%s", why);
+        return 1;
+    }
     EchoCombatBesideDll(g_self, g_ini_path, sizeof(g_ini_path), "PowerBoost.ini");
     return Install(EchoCombatIsServer(ctx)) ? 0 : 1;
 }

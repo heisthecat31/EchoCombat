@@ -39,7 +39,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STAGE = os.path.join(ROOT, "build", "stage")
 OUT = os.path.join(ROOT, "build", "release", "EchoCombat")
 DATA_DIR = os.path.join("_data", "5932408047", "rad15", "win10")
-PLUGINS = ("DroneFix.dll", "PowerBoost.dll", "VeilNet.dll")
+#: EchoCombatContent.dll serves the pack itself when nEVR loads it early (nevrlocal); under the launcher,
+#: which loads NvrContentOverlay early instead, it stays off and the overlay serves.
+PLUGINS = ("EchoCombatContent.dll", "DroneFix.dll", "PowerBoost.dll", "VeilNet.dll")
 PACK_ID = "echocombat"
 
 

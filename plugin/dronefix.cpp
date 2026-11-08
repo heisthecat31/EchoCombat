@@ -38,6 +38,7 @@
 #include <stdarg.h>
 #include "detours.h"
 #include "nevr_plugin.h"
+#include "content_gate.h"
 #include "nevr/plugin_logger.h"
 
 // Lines go to nEVR's host log, tagged plugin=<config.yaml name> (docs/standards/logging.md, Rule 15).
@@ -1758,7 +1759,13 @@ bool Install() {
     InstallEnableMirror(base);
     InstallGrabRule(base);
     auto target = (uint8_t *)(base + FOLLOW_UPDATE_RVA);
-    if (memcmp(target, FOLLOW_UPDATE_BYTES, sizeof(FOLLOW_UPDATE_BYTES)) != 0) {
+    // nEVR (6.17+) keeps its "drone follow crash guard" on this function even with its combat off:
+    // a jmp into nevr-runtime.dll. Detours goes on top of it (both run), so that isn't a mismatch.
+    const uint8_t *hop = EchoCombatHookTarget(target);
+    bool runtime_guard = hop && hop != target && EchoCombatInModule(hop, L"nevr-runtime.dll");
+    if (runtime_guard) Log("+0x%llx already hooked by nEVR's runtime (its follow crash guard): hooking on top",
+                           (unsigned long long)FOLLOW_UPDATE_RVA);
+    if (!runtime_guard && memcmp(target, FOLLOW_UPDATE_BYTES, sizeof(FOLLOW_UPDATE_BYTES)) != 0) {
         LogError("prologue mismatch at +0x%llx -- wrong echovr build, not hooking", (unsigned long long)FOLLOW_UPDATE_RVA);
         return false;
     }
@@ -1794,6 +1801,12 @@ ECHOCOMBAT_EXPORT uint32_t NvrPluginGetCapabilities(void) {
 
 ECHOCOMBAT_EXPORT int NvrPluginInitEx(const NvrGameContext *ctx, const char *) {
     PluginLogBind(ctx);
+    static const uintptr_t kOwnHooks[] = {0xCE2550, 0x12478D0, 0x9CB780, 0xCAF9B0};   // content_gate.h: the runtime's copy hooks these too
+    char why_buf[200];
+    if (const char *why = EchoCombatGate(kOwnHooks, sizeof(kOwnHooks) / sizeof(kOwnHooks[0]), why_buf, sizeof(why_buf))) {
+        PluginLogWarning("%s", why);
+        return 1;
+    }
     return Install() ? 0 : 1;
 }
 
