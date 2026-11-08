@@ -93,29 +93,31 @@ inline bool EchoCombatOverlayServing() {
 }
 
 // Why NvrContentOverlay refused, from its own log (<root>\plugin_logs\NvrContentOverlay\NvrContentOverlay.log,
-// root as the overlay's PluginRoot: the folder above the DLL when it sits in a "plugins" folder, else
-// the game exe's folder): its lines after the version line, joined with " | ", probe lines left out.
+// root: 1.1.0 uses the folder above the DLL when it sits in a "plugins" folder; 1.0.0 (and 1.1.0
+// elsewhere) the game exe's folder): its lines after the version line, joined with " | ", probe
+// lines left out.
 inline void EchoCombatOverlayReason(char *out, size_t size) {
     out[0] = 0;
     HMODULE overlay = GetModuleHandleW(L"NvrContentOverlay.dll");
-    wchar_t path[MAX_PATH];
-    if (!overlay || !GetModuleFileNameW(overlay, path, MAX_PATH)) return;
-    wchar_t *slash = wcsrchr(path, L'\\');               // <dir>\NvrContentOverlay.dll -> <dir>
-    if (!slash) return;
-    *slash = 0;
-    slash = wcsrchr(path, L'\\');
-    if (slash && _wcsicmp(slash + 1, L"plugins") == 0) {
-        *slash = 0;                                      // <root>\plugins -> <root>
-    } else {
-        if (!GetModuleFileNameW(nullptr, path, MAX_PATH)) return;
-        slash = wcsrchr(path, L'\\');
-        if (!slash) return;
+    wchar_t roots[2][MAX_PATH] = {};
+    if (!overlay || !GetModuleFileNameW(overlay, roots[0], MAX_PATH)) return;
+    for (int up = 0; up < 2; ++up) {                     // <root>\plugins\NvrContentOverlay.dll -> <root>
+        wchar_t *slash = wcsrchr(roots[0], L'\\');
+        if (!slash) { roots[0][0] = 0; break; }
+        if (up == 1 && _wcsicmp(slash + 1, L"plugins") != 0) { roots[0][0] = 0; break; }
         *slash = 0;
     }
-    if (wcslen(path) + 64 >= MAX_PATH) return;
-    wcscat_s(path, L"\\plugin_logs\\NvrContentOverlay\\NvrContentOverlay.log");
-    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                           OPEN_EXISTING, 0, nullptr);
+    if (GetModuleFileNameW(nullptr, roots[1], MAX_PATH)) {
+        if (wchar_t *slash = wcsrchr(roots[1], L'\\')) *slash = 0;
+    }
+    HANDLE h = INVALID_HANDLE_VALUE;
+    for (wchar_t *path : roots) {
+        if (!path[0] || wcslen(path) + 64 >= MAX_PATH) continue;
+        wcscat_s(path, MAX_PATH, L"\\plugin_logs\\NvrContentOverlay\\NvrContentOverlay.log");
+        h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                        OPEN_EXISTING, 0, nullptr);
+        if (h != INVALID_HANDLE_VALUE) break;
+    }
     if (h == INVALID_HANDLE_VALUE) {
         _snprintf_s(out, size, _TRUNCATE, "no NvrContentOverlay.log (error %lu)", GetLastError());
         return;

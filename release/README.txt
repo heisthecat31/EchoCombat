@@ -1,4 +1,4 @@
-EchoCombat 2.0.6
+EchoCombat 2.0.7
 ================
 
 New and fixed gear for Echo VR's Echo Combat (PC build 631547.rad15_live).
@@ -19,6 +19,11 @@ What it adds
   * STARBURST: fixes a stock bug that wrote ~120 log lines a second while the gun
     was out.
   * Station, HUD and spectator HUD icons for the new gear.
+
+New in 2.0.7
+  * Fixed: when the launcher's Content Overlay failed (FAILED on the Mods page), the
+    terminal and RULES pages still showed but none of the new gear worked. EchoCombat
+    now stays off in that case and its log says why the overlay refused the pack.
 
 New in 2.0.6
   * Fixed: a game kept sending a small packet every few seconds to the last game
