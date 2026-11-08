@@ -57,6 +57,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <intrin.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -1929,18 +1930,63 @@ void KeepChassis(uint64_t cs, uint64_t player, uint64_t item, uint64_t slot, int
 
 volatile LONG g_chassis_replay = 0;              // ApplyChassisRule's own calls: not kept
 
+// The game's own net_standard_chassis rule (a server sets it: the server kit's F11 STANDARD
+// LOADOUT, or the stock server scripts). Unmodded, LoadAndApplyItem puts the standard chassis (S11)
+// on by itself. Our S10 swap on top of that fed the two into each other until the stack ran out
+// (the game closed, no BugSplat, 2026-11-08). Now a modded client takes the server's rule as
+// SERIES-10 ONLY: the engine's own check of the flag inside LoadAndApplyItem (+0xCE4460, the net
+// game's flag getter, called from +0xD0D1F4) answers 0 for this one flag (FlagHook), so the engine
+// never swaps to S11, and our S10 swap runs instead. A chassis call made from inside our own is
+// never swapped again (t_chassis_depth).
+using netflag_fn = int(__fastcall *)(uint64_t, uint64_t);
+constexpr uintptr_t NET_FLAG_RVA = 0xCE4460, LOAD_APPLY_FLAG_RET_RVA = 0xD0D1F9;
+const uint8_t kNetFlagHead[] = {0x48, 0x89, 0x5c, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56};
+constexpr uint64_t SYM_NET_STANDARD_CHASSIS_FLAG = 0x29e261a1df774dd3ull;
+thread_local int t_chassis_depth = 0;            // inside one of our chassis calls (this thread)
+netflag_fn g_real_net_flag;                      // set once hooked (clients)
+
+int __fastcall HookedNetFlag(uint64_t netgame, uint64_t sym) {
+    if (sym == SYM_NET_STANDARD_CHASSIS_FLAG &&
+        (uintptr_t)_ReturnAddress() == (uintptr_t)(g_base + LOAD_APPLY_FLAG_RET_RVA))
+        return 0;                                // LoadAndApplyItem: no S11 swap, ours makes it S10
+    return g_real_net_flag(netgame, sym);
+}
+
+bool StandardChassisSet(uint64_t cs) {
+    __try {
+        uint64_t vars = *(uint64_t *)(cs + 0xB8);
+        netflag_fn get = g_real_net_flag ? g_real_net_flag : (netflag_fn)(g_base + NET_FLAG_RVA);
+        return vars && get(vars, SYM_NET_STANDARD_CHASSIS_FLAG) != 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// SERIES-10 ONLY (the podium rule) or the server's standard chassis rule. Without the flag hook the
+// engine swaps to S11 itself and ours steps aside (no loop).
+bool ChassisWanted(uint64_t cs) {
+    if (ChassisOn()) return g_real_net_flag || !StandardChassisSet(cs);
+    return g_real_net_flag && StandardChassisSet(cs);
+}
+
+bool SwapChassis(uint64_t cs) { return !t_chassis_depth && ChassisWanted(cs); }
+
 void __fastcall HookedLoadApply(uint64_t cs, uint64_t player, uint64_t item, uint64_t slot, int flag) {
     if (ChassisItem(item)) {
-        if (!g_chassis_replay) KeepChassis(cs, player, item, slot, flag);
-        if (ChassisOn()) item = SYM_CHASSIS_S10;
+        if (!g_chassis_replay && !t_chassis_depth) KeepChassis(cs, player, item, slot, flag);
+        if (SwapChassis(cs)) item = SYM_CHASSIS_S10;
     }
+    ++t_chassis_depth;
     g_real_load_apply(cs, player, item, slot, flag);
+    --t_chassis_depth;
 }
 
 void __fastcall HookedApplyItem(uint64_t cs, uint64_t player, uint64_t item, uint64_t slot, int flag) {
-    if (ChassisItem(item) && item != SYM_CHASSIS_S10 && ChassisOn() && g_real_load_apply) {
+    if (ChassisItem(item) && item != SYM_CHASSIS_S10 && g_real_load_apply && SwapChassis(cs)) {
         if (!g_chassis_replay) KeepChassis(cs, player, item, slot, flag);
+        ++t_chassis_depth;
         g_real_load_apply(cs, player, SYM_CHASSIS_S10, slot, flag);   // S10 may not be loaded yet
+        --t_chassis_depth;
         return;
     }
     g_real_apply_item(cs, player, item, slot, flag);
@@ -1949,17 +1995,27 @@ void __fastcall HookedApplyItem(uint64_t cs, uint64_t player, uint64_t item, uin
 // On the game's thread: the rule changed, so every chassis seen goes on again.
 void ApplyChassisRule() {
     LONG on = ChassisOn() ? 1 : 0;
+    static LONG std_seen = 0;                        // the server's flag, looked at twice a second
+    static ULONGLONG std_next = 0;
+    if (!on && g_real_net_flag && g_chassis_call_count && GetTickCount64() >= std_next) {
+        std_next = GetTickCount64() + 500;
+        std_seen = StandardChassisSet(g_chassis_calls[0].cs) ? 1 : 0;
+    }
+    if (!on && g_real_net_flag) on = std_seen;
     if (on == g_chassis_applied || !g_real_load_apply) return;
     g_chassis_applied = on;
     int n = g_chassis_call_count, done = 0;
     g_chassis_replay = 1;
     for (int k = 0; k < n; ++k) {
         ChassisCall c = g_chassis_calls[k];
+        if (on && !g_real_net_flag && StandardChassisSet(c.cs)) continue;   // the engine's own S11 then
+        ++t_chassis_depth;
         __try {
             g_real_load_apply(c.cs, c.player, on ? SYM_CHASSIS_S10 : c.item, c.slot, c.flag);
             ++done;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
+        --t_chassis_depth;
     }
     g_chassis_replay = 0;
     Log("SERIES-10 ONLY %s: %d of %d chassis put on again", on ? "on" : "off", done, n);
@@ -1970,11 +2026,18 @@ bool HookApplyItem() {
         memcmp(g_base + LOAD_APPLY_RVA, kLoadApplyHead, sizeof(kLoadApplyHead))) return false;
     g_real_apply_item = (applyitem_fn)(g_base + APPLY_ITEM_RVA);
     g_real_load_apply = (applyitem_fn)(g_base + LOAD_APPLY_RVA);
+    netflag_fn net_flag = nullptr;
+    const uint8_t *ret = g_base + LOAD_APPLY_FLAG_RET_RVA;   // the call to it in LoadAndApplyItem
+    if (!memcmp(g_base + NET_FLAG_RVA, kNetFlagHead, sizeof(kNetFlagHead)) && ret[-5] == 0xE8 &&
+        ret + *(const int32_t *)(ret - 4) == g_base + NET_FLAG_RVA)
+        net_flag = (netflag_fn)(g_base + NET_FLAG_RVA);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)g_real_apply_item, (PVOID)HookedApplyItem);
     DetourAttach(&(PVOID &)g_real_load_apply, (PVOID)HookedLoadApply);
+    if (net_flag) DetourAttach(&(PVOID &)net_flag, (PVOID)HookedNetFlag);
     if (DetourTransactionCommit() != NO_ERROR) { g_real_apply_item = g_real_load_apply = nullptr; return false; }
+    g_real_net_flag = net_flag;                      // the server's standard chassis shows as S10 here
     return true;
 }
 

@@ -1,5 +1,119 @@
 # EchoCombat: agent notes (handoff)
 
+## CURRENT GOALS (2026-11-08)
+
+### 1. F11 TEAM SWITCH on the game server: BUILT in EchoCombat-server only (2026-11-08, untested)
+
+**User: server-side only, in `J:\EchoVR-Tools-Launcher\EchoCombat-server` (branch server-kit),
+not main.** server-kit merged with main (a83b065). VeilNet there: F11 (Tick thread, server only)
+opens a topmost Win32 window (list `name TEAM`, To BLUE / To ORANGE / To SPECTATOR, double-click =
+blue<->orange, refresh every 2 s). The game thread (recvfrom hook, ApplyTeamSwitch) copies the
+list and calls ServerAssignTeam(netgame, user, team) (+0x1AB730), result in the window's top line.
+Players: lobby map netgame+0x138+k*4 {u16 user, u16 gen, 0xFFFF free}, user word
++0x178+user*0x250 (bits 0-4 lobby k, 10-12 team), names via GetUserName +0x1C98C0. build_veilnet.bat
+links gdi32. Installed into H:\ready-at-dawn-echo-arena (old: VeilNet.dll.before_teamswitch).
+Uncommitted. Not tested: whether the player respawns on the new team mid-match.
+
+### 2.0.5 builds (2026-11-08, all uncommitted, none tested by me: user + a tester test them)
+
+- **SERIES-10 ONLY, server side** (F11 tick box, server kit; user meant S10, the S11 attempt is
+  reverted everywhere and "didn't work": it needed client mods). The game has its own replicated
+  flag **net_standard_chassis** (0x29e261a1df774dd3, a CR15NetVarCS flag) that every stock client's
+  LoadAndApplyItem reads (swaps chassis/booster/bracer to standard). Server sets it with
+  CR15NetVarCS::SetFlag **+0xD45820** (revault calls it ValidateLoadoutRules; sys, handle, sym, u8),
+  sys/handle at netgame +0x2E40/+0x2E48. ApplyStandardChassis (recvfrom hook) re-asserts every 250 ms
+  while g_chassis_force or the podium's g_chassis is on (mp_game_server_state also writes the flag).
+  Untested; shows from the next loadout apply (spawn).
+- **nevr-pack 2.0.5**: `plugin/content.cpp` -> EchoCombatContent.dll (build_content.bat; nlohmann
+  json vendored in third_party/nlohmann): NvrContentOverlay's job (CreateFileW/A + module loader
+  +0xEB0F0, Detours), pack checks, refuses when loaded late or when NvrContentOverlay is loaded.
+  `plugin/content_gate.h`: DroneFix/PowerBoost/VeilNet return 1 from InitEx when the pack isn't
+  served or nevr-runtime.dll already hooks their functions. install_nevr_local.ps1 lists
+  EchoCombatContent `early: true`, drops the overlay entry (DLL renamed .unused).
+  release/EchoCombat-2.0.5.zip (+ mods.json, plugins include EchoCombatContent.dll) and
+  release/EchoCombat-2.0.5-nevrlocal.zip. Launcher still forces the overlay: there our DLL stays off.
+- **server kit 2.0.5**: release/EchoCombat-2.0.5.zip and release/EchoCombat/ rebuilt (all DLLs, main's
+  2.0.4 stage). H:\ready-at-dawn-echo-arena has an earlier F11 VeilNet (no S11); user installs.
+
+### nevrlocal tac mods broken: cause found (2026-11-08, player log J:\OperaGX\nevr-2026-11-08T00-45-57.968.jsonl)
+
+Not the overlay: it loaded early and served (UMBRAL VEIL is in the tac mod list). The player's
+**nEVR 6.17.0 has EchoCombat built in** (`[NEVR.COMBAT] module=dronefix / veilnet / powerboost`,
+features combat.drone / combat.veil / combat.match_control on by default). It hooks first; then our
+2.0.4 plugins load on top: DroneFix and PowerBoost fail their prologue checks and unload, VeilNet
+loads half (sendto/recvfrom hooked twice, dispatch/equipment "unexpected build"). Two VeilNets
+answer the same tac mod controller ("controller enabled" logged by both) and nEVR.EQUIP re-fires
+the tac mod slot. The nevrlocal zip also ships NvrContentOverlay **1.0.0** (log: content_overlay
+v1.0.0). Fix to make: our plugins stand down when nEVR's built-in combat module has the hooks
+(a jmp at a target into nevr-runtime.dll).
+
+Overlay removal (user asked): the launcher (EchoVR_Launcher packs.rs) reserves
+NvrContentOverlay.dll, installs it itself and marks only it `early: true`; a pack's own plugins
+load late (after the manifests are read), so EchoCombat can't serve its pack from the launcher
+without a launcher change. nevrlocal could list our own early DLL instead.
+
+### (old) F11 research notes
+
+**User:** an experimental server-side tool. Press F11 on the machine running the game server and a
+popup lists every user in that server. Click one to move them to the other team (blue <-> orange).
+
+Design:
+- Server-only plugin code (VeilNet already runs on the server, or a small plugin of its own). On a
+  server only (`-server`); a client does nothing.
+- Hotkey: poll `GetAsyncKeyState(VK_F11)` on a thread of its own, the way PerfCapture does F1. The
+  server is headless, so the popup is our own Win32 window/dialog (a list box of
+  `name - BLUE/ORANGE/SPEC`, then click or a button). It opens on the server machine's desktop.
+- The switch itself must run on the game's main thread: queue the request and apply it from a
+  per-frame hook. Never touch the lobby from the popup's thread.
+- Apply it the way the engine does: call the server's own team assignment so the lobby entrant,
+  the team slots and every client are updated, and the player respawns on the new team. Don't
+  just write `teamIndex`.
+
+Findings so far (revault, echovr.exe live PC build):
+- Players: `Lobby::EntrantData` array at lobby +0x360 (HeapArray, stride 0xD8). Each entrant has
+  displayName at +0x3C and teamIndex (u16, 0 blue / 1 orange / 2 spectator) at +0x8E.
+  Source: nevr-runtime `src/abi/echovr.h`.
+- Messages: `SR15NetUserAssignTeamRequest` / `SR15NetUserAssignTeamResponse`;
+  `SNSLobbyEntrantTeamChanged` (symbol 0xceb8759c36184b82).
+- `ServerAssignTeam`: the log string "[NETGAME] Server Assigning Team for '%s': %hu" is referenced
+  from 0x1401ab814, inside the server's team assignment function. Its other log lines show:
+  - same team: early out;
+  - "Too many team members ... assigning to other team / spectator";
+  - "user changed team so freeing its teamslot";
+  - "Dequeing teamslot" / "Grabbing last teamslot";
+  - it writes `user[%hu]|team` and `user[%hu]|teamslot`.
+- "[NETGAME] UserAssignTeamRequestCB" is referenced from 0x1401c7dde: the server's handler for a
+  client's team request (the stock CHANGE TEAM terminal).
+- Next: decompile both. Find ServerAssignTeam's arguments (net game, user/entrant index, wanted
+  team) and how the request callback calls it. Then call it from the main thread with the other
+  team. A full team is the engine's rule: it moves the player to the other team or to spectator,
+  so the popup should say so.
+- Test: two installs (server + client, see `launcher-mod-sftp` traps), offline only when the user
+  says so.
+
+### 2. Sturdier VeilNet: stay off when EchoCombat's game data isn't served
+
+**Why:** a player installed with `release/nevrlocal` (EchoCombat-nevr) reported that tac mods don't
+work at all. The likely cause: the Echo VR launcher rewrote `%LOCALAPPDATA%\nevr\echovr\config.yaml`
+at its start. With `x-local-plugins: true` it keeps DroneFix / PowerBoost / VeilNet but leaves
+out NvrContentOverlay (the launcher has no record of the pack). The plugins then patch STOCK
+scripts and data, and that breaks every tac mod, the stock ones included.
+(The overlay reporting "loaded too late" would do the same.) Not confirmed: the user hasn't
+sent their config.yaml or log yet.
+
+**Want:** VeilNet (and DroneFix / PowerBoost with it) checks that the EchoCombat content is
+really the game's data before it installs any hook or byte patch. If it isn't, it installs
+nothing, logs one clear line ("EchoCombat's content isn't served: plugins off, stock game"), and
+the game stays stock. Ways to check, cheapest first:
+- the loaded script DLLs: `bin/win10/scripts/<hash>.dll` as the game mapped it, or the overlay's
+  served copy. Compare a byte we patch (e.g. a cave in 6fa8cc9cd721a563 / cff4557b7d2ce426)
+  against the EchoCombat build. Do this before the first patch, and again when scripts load,
+  because scripts load per level;
+- nEVR's plugin-query API (N134): is `content_overlay` loaded, with `active` = echocombat;
+- a marker resource in the pack that the plugins look up.
+Ship it in both lines (main + nevr-pack). The nevrlocal installer could then also warn when
+config.yaml lists our plugins without the overlay.
+
 ## PARTY GUNS (CONFETTI / BUBBLE / MONEY GUN): UNFINISHED, HIDDEN (2026-11-05)
 
 **User (2026-11-05): hide all three, mark unfinished.** `tools/fix_party_guns.py`
