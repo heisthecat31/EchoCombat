@@ -261,7 +261,7 @@ void Send(SOCKET s, const sockaddr_in &to, uint8_t type, uint32_t id) {
 // The destination (socket + address) the game sent the most packets to in the last
 // second. Every game server on a PC has its own port (6792, 6793, ...): when the
 // game moves to another one (lobby -> match), this follows within a second.
-struct Dest { SOCKET sock; sockaddr_in addr; LONG count; };
+struct Dest { SOCKET sock; sockaddr_in addr; LONG count; ULONGLONG last; };   // last: the game's own last send there
 Dest g_dests[16];
 int g_best = -1;
 
@@ -292,24 +292,37 @@ void SawSend(SOCKET s, const sockaddr *to) {
     if (i == 16) {                              // new destination
         i = free_slot >= 0 ? free_slot : low;
         if (i == g_best) g_best = -1;
-        g_dests[i] = { s, a, 0 };
+        g_dests[i] = { s, a, 0, 0 };
     }
     ++g_dests[i].count;
+    g_dests[i].last = GetTickCount64();
     if (g_best < 0) g_best = i;
     ReleaseSRWLockExclusive(&g_lock);
 }
 
+// The game server this game is talking to right now: the busiest destination, and only while the
+// game itself still sends there. A server the game has left (match over, back in the menu, the game
+// idle) gets nothing from VeilNet. Before 2026-11-08 the last server was kept for good and got a
+// hello every 2 s for as long as the game ran: one player's idle game hit a restarting stock server
+// (6794) for 10 hours, crashing nearly every restart.
+constexpr ULONGLONG DEST_QUIET_MS = 3000;
 bool ServerDest(Dest &out) {
     AcquireSRWLockShared(&g_lock);
-    bool ok = g_best >= 0;
+    bool ok = g_best >= 0 && g_dests[g_best].last && GetTickCount64() - g_dests[g_best].last < DEST_QUIET_MS;
     if (ok) out = g_dests[g_best];
     ReleaseSRWLockShared(&g_lock);
     return ok;
 }
 
+extern volatile ULONGLONG g_last_answer;
+// Only the hello goes to a server that hasn't answered one: everything else (veil, RULES asks,
+// map switch ...) waits for an answer, so a server without EchoCombat never gets those.
 void SendToServer(uint8_t type, uint32_t id) {
     Dest d;
-    if (ServerDest(d)) Send(d.sock, d.addr, type, id);
+    if (!ServerDest(d)) return;
+    ULONGLONG a = g_last_answer;
+    if (type != 'H' && !(a && GetTickCount64() - a < SERVER_TIMEOUT)) return;
+    Send(d.sock, d.addr, type, id);
 }
 
 // --- server: the clients it relays to -----------------------------------------------
@@ -2253,8 +2266,28 @@ DWORD WINAPI Tick(LPVOID) {
             }
             if (now >= next_hello) {
                 next_hello = now + 2000;
-                SendToServer('H', 0);
+                // A server that never answers has no EchoCombat: after HELLO_TRIES unanswered
+                // hellos it gets no more, until the game connects again (another server, or this
+                // one after the game stopped sending to it) or it answers.
+                static sockaddr_in hello_to = {};
+                static int unanswered = 0;
+                constexpr int HELLO_TRIES = 5;
                 Dest d;
+                if (!ServerDest(d)) {
+                    unanswered = 0;                      // not connected: start again on the next one
+                    hello_to = {};
+                } else {
+                    ULONGLONG a = g_last_answer;
+                    if (!Same(d.addr, hello_to)) { hello_to = d.addr; unanswered = 0; }
+                    else if (a && now - a < SERVER_TIMEOUT) unanswered = 0;
+                    if (unanswered < HELLO_TRIES) {
+                        SendToServer('H', 0);
+                        if (++unanswered == HELLO_TRIES && !(a && now - a < SERVER_TIMEOUT)) {
+                            char buf[48];
+                            Log("server %s never answered: no EchoCombat there, no more hellos", Addr(d.addr, buf, sizeof(buf)));
+                        }
+                    }
+                }
                 if (ServerDest(d) && !Same(d.addr, logged_server)) {
                     logged_server = d.addr;
                     char buf[48];
