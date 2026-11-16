@@ -189,6 +189,12 @@ need `NEVR_SDK_INCLUDE` set to nevr-runtime's `sdk/include`; then
 result (`render_billboards.py`), so particle effects can be tuned without launching the game.
 Shader dumps come from `particle_shaders.py` (needs `dxc`).
 
+## License
+
+- Code: MIT, see [LICENSE](LICENSE).
+- Art (icons, models, sounds, voice): CC BY-NC 4.0, see [LICENSE-ART.md](LICENSE-ART.md).
+- Credit: he_is_the_cat.
+
 ## Repository layout
 
 ```
